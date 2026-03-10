@@ -9,9 +9,16 @@ struct SettingsView: View {
     @State private var topP: Double = 0.95
     @State private var repetitionPenalty: Double = 1.1
     @State private var maxTokens: Double = 2048
+    @State private var hfToken: String = ""
+    @State private var isTokenVisible: Bool = false
+    @State private var tokenSaved: Bool = false
+
+    private let secureStore = SecureStore()
+    private let hfTokenKey = "hf_api_token"
 
     var body: some View {
         Form {
+            hfTokenSection
             samplingSection
             systemPromptSection
             runtimeSection
@@ -28,6 +35,7 @@ struct SettingsView: View {
         topP = Double(chatViewModel.samplingConfig.topP)
         repetitionPenalty = Double(chatViewModel.samplingConfig.repetitionPenalty)
         maxTokens = Double(chatViewModel.samplingConfig.maxTokens)
+        hfToken = secureStore.getString(hfTokenKey) ?? ""
     }
 
     private func syncConfig() {
@@ -108,6 +116,59 @@ struct SettingsView: View {
             Spacer()
             Text(thermalGovernor.currentMode.speculativeEnabled ? "Enabled" : "Disabled")
                 .foregroundStyle(thermalGovernor.currentMode.speculativeEnabled ? .green : .secondary)
+        }
+    }
+
+    private var hfTokenSection: some View {
+        Section {
+            HStack(spacing: 12) {
+                Image(systemName: "key.fill")
+                    .foregroundStyle(.orange)
+                    .frame(width: 24)
+                if isTokenVisible {
+                    TextField("hf_...", text: $hfToken)
+                        .font(.subheadline.monospaced())
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } else {
+                    SecureField("hf_...", text: $hfToken)
+                        .font(.subheadline.monospaced())
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+                Button {
+                    isTokenVisible.toggle()
+                } label: {
+                    Image(systemName: isTokenVisible ? "eye.slash" : "eye")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            Button {
+                if hfToken.isEmpty {
+                    secureStore.delete(hfTokenKey)
+                } else {
+                    _ = secureStore.setString(hfToken, forKey: hfTokenKey)
+                }
+                tokenSaved = true
+                Task {
+                    try? await Task.sleep(for: .seconds(2))
+                    tokenSaved = false
+                }
+            } label: {
+                HStack {
+                    Spacer()
+                    Label(tokenSaved ? "Saved" : "Save Token", systemImage: tokenSaved ? "checkmark.circle.fill" : "square.and.arrow.down")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(tokenSaved ? .green : .accentColor)
+                    Spacer()
+                }
+            }
+            .disabled(tokenSaved)
+        } header: {
+            Label("Hugging Face", systemImage: "server.rack")
+        } footer: {
+            Text("Required to download gated models. Get your token at huggingface.co/settings/tokens.")
         }
     }
 
