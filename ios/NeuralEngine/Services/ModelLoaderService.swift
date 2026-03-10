@@ -32,7 +32,7 @@ class ModelLoaderService {
                 architecture: .dolphin,
                 repoID: "ales27pm/Dolphin3.0-CoreML",
                 tokenizerRepoID: "cognitivecomputations/Dolphin3.0-Llama3.2-3B",
-                modelFilePattern: "Dolphin3.0-Llama3.2-3B-int4-lut.mlpackage/*",
+                modelFilePattern: "Dolphin3.0-Llama3.2-3B-int4-lut.mlpackage",
                 checksum: "",
                 isDraft: false
             ),
@@ -47,7 +47,7 @@ class ModelLoaderService {
                 architecture: .dolphin,
                 repoID: "ales27pm/Dolphin3.0-CoreML",
                 tokenizerRepoID: "cognitivecomputations/Dolphin3.0-Llama3.2-3B",
-                modelFilePattern: "Dolphin3.0-Llama3.2-3B-int8.mlpackage/*",
+                modelFilePattern: "Dolphin3.0-Llama3.2-3B-int8.mlpackage",
                 checksum: "",
                 isDraft: false
             ),
@@ -62,7 +62,7 @@ class ModelLoaderService {
                 architecture: .dolphin,
                 repoID: "ales27pm/Dolphin3.0-CoreML",
                 tokenizerRepoID: "cognitivecomputations/Dolphin3.0-Llama3.2-3B",
-                modelFilePattern: "Dolphin3.0-Llama3.2-3B-fp16.mlpackage/*",
+                modelFilePattern: "Dolphin3.0-Llama3.2-3B-fp16.mlpackage",
                 checksum: "",
                 isDraft: false
             ),
@@ -77,7 +77,7 @@ class ModelLoaderService {
                 architecture: .smolLM,
                 repoID: "apple/OpenELM-270M-Instruct",
                 tokenizerRepoID: nil,
-                modelFilePattern: "*.mlmodelc/*",
+                modelFilePattern: "*",
                 checksum: "",
                 isDraft: true
             ),
@@ -176,6 +176,28 @@ class ModelLoaderService {
         for model in availableModels {
             modelStatuses[model.id] = .notDownloaded
         }
+
+        restorePreviouslyDownloadedModels()
+    }
+
+    private func restorePreviouslyDownloadedModels() {
+        for model in availableModels {
+            if let modelURL = loadModelPath(forModelID: model.id) {
+                let ext = modelURL.pathExtension
+                if ext == "mlmodelc" {
+                    modelStatuses[model.id] = .ready
+                } else if ext == "mlpackage" {
+                    let manifestURL = modelURL.appendingPathComponent("Manifest.json")
+                    if FileManager.default.fileExists(atPath: manifestURL.path) {
+                        modelStatuses[model.id] = .ready
+                    } else {
+                        modelStatuses[model.id] = .failed("Model package is incomplete. Delete and re-download.")
+                    }
+                } else {
+                    modelStatuses[model.id] = .ready
+                }
+            }
+        }
     }
 
     func downloadModel(_ modelID: String) {
@@ -185,22 +207,27 @@ class ModelLoaderService {
 
         if case .downloading = modelStatuses[modelID] { return }
 
+        if let existingPath = loadModelPath(forModelID: modelID) {
+            try? FileManager.default.removeItem(at: modelPathURL(forModelID: modelID))
+            try? FileManager.default.removeItem(at: tokenizerPathURL(forModelID: modelID))
+        }
+
         modelStatuses[modelID] = .downloading(progress: 0)
 
         let task = Task {
             do {
-                modelStatuses[modelID] = .downloading(progress: 0.1)
+                modelStatuses[modelID] = .downloading(progress: 0.05)
 
                 let tokenizerRepoID = manifest.tokenizerRepoID ?? manifest.repoID
                 let tokenizerRepo = Hub.Repo(id: tokenizerRepoID)
 
                 let tokenizerPatterns = ["tokenizer.json", "tokenizer_config.json", "config.json", "special_tokens_map.json", "generation_config.json"]
 
-                modelStatuses[modelID] = .downloading(progress: 0.2)
+                modelStatuses[modelID] = .downloading(progress: 0.1)
 
-                let localDir = try await Hub.snapshot(from: tokenizerRepo, matching: tokenizerPatterns)
+                let tokenizerDir = try await Hub.snapshot(from: tokenizerRepo, matching: tokenizerPatterns)
 
-                modelStatuses[modelID] = .downloading(progress: 0.5)
+                modelStatuses[modelID] = .downloading(progress: 0.3)
 
                 let modelRepo = Hub.Repo(id: manifest.repoID)
                 let modelPatterns = buildModelDownloadPatterns(for: manifest)
@@ -215,29 +242,47 @@ class ModelLoaderService {
                     }
                 }
 
-                modelStatuses[modelID] = .downloading(progress: 0.8)
+                modelStatuses[modelID] = .downloading(progress: 0.7)
+
+                let searchDir = modelDir ?? tokenizerDir
 
                 modelStatuses[modelID] = .verifying
                 try? await Task.sleep(for: .seconds(0.3))
 
-                let modelURL: URL?
-                if let dir = modelDir ?? Optional(localDir) {
-                    modelURL = findModelFile(in: dir)
+                let modelURL = findModelFile(in: searchDir)
+
+                if let url = modelURL {
+                    let ext = url.pathExtension
+                    if ext == "mlmodelc" {
+                        try saveModelPath(url, forModelID: modelID)
+                    } else if ext == "mlpackage" {
+                        let manifestFile = url.appendingPathComponent("Manifest.json")
+                        if FileManager.default.fileExists(atPath: manifestFile.path) {
+                            modelStatuses[modelID] = .compiling
+                            let compiledURL = try await compileModel(at: url)
+                            try saveModelPath(compiledURL, forModelID: modelID)
+                        } else {
+                            let innerModel = findMLModelFile(in: url)
+                            if let innerModel {
+                                modelStatuses[modelID] = .compiling
+                                let compiledURL = try await compileModel(at: innerModel)
+                                try saveModelPath(compiledURL, forModelID: modelID)
+                            } else {
+                                throw ModelLoaderError.invalidPackage("mlpackage is missing Manifest.json. The download may be incomplete — delete and re-download.")
+                            }
+                        }
+                    } else if ext == "mlmodel" {
+                        modelStatuses[modelID] = .compiling
+                        let compiledURL = try await compileModel(at: url)
+                        try saveModelPath(compiledURL, forModelID: modelID)
+                    } else {
+                        throw ModelLoaderError.noModelFound("Downloaded files do not contain a valid CoreML model.")
+                    }
                 } else {
-                    modelURL = findModelFile(in: localDir)
+                    throw ModelLoaderError.noModelFound("No CoreML model file found in the downloaded repository. This repo may not contain CoreML models.")
                 }
 
-                if let mlpackageURL = modelURL, mlpackageURL.pathExtension == "mlpackage" {
-                    modelStatuses[modelID] = .compiling
-                    let compiledURL = try await compileModel(at: mlpackageURL)
-                    try saveModelPath(compiledURL, forModelID: modelID)
-                } else if let mlmodelcURL = modelURL {
-                    try saveModelPath(mlmodelcURL, forModelID: modelID)
-                } else {
-                    try saveModelPath(localDir, forModelID: modelID)
-                }
-
-                try saveTokenizerPath(localDir, forModelID: modelID)
+                try saveTokenizerPath(tokenizerDir, forModelID: modelID)
 
                 modelStatuses[modelID] = .ready
             } catch {
@@ -254,9 +299,23 @@ class ModelLoaderService {
         let pattern = manifest.modelFilePattern
 
         if pattern.contains(".mlpackage") {
-            let baseName = pattern.components(separatedBy: "/").first ?? pattern
-            let cleanBase = baseName.hasSuffix("/*") ? String(baseName.dropLast(2)) : baseName
+            let cleanBase: String
+            if pattern.hasSuffix("/*") {
+                cleanBase = String(pattern.dropLast(2))
+            } else if pattern.hasSuffix(".mlpackage") {
+                cleanBase = pattern
+            } else {
+                cleanBase = pattern.components(separatedBy: "/").first ?? pattern
+            }
             return [
+                [
+                    "\(cleanBase)/Manifest.json",
+                    "\(cleanBase)/Data/*",
+                    "\(cleanBase)/Data/*/*",
+                    "\(cleanBase)/Data/*/*/*",
+                    "\(cleanBase)/Data/*/*/*/*",
+                    "\(cleanBase)/Data/*/*/*/*/*"
+                ],
                 [
                     "\(cleanBase)/*",
                     "\(cleanBase)/*/*",
@@ -280,7 +339,7 @@ class ModelLoaderService {
         }
 
         return [
-            [pattern],
+            ["*.mlpackage/Manifest.json", "*.mlpackage/Data/*", "*.mlpackage/Data/*/*", "*.mlpackage/Data/*/*/*", "*.mlpackage/Data/*/*/*/*"],
             ["*.mlpackage/*", "*.mlpackage/*/*", "*.mlpackage/*/*/*", "*.mlpackage/*/*/*/*", "*.mlpackage/*/*/*/*/*"],
             ["*.mlmodelc/*", "*.mlmodelc/*/*", "*.mlmodelc/*/*/*"],
             ["*.mlmodel"]
@@ -364,38 +423,69 @@ class ModelLoaderService {
     }
 
     private func findModelFile(in directory: URL) -> URL? {
-        guard let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil) else {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        ) else {
             return nil
         }
 
         var mlmodelcURL: URL?
-        var mlpackageURL: URL?
+        var validMlpackageURL: URL?
+        var anyMlpackageURL: URL?
         var mlmodelURL: URL?
 
         while let url = enumerator.nextObject() as? URL {
             let ext = url.pathExtension
             if ext == "mlmodelc" {
-                mlmodelcURL = url
-                break
+                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                if isDir {
+                    mlmodelcURL = url
+                    enumerator.skipDescendants()
+                    break
+                }
             } else if ext == "mlpackage" {
-                mlpackageURL = url
+                let manifestPath = url.appendingPathComponent("Manifest.json")
+                if FileManager.default.fileExists(atPath: manifestPath.path) {
+                    validMlpackageURL = url
+                } else {
+                    anyMlpackageURL = url
+                }
+                enumerator.skipDescendants()
             } else if ext == "mlmodel" {
                 mlmodelURL = url
             }
         }
 
-        return mlmodelcURL ?? mlpackageURL ?? mlmodelURL
+        return mlmodelcURL ?? validMlpackageURL ?? mlmodelURL ?? anyMlpackageURL
+    }
+
+    private func findMLModelFile(in directory: URL) -> URL? {
+        guard let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil) else {
+            return nil
+        }
+        while let url = enumerator.nextObject() as? URL {
+            if url.pathExtension == "mlmodel" {
+                return url
+            }
+        }
+        return nil
     }
 
     nonisolated private func compileModel(at url: URL) async throws -> URL {
-        let compiledURL = try await MLModel.compileModel(at: url)
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        let destURL = cacheDir.appendingPathComponent(url.deletingPathExtension().lastPathComponent + ".mlmodelc")
-        if FileManager.default.fileExists(atPath: destURL.path) {
-            try FileManager.default.removeItem(at: destURL)
+        do {
+            let compiledURL = try await MLModel.compileModel(at: url)
+            let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+            let destURL = cacheDir.appendingPathComponent(url.deletingPathExtension().lastPathComponent + ".mlmodelc")
+            if FileManager.default.fileExists(atPath: destURL.path) {
+                try FileManager.default.removeItem(at: destURL)
+            }
+            try FileManager.default.moveItem(at: compiledURL, to: destURL)
+            return destURL
+        } catch {
+            throw ModelLoaderError.compilationFailed("Failed to compile model: \(error.localizedDescription)")
         }
-        try FileManager.default.moveItem(at: compiledURL, to: destURL)
-        return destURL
     }
 
     private func modelPathURL(forModelID id: String) -> URL {
@@ -426,5 +516,19 @@ class ModelLoaderService {
         guard let path = try? String(contentsOf: tokenizerPathURL(forModelID: id), encoding: .utf8) else { return nil }
         let url = URL(fileURLWithPath: path)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+}
+
+nonisolated enum ModelLoaderError: Error, Sendable, LocalizedError {
+    case invalidPackage(String)
+    case noModelFound(String)
+    case compilationFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidPackage(let msg): return msg
+        case .noModelFound(let msg): return msg
+        case .compilationFailed(let msg): return msg
+        }
     }
 }
