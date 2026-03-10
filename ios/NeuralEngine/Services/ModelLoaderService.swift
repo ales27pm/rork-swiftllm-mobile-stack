@@ -203,11 +203,11 @@ class ModelLoaderService {
                 modelStatuses[modelID] = .downloading(progress: 0.5)
 
                 let modelRepo = Hub.Repo(id: manifest.repoID)
-                let modelPatterns = [manifest.modelFilePattern, "*.mlpackage/*", "*.mlmodel"]
+                let modelPatterns = buildModelDownloadPatterns(for: manifest)
                 var modelDir: URL?
-                for pattern in modelPatterns {
+                for patternGroup in modelPatterns {
                     do {
-                        let dir = try await Hub.snapshot(from: modelRepo, matching: [pattern])
+                        let dir = try await Hub.snapshot(from: modelRepo, matching: patternGroup)
                         modelDir = dir
                         break
                     } catch {
@@ -248,6 +248,43 @@ class ModelLoaderService {
         }
 
         downloadTasks[modelID] = task
+    }
+
+    private func buildModelDownloadPatterns(for manifest: ModelManifest) -> [[String]] {
+        let pattern = manifest.modelFilePattern
+
+        if pattern.contains(".mlpackage") {
+            let baseName = pattern.components(separatedBy: "/").first ?? pattern
+            let cleanBase = baseName.hasSuffix("/*") ? String(baseName.dropLast(2)) : baseName
+            return [
+                [
+                    "\(cleanBase)/*",
+                    "\(cleanBase)/*/*",
+                    "\(cleanBase)/*/*/*",
+                    "\(cleanBase)/*/*/*/*",
+                    "\(cleanBase)/*/*/*/*/*"
+                ]
+            ]
+        }
+
+        if pattern.contains(".mlmodelc") {
+            let baseName = pattern.components(separatedBy: "/").first ?? pattern
+            let cleanBase = baseName.hasSuffix("/*") ? String(baseName.dropLast(2)) : baseName
+            return [
+                [
+                    "\(cleanBase)/*",
+                    "\(cleanBase)/*/*",
+                    "\(cleanBase)/*/*/*"
+                ]
+            ]
+        }
+
+        return [
+            [pattern],
+            ["*.mlpackage/*", "*.mlpackage/*/*", "*.mlpackage/*/*/*", "*.mlpackage/*/*/*/*", "*.mlpackage/*/*/*/*/*"],
+            ["*.mlmodelc/*", "*.mlmodelc/*/*", "*.mlmodelc/*/*/*"],
+            ["*.mlmodel"]
+        ]
     }
 
     func deleteModel(_ modelID: String) {
