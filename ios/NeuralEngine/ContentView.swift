@@ -4,6 +4,10 @@ struct ContentView: View {
     let metricsLogger: MetricsLogger
     let thermalGovernor: ThermalGovernor
     let modelLoader: ModelLoaderService
+    let keyValueStore: KeyValueStore
+    let secureStore: SecureStore
+    let fileSystem: FileSystemService
+    let database: DatabaseService
 
     @State private var selectedTab: AppTab = .chat
     @State private var inferenceEngine: InferenceEngine?
@@ -65,7 +69,9 @@ struct ContentView: View {
             inferenceEngine: engine,
             metricsLogger: metricsLogger,
             thermalGovernor: thermalGovernor,
-            modelLoader: modelLoader
+            modelLoader: modelLoader,
+            keyValueStore: keyValueStore,
+            database: database
         )
 
         modelManagerViewModel = ModelManagerViewModel(modelLoader: modelLoader)

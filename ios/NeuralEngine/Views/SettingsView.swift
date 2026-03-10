@@ -36,6 +36,7 @@ struct SettingsView: View {
         chatViewModel.samplingConfig.topP = Float(topP)
         chatViewModel.samplingConfig.repetitionPenalty = Float(repetitionPenalty)
         chatViewModel.samplingConfig.maxTokens = Int(maxTokens)
+        chatViewModel.saveSettings()
     }
 
     private var samplingSection: some View {

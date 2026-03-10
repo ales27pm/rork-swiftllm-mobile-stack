@@ -13,13 +13,18 @@ class ChatViewModel {
     let metricsLogger: MetricsLogger
     let thermalGovernor: ThermalGovernor
     let modelLoader: ModelLoaderService
+    let keyValueStore: KeyValueStore
+    let database: DatabaseService
 
-    init(inferenceEngine: InferenceEngine, metricsLogger: MetricsLogger, thermalGovernor: ThermalGovernor, modelLoader: ModelLoaderService) {
+    init(inferenceEngine: InferenceEngine, metricsLogger: MetricsLogger, thermalGovernor: ThermalGovernor, modelLoader: ModelLoaderService, keyValueStore: KeyValueStore, database: DatabaseService) {
         self.inferenceEngine = inferenceEngine
         self.metricsLogger = metricsLogger
         self.thermalGovernor = thermalGovernor
         self.modelLoader = modelLoader
+        self.keyValueStore = keyValueStore
+        self.database = database
         inferenceEngine.attachRunner(modelLoader.modelRunner, tokenizer: modelLoader.tokenizer)
+        restoreSettings()
     }
 
     func sendMessage() {
@@ -74,6 +79,7 @@ class ChatViewModel {
         inferenceEngine.resetSession()
         messages.removeAll()
         isGenerating = false
+        _ = database.execute("DELETE FROM chat_history;")
     }
 
     var activeModelName: String {
@@ -82,5 +88,58 @@ class ChatViewModel {
 
     var hasActiveModel: Bool {
         modelLoader.activeModelID != nil
+    }
+
+    func saveSettings() {
+        keyValueStore.setDouble(Double(samplingConfig.temperature), forKey: "sampling_temperature")
+        keyValueStore.setInt(samplingConfig.topK, forKey: "sampling_topK")
+        keyValueStore.setDouble(Double(samplingConfig.topP), forKey: "sampling_topP")
+        keyValueStore.setDouble(Double(samplingConfig.repetitionPenalty), forKey: "sampling_repPenalty")
+        keyValueStore.setInt(samplingConfig.maxTokens, forKey: "sampling_maxTokens")
+        keyValueStore.setString(systemPrompt, forKey: "system_prompt")
+    }
+
+    func persistMessage(_ message: Message) {
+        _ = database.execute(
+            "INSERT OR REPLACE INTO chat_history (id, role, content, timestamp, model_id) VALUES (?, ?, ?, ?, ?);",
+            params: [message.id.uuidString, message.role.rawValue, message.content, message.timestamp.timeIntervalSince1970, modelLoader.activeModelID ?? ""]
+        )
+    }
+
+    func logGeneration(metrics: GenerationMetrics) {
+        _ = database.execute(
+            "INSERT INTO generation_logs (model_id, prompt_tokens, generated_tokens, prefill_tps, decode_tps, time_to_first_token, total_duration, thermal_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
+            params: [
+                modelLoader.activeModelID ?? "",
+                0,
+                metrics.totalTokens,
+                metrics.prefillTokensPerSecond,
+                metrics.decodeTokensPerSecond,
+                metrics.timeToFirstToken,
+                metrics.totalDuration,
+                thermalGovernor.thermalLevel.rawValue
+            ]
+        )
+    }
+
+    private func restoreSettings() {
+        if let temp = keyValueStore.getDouble("sampling_temperature") {
+            samplingConfig.temperature = Float(temp)
+        }
+        if let topK = keyValueStore.getInt("sampling_topK") {
+            samplingConfig.topK = topK
+        }
+        if let topP = keyValueStore.getDouble("sampling_topP") {
+            samplingConfig.topP = Float(topP)
+        }
+        if let rep = keyValueStore.getDouble("sampling_repPenalty") {
+            samplingConfig.repetitionPenalty = Float(rep)
+        }
+        if let maxTok = keyValueStore.getInt("sampling_maxTokens") {
+            samplingConfig.maxTokens = maxTok
+        }
+        if let prompt = keyValueStore.getString("system_prompt") {
+            systemPrompt = prompt
+        }
     }
 }
