@@ -1,0 +1,9 @@
+{
+  "apps": [
+    {
+      "name": "NeuralEngine",
+      "path": "ios",
+      "framework": "swift"
+    }
+  ]
+}
