@@ -219,6 +219,7 @@ struct ModelCardView: View {
         case .qwen: return .orange
         case .mistral: return .cyan
         case .smolLM: return .pink
+        case .dolphin: return .teal
         }
     }
 

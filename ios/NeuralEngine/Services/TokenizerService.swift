@@ -15,6 +15,14 @@ final class TokenizerService: @unchecked Sendable {
     static let unknownToken = 3
     static let specialTokens: Set<Int> = [0, 1, 2, 3]
 
+    private var eosTokenIDs: Set<Int> = [2]
+
+    var effectiveEOSTokens: Set<Int> {
+        lock.lock()
+        defer { lock.unlock() }
+        return eosTokenIDs
+    }
+
     init() {
         buildFallbackVocabulary()
     }
@@ -24,6 +32,7 @@ final class TokenizerService: @unchecked Sendable {
         lock.lock()
         tokenizer = loaded
         isRealTokenizer = true
+        detectEOSTokens(loaded)
         lock.unlock()
     }
 
@@ -32,7 +41,26 @@ final class TokenizerService: @unchecked Sendable {
         lock.lock()
         tokenizer = loaded
         isRealTokenizer = true
+        detectEOSTokens(loaded)
         lock.unlock()
+    }
+
+    private func detectEOSTokens(_ tok: Tokenizer) {
+        var eos: Set<Int> = []
+        let candidates = ["<|im_end|>", "<|end_of_text|>", "<|eot_id|>", "</s>"]
+        for candidate in candidates {
+            let encoded = tok(candidate)
+            if encoded.count == 1 {
+                eos.insert(encoded[0])
+            }
+        }
+        if let eosID = tok.eosTokenId {
+            eos.insert(eosID)
+        }
+        if eos.isEmpty {
+            eos.insert(Self.eosToken)
+        }
+        eosTokenIDs = eos
     }
 
     func unloadTokenizer() {

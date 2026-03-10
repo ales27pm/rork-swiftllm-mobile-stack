@@ -37,7 +37,7 @@ class InferenceEngine {
     }
 
     func generate(
-        prompt: String,
+        messages: [[String: String]],
         systemPrompt: String,
         samplingConfig: SamplingConfig,
         onToken: @escaping (String) -> Void,
@@ -66,7 +66,13 @@ class InferenceEngine {
             let sampler = Sampler(config: samplingConfig)
             let maxTokens = min(samplingConfig.maxTokens, mode.maxContextLength)
 
-            let fullPrompt = systemPrompt + "\n\nUser: " + prompt + "\n\nAssistant:"
+            let fullPrompt: String
+            if let templated = tokenizer.applyTemplate(messages: messages) {
+                fullPrompt = templated
+            } else {
+                fullPrompt = Self.buildChatMLPrompt(messages: messages)
+            }
+
             let systemTokens = tokenizer.encode(systemPrompt)
             let promptTokens = tokenizer.encode(fullPrompt)
 
@@ -143,7 +149,7 @@ class InferenceEngine {
 
             self.metricsLogger.recordFirstToken()
 
-            let eosToken = TokenizerService.eosToken
+            let eosTokens = tokenizer.effectiveEOSTokens
             var generatedCount = 0
             var specAccepted = 0
             var specRejected = 0
@@ -170,7 +176,7 @@ class InferenceEngine {
                         recentTokens: Array(self.sessionCache.allTokens.suffix(64))
                     )
 
-                    if sampledToken == eosToken { break }
+                    if eosTokens.contains(sampledToken) { break }
 
                     lastToken = sampledToken
                     self.sessionCache.accept(tokens: [sampledToken])
@@ -277,5 +283,16 @@ class InferenceEngine {
         }
 
         metricsLogger.recordContextEviction(evictedTokens: evictCount)
+    }
+
+    static func buildChatMLPrompt(messages: [[String: String]]) -> String {
+        var result = ""
+        for msg in messages {
+            let role = msg["role"] ?? "user"
+            let content = msg["content"] ?? ""
+            result += "<|im_start|>\(role)\n\(content)<|im_end|>\n"
+        }
+        result += "<|im_start|>assistant\n"
+        return result
     }
 }

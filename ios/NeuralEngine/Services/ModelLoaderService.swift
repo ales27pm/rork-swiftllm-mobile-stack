@@ -22,6 +22,51 @@ class ModelLoaderService {
     func loadBuiltinRegistry() {
         availableModels = [
             ModelManifest(
+                id: "dolphin3-3b-int4-coreml",
+                name: "Dolphin 3.0",
+                variant: "3B Int4 CoreML",
+                parameterCount: "3B",
+                quantization: "Int4-LUT",
+                sizeBytes: 1_610_000_000,
+                contextLength: 4096,
+                architecture: .dolphin,
+                repoID: "ales27pm/Dolphin3.0-CoreML",
+                tokenizerRepoID: "cognitivecomputations/Dolphin3.0-Llama3.2-3B",
+                modelFilePattern: "Dolphin3.0-Llama3.2-3B-int4-lut.mlpackage/*",
+                checksum: "",
+                isDraft: false
+            ),
+            ModelManifest(
+                id: "dolphin3-3b-int8-coreml",
+                name: "Dolphin 3.0",
+                variant: "3B Int8 CoreML",
+                parameterCount: "3B",
+                quantization: "Int8",
+                sizeBytes: 3_230_000_000,
+                contextLength: 4096,
+                architecture: .dolphin,
+                repoID: "ales27pm/Dolphin3.0-CoreML",
+                tokenizerRepoID: "cognitivecomputations/Dolphin3.0-Llama3.2-3B",
+                modelFilePattern: "Dolphin3.0-Llama3.2-3B-int8.mlpackage/*",
+                checksum: "",
+                isDraft: false
+            ),
+            ModelManifest(
+                id: "dolphin3-3b-fp16-coreml",
+                name: "Dolphin 3.0",
+                variant: "3B FP16 CoreML",
+                parameterCount: "3B",
+                quantization: "Float16",
+                sizeBytes: 6_460_000_000,
+                contextLength: 4096,
+                architecture: .dolphin,
+                repoID: "ales27pm/Dolphin3.0-CoreML",
+                tokenizerRepoID: "cognitivecomputations/Dolphin3.0-Llama3.2-3B",
+                modelFilePattern: "Dolphin3.0-Llama3.2-3B-fp16.mlpackage/*",
+                checksum: "",
+                isDraft: false
+            ),
+            ModelManifest(
                 id: "smollm2-135m-coreml",
                 name: "SmolLM2",
                 variant: "135M CoreML (Draft)",
@@ -31,6 +76,7 @@ class ModelLoaderService {
                 contextLength: 2048,
                 architecture: .smolLM,
                 repoID: "apple/OpenELM-270M-Instruct",
+                tokenizerRepoID: nil,
                 modelFilePattern: "*.mlmodelc/*",
                 checksum: "",
                 isDraft: true
@@ -45,6 +91,7 @@ class ModelLoaderService {
                 contextLength: 2048,
                 architecture: .llama,
                 repoID: "apple/OpenELM-270M-Instruct",
+                tokenizerRepoID: nil,
                 modelFilePattern: "*.mlmodelc/*",
                 checksum: "",
                 isDraft: false
@@ -59,6 +106,7 @@ class ModelLoaderService {
                 contextLength: 4096,
                 architecture: .phi,
                 repoID: "microsoft/Phi-3-mini-4k-instruct",
+                tokenizerRepoID: nil,
                 modelFilePattern: "*.mlmodelc/*",
                 checksum: "",
                 isDraft: false
@@ -73,6 +121,7 @@ class ModelLoaderService {
                 contextLength: 4096,
                 architecture: .llama,
                 repoID: "meta-llama/Llama-3.2-3B-Instruct",
+                tokenizerRepoID: nil,
                 modelFilePattern: "*.mlmodelc/*",
                 checksum: "",
                 isDraft: false
@@ -87,6 +136,7 @@ class ModelLoaderService {
                 contextLength: 2048,
                 architecture: .gemma,
                 repoID: "google/gemma-2-2b-it",
+                tokenizerRepoID: nil,
                 modelFilePattern: "*.mlmodelc/*",
                 checksum: "",
                 isDraft: false
@@ -101,6 +151,7 @@ class ModelLoaderService {
                 contextLength: 2048,
                 architecture: .qwen,
                 repoID: "Qwen/Qwen2.5-1.5B-Instruct",
+                tokenizerRepoID: nil,
                 modelFilePattern: "*.mlmodelc/*",
                 checksum: "",
                 isDraft: false
@@ -115,6 +166,7 @@ class ModelLoaderService {
                 contextLength: 8192,
                 architecture: .mistral,
                 repoID: "mistralai/Mistral-7B-Instruct-v0.3",
+                tokenizerRepoID: nil,
                 modelFilePattern: "*.mlmodelc/*",
                 checksum: "",
                 isDraft: false
@@ -139,21 +191,23 @@ class ModelLoaderService {
             do {
                 modelStatuses[modelID] = .downloading(progress: 0.1)
 
-                let repo = Hub.Repo(id: manifest.repoID)
+                let tokenizerRepoID = manifest.tokenizerRepoID ?? manifest.repoID
+                let tokenizerRepo = Hub.Repo(id: tokenizerRepoID)
 
                 let tokenizerPatterns = ["tokenizer.json", "tokenizer_config.json", "config.json", "special_tokens_map.json", "generation_config.json"]
 
                 modelStatuses[modelID] = .downloading(progress: 0.2)
 
-                let localDir = try await Hub.snapshot(from: repo, matching: tokenizerPatterns)
+                let localDir = try await Hub.snapshot(from: tokenizerRepo, matching: tokenizerPatterns)
 
                 modelStatuses[modelID] = .downloading(progress: 0.5)
 
+                let modelRepo = Hub.Repo(id: manifest.repoID)
                 let modelPatterns = [manifest.modelFilePattern, "*.mlpackage/*", "*.mlmodel"]
                 var modelDir: URL?
                 for pattern in modelPatterns {
                     do {
-                        let dir = try await Hub.snapshot(from: repo, matching: [pattern])
+                        let dir = try await Hub.snapshot(from: modelRepo, matching: [pattern])
                         modelDir = dir
                         break
                     } catch {
@@ -225,7 +279,8 @@ class ModelLoaderService {
                 if let tokenizerDir = loadTokenizerPath(forModelID: modelID) {
                     try await tokenizer.loadFromDirectory(tokenizerDir)
                 } else {
-                    try await tokenizer.loadFromHub(repoID: manifest.repoID)
+                    let tokenizerRepoID = manifest.tokenizerRepoID ?? manifest.repoID
+                    try await tokenizer.loadFromHub(repoID: tokenizerRepoID)
                 }
             } catch {
                 print("Tokenizer load failed, using fallback: \(error)")

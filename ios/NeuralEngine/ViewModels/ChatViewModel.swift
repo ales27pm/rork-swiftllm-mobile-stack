@@ -37,8 +37,16 @@ class ChatViewModel {
 
         let assistantIndex = messages.count - 1
 
+        var chatMessages: [[String: String]] = [
+            ["role": "system", "content": systemPrompt]
+        ]
+        for msg in messages where msg.role != .system {
+            if msg.role == .assistant && msg.content.isEmpty { continue }
+            chatMessages.append(["role": msg.role.rawValue, "content": msg.content])
+        }
+
         inferenceEngine.generate(
-            prompt: text,
+            messages: chatMessages,
             systemPrompt: systemPrompt,
             samplingConfig: samplingConfig,
             onToken: { [weak self] token in

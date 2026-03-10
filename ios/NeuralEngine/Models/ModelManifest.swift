@@ -10,6 +10,7 @@ nonisolated struct ModelManifest: Identifiable, Sendable, Codable {
     let contextLength: Int
     let architecture: ModelArchitecture
     let repoID: String
+    let tokenizerRepoID: String?
     let modelFilePattern: String
     let checksum: String
     let isDraft: Bool
@@ -33,6 +34,7 @@ nonisolated enum ModelArchitecture: String, Sendable, Codable {
     case qwen
     case mistral
     case smolLM = "smollm"
+    case dolphin
 }
 
 nonisolated enum ModelStatus: Sendable, Equatable {
