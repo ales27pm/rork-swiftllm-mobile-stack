@@ -23,7 +23,7 @@ class ChatViewModel {
         self.modelLoader = modelLoader
         self.keyValueStore = keyValueStore
         self.database = database
-        inferenceEngine.attachRunner(modelLoader.modelRunner, tokenizer: modelLoader.tokenizer)
+        inferenceEngine.attachRunner(modelLoader.modelRunner, llamaRunner: modelLoader.llamaRunner, tokenizer: modelLoader.tokenizer, format: modelLoader.activeFormat)
         restoreSettings()
     }
 
@@ -88,6 +88,10 @@ class ChatViewModel {
 
     var hasActiveModel: Bool {
         modelLoader.activeModelID != nil
+    }
+
+    func syncEngineFormat() {
+        inferenceEngine.updateFormat(modelLoader.activeFormat)
     }
 
     func saveSettings() {

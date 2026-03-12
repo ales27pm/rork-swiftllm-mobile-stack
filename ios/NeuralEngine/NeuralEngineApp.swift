@@ -1,4 +1,5 @@
 import SwiftUI
+import LlamaSwift
 
 @main
 struct NeuralEngineApp: App {
@@ -10,6 +11,10 @@ struct NeuralEngineApp: App {
     private let secureStore = SecureStore()
     private let fileSystem = FileSystemService()
     private let database = DatabaseService()
+
+    init() {
+        llama_backend_init()
+    }
 
     var body: some Scene {
         WindowGroup {

@@ -17,7 +17,9 @@ class InferenceEngine {
 
     private var generationTask: Task<Void, Never>?
     private var modelRunner: CoreMLModelRunner?
+    private var llamaRunner: LlamaModelRunner?
     private var tokenizer: TokenizerService?
+    private var activeFormat: ModelFormat = .coreML
 
     private let slidingWindowSize: Int = 1536
     private let evictionThreshold: Int = 1800
@@ -27,13 +29,22 @@ class InferenceEngine {
         self.thermalGovernor = thermalGovernor
     }
 
-    func attachRunner(_ runner: CoreMLModelRunner, tokenizer: TokenizerService) {
+    func attachRunner(_ runner: CoreMLModelRunner, llamaRunner: LlamaModelRunner, tokenizer: TokenizerService, format: ModelFormat) {
         self.modelRunner = runner
+        self.llamaRunner = llamaRunner
         self.tokenizer = tokenizer
+        self.activeFormat = format
+    }
+
+    func updateFormat(_ format: ModelFormat) {
+        self.activeFormat = format
     }
 
     var hasModel: Bool {
-        modelRunner?.isLoaded ?? false
+        switch activeFormat {
+        case .coreML: return modelRunner?.isLoaded ?? false
+        case .gguf: return llamaRunner?.isLoaded ?? false
+        }
     }
 
     func generate(
@@ -44,6 +55,12 @@ class InferenceEngine {
         onComplete: @escaping (GenerationMetrics) -> Void
     ) {
         guard !isGenerating else { return }
+
+        if activeFormat == .gguf {
+            generateWithLlama(messages: messages, samplingConfig: samplingConfig, onToken: onToken, onComplete: onComplete)
+            return
+        }
+
         guard let runner = modelRunner, runner.isLoaded, let tokenizer else {
             onComplete(GenerationMetrics(
                 timeToFirstToken: 0, prefillTokensPerSecond: 0,
@@ -231,6 +248,87 @@ class InferenceEngine {
         }
     }
 
+    private func generateWithLlama(
+        messages: [[String: String]],
+        samplingConfig: SamplingConfig,
+        onToken: @escaping (String) -> Void,
+        onComplete: @escaping (GenerationMetrics) -> Void
+    ) {
+        guard let llamaRunner, llamaRunner.isLoaded else {
+            onComplete(GenerationMetrics(
+                timeToFirstToken: 0, prefillTokensPerSecond: 0,
+                decodeTokensPerSecond: 0, totalTokens: 0,
+                totalDuration: 0, acceptedSpeculativeTokens: 0,
+                rejectedSpeculativeTokens: 0
+            ))
+            return
+        }
+
+        isGenerating = true
+        currentText = ""
+        metricsLogger.beginGeneration()
+
+        let prompt = Self.buildChatMLPrompt(messages: messages)
+        let mode = thermalGovernor.currentMode
+        let maxTokens = min(samplingConfig.maxTokens, mode.maxContextLength)
+
+        generationTask = Task.detached { [weak self] in
+            guard let self else { return }
+
+            do {
+                let result = try llamaRunner.generate(
+                    prompt: prompt,
+                    maxTokens: maxTokens,
+                    temperature: samplingConfig.temperature,
+                    topK: Int32(samplingConfig.topK),
+                    topP: samplingConfig.topP,
+                    repetitionPenalty: samplingConfig.repetitionPenalty,
+                    onToken: { token in
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            self.currentText += token
+                            self.metricsLogger.recordToken()
+                            onToken(token)
+                        }
+                    },
+                    shouldStop: {
+                        Task.isCancelled
+                    }
+                )
+
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.metricsLogger.recordFirstToken()
+                    self.metricsLogger.recordPrefill(tokens: result.promptTokenCount, duration: 0.001)
+                    self.metricsLogger.endGeneration()
+
+                    let metrics = GenerationMetrics(
+                        timeToFirstToken: result.timeToFirstTokenMS,
+                        prefillTokensPerSecond: result.prefillTokensPerSecond,
+                        decodeTokensPerSecond: result.decodeTokensPerSecond,
+                        totalTokens: result.generatedTokenCount,
+                        totalDuration: result.totalDuration,
+                        acceptedSpeculativeTokens: 0,
+                        rejectedSpeculativeTokens: 0
+                    )
+                    onComplete(metrics)
+                    self.isGenerating = false
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.isGenerating = false
+                    onComplete(GenerationMetrics(
+                        timeToFirstToken: 0, prefillTokensPerSecond: 0,
+                        decodeTokensPerSecond: 0, totalTokens: 0,
+                        totalDuration: 0, acceptedSpeculativeTokens: 0,
+                        rejectedSpeculativeTokens: 0
+                    ))
+                }
+            }
+        }
+    }
+
     func cancel() {
         generationTask?.cancel()
         generationTask = nil
@@ -244,6 +342,7 @@ class InferenceEngine {
         speculationPolicy.reset()
         currentText = ""
         modelRunner?.resetState()
+        llamaRunner?.resetContext()
         Task {
             await kvCache.reset()
             await prefixCache.clear()

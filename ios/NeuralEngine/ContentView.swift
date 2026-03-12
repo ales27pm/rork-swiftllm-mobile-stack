@@ -57,6 +57,9 @@ struct ContentView: View {
         .onAppear {
             setupViewModels()
         }
+        .onChange(of: modelLoader.activeModelID) { _, _ in
+            chatViewModel?.syncEngineFormat()
+        }
     }
 
     private func setupViewModels() {

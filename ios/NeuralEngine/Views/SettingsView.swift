@@ -174,6 +174,7 @@ struct SettingsView: View {
 
     private var aboutSection: some View {
         Section {
+            aboutRow(label: "Backends", value: "CoreML + llama.cpp (GGUF)")
             aboutRow(label: "Architecture", value: "Split Prefill/Decode + Paged KV")
             aboutRow(label: "KV Cache", value: "Paged Arena (128 tokens/page)")
             aboutRow(label: "Speculation", value: "Adaptive Draft Length")

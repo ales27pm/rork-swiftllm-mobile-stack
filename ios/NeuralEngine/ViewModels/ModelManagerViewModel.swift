@@ -32,8 +32,10 @@ class ModelManagerViewModel {
             }
         case .draft:
             models = models.filter(\.isDraft)
-        case .target:
-            models = models.filter { !$0.isDraft }
+        case .gguf:
+            models = models.filter { $0.format == .gguf }
+        case .coreml:
+            models = models.filter { $0.format == .coreML }
         }
 
         return models
@@ -63,6 +65,7 @@ class ModelManagerViewModel {
 enum ModelFilter: String, CaseIterable {
     case all = "All"
     case downloaded = "Downloaded"
-    case target = "Target"
+    case gguf = "GGUF"
+    case coreml = "CoreML"
     case draft = "Draft"
 }

@@ -11,7 +11,9 @@ class ModelLoaderService {
     var isLoadingRegistry: Bool = false
 
     let modelRunner = CoreMLModelRunner()
+    let llamaRunner = LlamaModelRunner()
     let tokenizer = TokenizerService()
+    var activeFormat: ModelFormat = .coreML
 
     private var downloadTasks: [String: Task<Void, Never>] = [:]
 
@@ -170,6 +172,102 @@ class ModelLoaderService {
                 modelFilePattern: "*.mlmodelc/*",
                 checksum: "",
                 isDraft: false
+            ),
+            ModelManifest(
+                id: "smollm2-360m-gguf",
+                name: "SmolLM2",
+                variant: "360M Q8 GGUF",
+                parameterCount: "360M",
+                quantization: "Q8_0",
+                sizeBytes: 386_000_000,
+                contextLength: 2048,
+                architecture: .smolLM,
+                repoID: "HuggingFaceTB/SmolLM2-360M-Instruct-GGUF",
+                tokenizerRepoID: nil,
+                modelFilePattern: "smollm2-360m-instruct-q8_0.gguf",
+                checksum: "",
+                isDraft: false,
+                format: .gguf
+            ),
+            ModelManifest(
+                id: "smollm2-1.7b-gguf",
+                name: "SmolLM2",
+                variant: "1.7B Q4 GGUF",
+                parameterCount: "1.7B",
+                quantization: "Q4_K_M",
+                sizeBytes: 1_060_000_000,
+                contextLength: 2048,
+                architecture: .smolLM,
+                repoID: "HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF",
+                tokenizerRepoID: nil,
+                modelFilePattern: "smollm2-1.7b-instruct-q4_k_m.gguf",
+                checksum: "",
+                isDraft: false,
+                format: .gguf
+            ),
+            ModelManifest(
+                id: "qwen2.5-1.5b-gguf",
+                name: "Qwen 2.5",
+                variant: "1.5B Q4 GGUF",
+                parameterCount: "1.5B",
+                quantization: "Q4_K_M",
+                sizeBytes: 986_000_000,
+                contextLength: 4096,
+                architecture: .qwen,
+                repoID: "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+                tokenizerRepoID: nil,
+                modelFilePattern: "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+                checksum: "",
+                isDraft: false,
+                format: .gguf
+            ),
+            ModelManifest(
+                id: "llama3.2-3b-gguf",
+                name: "Llama 3.2",
+                variant: "3B Q4 GGUF",
+                parameterCount: "3B",
+                quantization: "Q4_K_M",
+                sizeBytes: 2_020_000_000,
+                contextLength: 4096,
+                architecture: .llama,
+                repoID: "bartowski/Llama-3.2-3B-Instruct-GGUF",
+                tokenizerRepoID: nil,
+                modelFilePattern: "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+                checksum: "",
+                isDraft: false,
+                format: .gguf
+            ),
+            ModelManifest(
+                id: "phi3-mini-3.8b-gguf",
+                name: "Phi-3 Mini",
+                variant: "3.8B Q4 GGUF",
+                parameterCount: "3.8B",
+                quantization: "Q4_K_M",
+                sizeBytes: 2_390_000_000,
+                contextLength: 4096,
+                architecture: .phi,
+                repoID: "bartowski/Phi-3.5-mini-instruct-GGUF",
+                tokenizerRepoID: nil,
+                modelFilePattern: "Phi-3.5-mini-instruct-Q4_K_M.gguf",
+                checksum: "",
+                isDraft: false,
+                format: .gguf
+            ),
+            ModelManifest(
+                id: "gemma2-2b-gguf",
+                name: "Gemma 2",
+                variant: "2B Q4 GGUF",
+                parameterCount: "2B",
+                quantization: "Q4_K_M",
+                sizeBytes: 1_500_000_000,
+                contextLength: 2048,
+                architecture: .gemma,
+                repoID: "bartowski/gemma-2-2b-it-GGUF",
+                tokenizerRepoID: nil,
+                modelFilePattern: "gemma-2-2b-it-Q4_K_M.gguf",
+                checksum: "",
+                isDraft: false,
+                format: .gguf
             )
         ]
 
@@ -184,7 +282,9 @@ class ModelLoaderService {
         for model in availableModels {
             if let modelURL = loadModelPath(forModelID: model.id) {
                 let ext = modelURL.pathExtension
-                if ext == "mlmodelc" {
+                if ext == "gguf" {
+                    modelStatuses[model.id] = .ready
+                } else if ext == "mlmodelc" {
                     modelStatuses[model.id] = .ready
                 } else if ext == "mlpackage" {
                     let manifestURL = modelURL.appendingPathComponent("Manifest.json")
@@ -207,12 +307,17 @@ class ModelLoaderService {
 
         if case .downloading = modelStatuses[modelID] { return }
 
-        if let existingPath = loadModelPath(forModelID: modelID) {
+        if loadModelPath(forModelID: modelID) != nil {
             try? FileManager.default.removeItem(at: modelPathURL(forModelID: modelID))
             try? FileManager.default.removeItem(at: tokenizerPathURL(forModelID: modelID))
         }
 
         modelStatuses[modelID] = .downloading(progress: 0)
+
+        if manifest.format == .gguf {
+            downloadGGUFModel(modelID: modelID, manifest: manifest)
+            return
+        }
 
         let task = Task {
             do {
@@ -346,6 +451,55 @@ class ModelLoaderService {
         ]
     }
 
+    private func downloadGGUFModel(modelID: String, manifest: ModelManifest) {
+        let task = Task {
+            do {
+                modelStatuses[modelID] = .downloading(progress: 0.1)
+
+                let modelRepo = Hub.Repo(id: manifest.repoID)
+                let ggufFileName = manifest.modelFilePattern
+
+                modelStatuses[modelID] = .downloading(progress: 0.2)
+
+                let snapshotDir = try await Hub.snapshot(from: modelRepo, matching: [ggufFileName])
+
+                modelStatuses[modelID] = .downloading(progress: 0.8)
+                modelStatuses[modelID] = .verifying
+
+                let ggufURL = findGGUFFile(in: snapshotDir, named: ggufFileName)
+
+                guard let url = ggufURL else {
+                    throw ModelLoaderError.noModelFound("No GGUF file found in downloaded repository.")
+                }
+
+                try saveModelPath(url, forModelID: modelID)
+                modelStatuses[modelID] = .ready
+            } catch {
+                if !Task.isCancelled {
+                    modelStatuses[modelID] = .failed(error.localizedDescription)
+                }
+            }
+        }
+        downloadTasks[modelID] = task
+    }
+
+    private func findGGUFFile(in directory: URL, named fileName: String) -> URL? {
+        let directFile = directory.appendingPathComponent(fileName)
+        if FileManager.default.fileExists(atPath: directFile.path) {
+            return directFile
+        }
+
+        guard let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil) else {
+            return nil
+        }
+        while let url = enumerator.nextObject() as? URL {
+            if url.pathExtension == "gguf" {
+                return url
+            }
+        }
+        return nil
+    }
+
     func deleteModel(_ modelID: String) {
         downloadTasks[modelID]?.cancel()
         downloadTasks.removeValue(forKey: modelID)
@@ -354,7 +508,9 @@ class ModelLoaderService {
         if activeModelID == modelID {
             activeModelID = nil
             modelRunner.unload()
+            llamaRunner.unload()
             tokenizer.unloadTokenizer()
+            activeFormat = .coreML
         }
 
         let modelPathFile = modelPathURL(forModelID: modelID)
@@ -369,6 +525,12 @@ class ModelLoaderService {
         guard let manifest = availableModels.first(where: { $0.id == modelID }) else { return }
 
         activeModelID = modelID
+        activeFormat = manifest.format
+
+        if manifest.format == .gguf {
+            activateGGUFModel(modelID: modelID, manifest: manifest)
+            return
+        }
 
         Task {
             do {
@@ -397,6 +559,29 @@ class ModelLoaderService {
                 print("Model load failed: \(error)")
                 modelStatuses[modelID] = .failed("Failed to load: \(error.localizedDescription)")
                 activeModelID = nil
+            }
+        }
+    }
+
+    private func activateGGUFModel(modelID: String, manifest: ModelManifest) {
+        Task {
+            do {
+                guard let modelURL = loadModelPath(forModelID: modelID) else {
+                    modelStatuses[modelID] = .failed("GGUF model file not found.")
+                    activeModelID = nil
+                    return
+                }
+
+                modelRunner.unload()
+                try llamaRunner.loadModel(
+                    at: modelURL.path,
+                    nCtx: Int32(manifest.contextLength)
+                )
+            } catch {
+                print("GGUF model load failed: \(error)")
+                modelStatuses[modelID] = .failed("Failed to load: \(error.localizedDescription)")
+                activeModelID = nil
+                activeFormat = .coreML
             }
         }
     }

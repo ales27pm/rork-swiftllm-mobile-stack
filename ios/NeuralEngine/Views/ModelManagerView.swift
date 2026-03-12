@@ -169,9 +169,19 @@ struct ModelCardView: View {
                         }
                     }
 
-                    Text(model.variant)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Text(model.variant)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+
+                        Text(model.format == .gguf ? "GGUF" : "CoreML")
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(model.format == .gguf ? Color.indigo.opacity(0.15) : Color.blue.opacity(0.15))
+                            .foregroundStyle(model.format == .gguf ? .indigo : .blue)
+                            .clipShape(Capsule())
+                    }
                 }
 
                 Spacer()
