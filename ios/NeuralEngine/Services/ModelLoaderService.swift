@@ -254,6 +254,38 @@ class ModelLoaderService {
                 format: .gguf
             ),
             ModelManifest(
+                id: "dolphin3-qwen2.5-1.5b-q4-gguf",
+                name: "Dolphin 3.0 Qwen",
+                variant: "1.5B Q4 GGUF",
+                parameterCount: "1.5B",
+                quantization: "Q4_K_M",
+                sizeBytes: 986_000_000,
+                contextLength: 4096,
+                architecture: .dolphin,
+                repoID: "bartowski/Dolphin3.0-Qwen2.5-1.5B-GGUF",
+                tokenizerRepoID: nil,
+                modelFilePattern: "Dolphin3.0-Qwen2.5-1.5B-Q4_K_M.gguf",
+                checksum: "",
+                isDraft: false,
+                format: .gguf
+            ),
+            ModelManifest(
+                id: "dolphin3-qwen2.5-1.5b-q8-gguf",
+                name: "Dolphin 3.0 Qwen",
+                variant: "1.5B Q8 GGUF",
+                parameterCount: "1.5B",
+                quantization: "Q8_0",
+                sizeBytes: 1_650_000_000,
+                contextLength: 4096,
+                architecture: .dolphin,
+                repoID: "bartowski/Dolphin3.0-Qwen2.5-1.5B-GGUF",
+                tokenizerRepoID: nil,
+                modelFilePattern: "Dolphin3.0-Qwen2.5-1.5B-Q8_0.gguf",
+                checksum: "",
+                isDraft: false,
+                format: .gguf
+            ),
+            ModelManifest(
                 id: "gemma2-2b-gguf",
                 name: "Gemma 2",
                 variant: "2B Q4 GGUF",
