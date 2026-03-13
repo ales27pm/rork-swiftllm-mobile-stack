@@ -7,7 +7,9 @@ class ChatViewModel {
     var inputText: String = ""
     var isGenerating: Bool = false
     var samplingConfig = SamplingConfig()
-    var systemPrompt: String = "You are a helpful, concise AI assistant running locally on-device."
+    var systemPrompt: String = "You are Nexus, a helpful and intelligent AI assistant running locally on-device. You have access to memory from past conversations and use it to provide personalized, contextual responses."
+
+    var currentConversationId: String?
 
     let inferenceEngine: InferenceEngine
     let metricsLogger: MetricsLogger
@@ -15,14 +17,27 @@ class ChatViewModel {
     let modelLoader: ModelLoaderService
     let keyValueStore: KeyValueStore
     let database: DatabaseService
+    let conversationService: ConversationService
+    let memoryService: MemoryService
 
-    init(inferenceEngine: InferenceEngine, metricsLogger: MetricsLogger, thermalGovernor: ThermalGovernor, modelLoader: ModelLoaderService, keyValueStore: KeyValueStore, database: DatabaseService) {
+    init(
+        inferenceEngine: InferenceEngine,
+        metricsLogger: MetricsLogger,
+        thermalGovernor: ThermalGovernor,
+        modelLoader: ModelLoaderService,
+        keyValueStore: KeyValueStore,
+        database: DatabaseService,
+        conversationService: ConversationService,
+        memoryService: MemoryService
+    ) {
         self.inferenceEngine = inferenceEngine
         self.metricsLogger = metricsLogger
         self.thermalGovernor = thermalGovernor
         self.modelLoader = modelLoader
         self.keyValueStore = keyValueStore
         self.database = database
+        self.conversationService = conversationService
+        self.memoryService = memoryService
         inferenceEngine.attachRunner(modelLoader.modelRunner, llamaRunner: modelLoader.llamaRunner, tokenizer: modelLoader.tokenizer, format: modelLoader.activeFormat)
         restoreSettings()
     }
@@ -32,9 +47,18 @@ class ChatViewModel {
         guard !text.isEmpty else { return }
         guard !isGenerating else { return }
 
+        if currentConversationId == nil {
+            let conv = conversationService.createConversation(modelId: modelLoader.activeModelID)
+            currentConversationId = conv.id
+        }
+
         let userMessage = Message(role: .user, content: text)
         messages.append(userMessage)
         inputText = ""
+
+        if let convId = currentConversationId {
+            conversationService.saveMessage(userMessage, conversationId: convId)
+        }
 
         let assistantMessage = Message(role: .assistant, content: "", isStreaming: true)
         messages.append(assistantMessage)
@@ -42,8 +66,15 @@ class ChatViewModel {
 
         let assistantIndex = messages.count - 1
 
+        let memoryContext = memoryService.buildContextInjection(query: text)
+
+        var enrichedSystemPrompt = systemPrompt
+        if !memoryContext.isEmpty {
+            enrichedSystemPrompt += "\n\n" + memoryContext
+        }
+
         var chatMessages: [[String: String]] = [
-            ["role": "system", "content": systemPrompt]
+            ["role": "system", "content": enrichedSystemPrompt]
         ]
         for msg in messages where msg.role != .system {
             if msg.role == .assistant && msg.content.isEmpty { continue }
@@ -52,7 +83,7 @@ class ChatViewModel {
 
         inferenceEngine.generate(
             messages: chatMessages,
-            systemPrompt: systemPrompt,
+            systemPrompt: enrichedSystemPrompt,
             samplingConfig: samplingConfig,
             onToken: { [weak self] token in
                 guard let self else { return }
@@ -63,6 +94,23 @@ class ChatViewModel {
                 self.messages[assistantIndex].isStreaming = false
                 self.messages[assistantIndex].metrics = metrics
                 self.isGenerating = false
+
+                if let convId = self.currentConversationId {
+                    self.conversationService.saveMessage(self.messages[assistantIndex], conversationId: convId)
+
+                    let userMsgCount = self.messages.filter { $0.role == .user }.count
+                    let assistantContent = self.messages[assistantIndex].content
+                    var conv = self.conversationService.conversations.first { $0.id == convId } ?? Conversation(id: convId)
+                    conv.lastMessage = String(assistantContent.prefix(100))
+                    conv.messageCount = self.messages.filter { $0.role != .system }.count
+                    conv.updatedAt = Date()
+                    if userMsgCount == 1 {
+                        conv.title = self.conversationService.generateTitle(from: text)
+                    }
+                    self.conversationService.updateConversation(conv)
+
+                    self.memoryService.extractAndStoreMemory(userText: text, assistantText: assistantContent)
+                }
             }
         )
     }
@@ -79,7 +127,21 @@ class ChatViewModel {
         inferenceEngine.resetSession()
         messages.removeAll()
         isGenerating = false
-        _ = database.execute("DELETE FROM chat_history;")
+        currentConversationId = nil
+    }
+
+    func newConversation() {
+        inferenceEngine.resetSession()
+        messages.removeAll()
+        isGenerating = false
+        currentConversationId = nil
+    }
+
+    func loadConversation(_ id: String) {
+        inferenceEngine.resetSession()
+        isGenerating = false
+        currentConversationId = id
+        messages = conversationService.loadMessages(for: id)
     }
 
     var activeModelName: String {
@@ -101,13 +163,6 @@ class ChatViewModel {
         keyValueStore.setDouble(Double(samplingConfig.repetitionPenalty), forKey: "sampling_repPenalty")
         keyValueStore.setInt(samplingConfig.maxTokens, forKey: "sampling_maxTokens")
         keyValueStore.setString(systemPrompt, forKey: "system_prompt")
-    }
-
-    func persistMessage(_ message: Message) {
-        _ = database.execute(
-            "INSERT OR REPLACE INTO chat_history (id, role, content, timestamp, model_id) VALUES (?, ?, ?, ?, ?);",
-            params: [message.id.uuidString, message.role.rawValue, message.content, message.timestamp.timeIntervalSince1970, modelLoader.activeModelID ?? ""]
-        )
     }
 
     func logGeneration(metrics: GenerationMetrics) {

@@ -13,12 +13,35 @@ struct ContentView: View {
     @State private var inferenceEngine: InferenceEngine?
     @State private var chatViewModel: ChatViewModel?
     @State private var modelManagerViewModel: ModelManagerViewModel?
+    @State private var historyViewModel: HistoryViewModel?
+    @State private var memoryViewModel: MemoryViewModel?
+    @State private var conversationService: ConversationService?
+    @State private var memoryService: MemoryService?
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            Tab("Chat", systemImage: "bubble.left.and.text.bubble.right", value: .chat) {
+            Tab("Chat", systemImage: "sparkles", value: .chat) {
                 if let chatVM = chatViewModel {
                     ChatView(viewModel: chatVM)
+                } else {
+                    ProgressView()
+                }
+            }
+
+            Tab("History", systemImage: "clock", value: .history) {
+                if let historyVM = historyViewModel {
+                    HistoryView(viewModel: historyVM) { conversationId in
+                        chatViewModel?.loadConversation(conversationId)
+                        selectedTab = .chat
+                    }
+                } else {
+                    ProgressView()
+                }
+            }
+
+            Tab("Memory", systemImage: "brain", value: .memory) {
+                if let memoryVM = memoryViewModel {
+                    MemoryView(viewModel: memoryVM)
                 } else {
                     ProgressView()
                 }
@@ -31,16 +54,6 @@ struct ContentView: View {
                     } else {
                         ProgressView()
                     }
-                }
-            }
-
-            Tab("Metrics", systemImage: "chart.xyaxis.line", value: .metrics) {
-                NavigationStack {
-                    MetricsDashboardView(
-                        metricsLogger: metricsLogger,
-                        thermalGovernor: thermalGovernor,
-                        inferenceEngine: inferenceEngine ?? InferenceEngine(metricsLogger: metricsLogger, thermalGovernor: thermalGovernor)
-                    )
                 }
             }
 
@@ -68,22 +81,33 @@ struct ContentView: View {
         let engine = InferenceEngine(metricsLogger: metricsLogger, thermalGovernor: thermalGovernor)
         inferenceEngine = engine
 
+        let convService = ConversationService(database: database, keyValueStore: keyValueStore)
+        conversationService = convService
+
+        let memService = MemoryService(database: database)
+        memoryService = memService
+
         chatViewModel = ChatViewModel(
             inferenceEngine: engine,
             metricsLogger: metricsLogger,
             thermalGovernor: thermalGovernor,
             modelLoader: modelLoader,
             keyValueStore: keyValueStore,
-            database: database
+            database: database,
+            conversationService: convService,
+            memoryService: memService
         )
 
         modelManagerViewModel = ModelManagerViewModel(modelLoader: modelLoader)
+        historyViewModel = HistoryViewModel(conversationService: convService)
+        memoryViewModel = MemoryViewModel(memoryService: memService)
     }
 }
 
 enum AppTab: String {
     case chat
+    case history
+    case memory
     case models
-    case metrics
     case settings
 }

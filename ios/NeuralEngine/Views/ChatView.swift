@@ -3,7 +3,6 @@ import SwiftUI
 struct ChatView: View {
     @Bindable var viewModel: ChatViewModel
     @FocusState private var isInputFocused: Bool
-    @State private var showModelPicker: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -25,6 +24,13 @@ struct ChatView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     if viewModel.isGenerating {
                         liveSpeedBadge
+                    } else {
+                        Button {
+                            viewModel.newConversation()
+                        } label: {
+                            Image(systemName: "square.and.pencil")
+                                .foregroundStyle(.blue)
+                        }
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -34,8 +40,10 @@ struct ChatView: View {
                                 copyConversation()
                             }
                         }
-                        Button("Clear Chat", systemImage: "trash", role: .destructive) {
-                            viewModel.clearChat()
+                        if !viewModel.messages.isEmpty {
+                            Button("Clear Chat", systemImage: "trash", role: .destructive) {
+                                viewModel.clearChat()
+                            }
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
@@ -48,7 +56,7 @@ struct ChatView: View {
 
     private var headerTitle: some View {
         VStack(spacing: 1) {
-            Text("NeuralEngine")
+            Text("Nexus")
                 .font(.subheadline.bold())
 
             HStack(spacing: 4) {
@@ -106,10 +114,10 @@ struct ChatView: View {
             }
 
             VStack(spacing: 8) {
-                Text("On-Device Inference")
+                Text("Nexus AI")
                     .font(.title2.bold())
 
-                Text("Paged KV cache · Speculative decoding\nThermal-aware runtime")
+                Text("On-device intelligence with memory\nPrivate · Fast · Contextual")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -126,9 +134,9 @@ struct ChatView: View {
             }
 
             VStack(spacing: 8) {
-                promptSuggestion("How does on-device inference work?", icon: "cpu")
-                promptSuggestion("Explain the KV cache", icon: "memorychip")
-                promptSuggestion("What is speculative decoding?", icon: "bolt.fill")
+                promptSuggestion("What can you remember about me?", icon: "brain")
+                promptSuggestion("Explain how on-device inference works", icon: "cpu")
+                promptSuggestion("Help me brainstorm project ideas", icon: "lightbulb.fill")
             }
             .padding(.top, 4)
 
@@ -251,7 +259,7 @@ struct ChatView: View {
 
     private func copyConversation() {
         let text = viewModel.messages.map { msg in
-            let role = msg.role == .user ? "You" : "Assistant"
+            let role = msg.role == .user ? "You" : "Nexus"
             return "\(role): \(msg.content)"
         }.joined(separator: "\n\n")
         UIPasteboard.general.string = text
