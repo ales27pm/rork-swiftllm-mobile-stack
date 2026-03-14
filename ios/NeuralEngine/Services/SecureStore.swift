@@ -98,6 +98,66 @@ nonisolated final class SecureStore: Sendable {
         return setData(data, forKey: key)
     }
 
+    func setStringWithBiometric(_ value: String, forKey key: String) -> Bool {
+        guard let data = value.data(using: .utf8) else { return false }
+        delete(key)
+
+        let access = SecAccessControlCreateWithFlags(
+            nil,
+            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            .userPresence,
+            nil
+        )
+
+        var query = baseQuery(key: key)
+        query[kSecValueData as String] = data
+        if let access {
+            query[kSecAttrAccessControl as String] = access
+        } else {
+            query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        }
+
+        let status = SecItemAdd(query as CFDictionary, nil)
+        return status == errSecSuccess
+    }
+
+    func getStringWithBiometric(_ key: String) -> Data? {
+        var query = baseQuery(key: key)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        query[kSecUseOperationPrompt as String] = "Authenticate to access secure data"
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else { return nil }
+        return result as? Data
+    }
+
+    func rotateKey(oldKey: String, newKey: String) -> Bool {
+        guard let data = getData(oldKey) else { return false }
+        let stored = setData(data, forKey: newKey)
+        if stored {
+            delete(oldKey)
+        }
+        return stored
+    }
+
+    func audit() -> SecureStoreAudit {
+        let keys = allKeys()
+        var totalSize: Int = 0
+        for key in keys {
+            if let data = getData(key) {
+                totalSize += data.count
+            }
+        }
+        return SecureStoreAudit(
+            keyCount: keys.count,
+            totalSizeBytes: totalSize,
+            keys: keys,
+            timestamp: Date()
+        )
+    }
+
     private func baseQuery(key: String) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -109,4 +169,11 @@ nonisolated final class SecureStore: Sendable {
         }
         return query
     }
+}
+
+nonisolated struct SecureStoreAudit: Sendable {
+    let keyCount: Int
+    let totalSizeBytes: Int
+    let keys: [String]
+    let timestamp: Date
 }

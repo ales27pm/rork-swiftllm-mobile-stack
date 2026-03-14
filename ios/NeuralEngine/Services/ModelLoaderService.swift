@@ -16,6 +16,7 @@ class ModelLoaderService {
     var activeFormat: ModelFormat = .coreML
 
     private var downloadTasks: [String: Task<Void, Never>] = [:]
+    private let fileSystem = FileSystemService()
 
     init() {
         loadBuiltinRegistry()
@@ -340,8 +341,7 @@ class ModelLoaderService {
         if case .downloading = modelStatuses[modelID] { return }
 
         if loadModelPath(forModelID: modelID) != nil {
-            try? FileManager.default.removeItem(at: modelPathURL(forModelID: modelID))
-            try? FileManager.default.removeItem(at: tokenizerPathURL(forModelID: modelID))
+            fileSystem.deleteModelAssets(forModelID: modelID)
         }
 
         modelStatuses[modelID] = .downloading(progress: 0)
@@ -545,11 +545,7 @@ class ModelLoaderService {
             activeFormat = .coreML
         }
 
-        let modelPathFile = modelPathURL(forModelID: modelID)
-        try? FileManager.default.removeItem(at: modelPathFile)
-
-        let tokenizerPathFile = tokenizerPathURL(forModelID: modelID)
-        try? FileManager.default.removeItem(at: tokenizerPathFile)
+        fileSystem.deleteModelAssets(forModelID: modelID)
     }
 
     func activateModel(_ modelID: String) {
@@ -707,46 +703,34 @@ class ModelLoaderService {
     nonisolated private func compileModel(at url: URL) async throws -> URL {
         do {
             let compiledURL = try await MLModel.compileModel(at: url)
-            let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-            let destURL = cacheDir.appendingPathComponent(url.deletingPathExtension().lastPathComponent + ".mlmodelc")
+            let fs = FileSystemService()
+            let destURL = fs.modelStorageDirectory.appendingPathComponent(url.deletingPathExtension().lastPathComponent + ".mlmodelc")
             if FileManager.default.fileExists(atPath: destURL.path) {
                 try FileManager.default.removeItem(at: destURL)
             }
             try FileManager.default.moveItem(at: compiledURL, to: destURL)
+            fs.excludeFromBackup(destURL)
             return destURL
         } catch {
             throw ModelLoaderError.compilationFailed("Failed to compile model: \(error.localizedDescription)")
         }
     }
 
-    private func modelPathURL(forModelID id: String) -> URL {
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        return cacheDir.appendingPathComponent("model_path_\(id).txt")
-    }
-
-    private func tokenizerPathURL(forModelID id: String) -> URL {
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        return cacheDir.appendingPathComponent("tokenizer_path_\(id).txt")
-    }
-
     private func saveModelPath(_ url: URL, forModelID id: String) throws {
-        try url.path.write(to: modelPathURL(forModelID: id), atomically: true, encoding: .utf8)
+        fileSystem.excludeFromBackup(url)
+        try fileSystem.saveModelPath(url, forModelID: id)
     }
 
     private func saveTokenizerPath(_ url: URL, forModelID id: String) throws {
-        try url.path.write(to: tokenizerPathURL(forModelID: id), atomically: true, encoding: .utf8)
+        try fileSystem.saveTokenizerPath(url, forModelID: id)
     }
 
     private func loadModelPath(forModelID id: String) -> URL? {
-        guard let path = try? String(contentsOf: modelPathURL(forModelID: id), encoding: .utf8) else { return nil }
-        let url = URL(fileURLWithPath: path)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        fileSystem.loadModelPath(forModelID: id)
     }
 
     private func loadTokenizerPath(forModelID id: String) -> URL? {
-        guard let path = try? String(contentsOf: tokenizerPathURL(forModelID: id), encoding: .utf8) else { return nil }
-        let url = URL(fileURLWithPath: path)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        fileSystem.loadTokenizerPath(forModelID: id)
     }
 }
 

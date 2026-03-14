@@ -29,10 +29,41 @@ class InferenceEngine {
 
     private var recoveryInProgress: Bool = false
     private var onRecoveryNeeded: (() -> Void)?
+    private var forceStopObserver: NSObjectProtocol?
+    private var thermalEscalationObserver: NSObjectProtocol?
 
     init(metricsLogger: MetricsLogger, thermalGovernor: ThermalGovernor) {
         self.metricsLogger = metricsLogger
         self.thermalGovernor = thermalGovernor
+        registerForceStopObserver()
+    }
+
+    private func registerForceStopObserver() {
+        forceStopObserver = NotificationCenter.default.addObserver(
+            forName: .forceInferenceStop,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.isGenerating else { return }
+                self.cancel()
+            }
+        }
+
+        thermalEscalationObserver = NotificationCenter.default.addObserver(
+            forName: .thermalStateEscalated,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let newState = notification.userInfo?["newState"] as? Int,
+                   newState >= ProcessInfo.ThermalState.serious.rawValue,
+                   self.isGenerating {
+                    self.metricsLogger.recordThermalState(self.thermalGovernor.thermalLevel)
+                }
+            }
+        }
     }
 
     func attachRunner(_ runner: CoreMLModelRunner, llamaRunner: LlamaModelRunner, tokenizer: TokenizerService, format: ModelFormat) {
@@ -201,6 +232,15 @@ class InferenceEngine {
             while generatedCount < maxTokens {
                 guard !Task.isCancelled else { break }
 
+                if self.thermalGovernor.shouldSuspendInference {
+                    break
+                }
+
+                let delay = self.thermalGovernor.tokenDelaySeconds
+                if delay > 0 {
+                    try? await Task.sleep(for: .seconds(delay))
+                }
+
                 if self.sessionCache.activeLength > self.evictionThreshold {
                     await self.evictSlidingWindow(systemTokenCount: systemTokens.count)
                     runner.resetState()
@@ -363,6 +403,17 @@ class InferenceEngine {
         let mode = thermalGovernor.currentMode
         let maxTokens = min(samplingConfig.maxTokens, mode.maxContextLength)
 
+        if thermalGovernor.shouldSuspendInference {
+            isGenerating = false
+            onComplete(GenerationMetrics(
+                timeToFirstToken: 0, prefillTokensPerSecond: 0,
+                decodeTokensPerSecond: 0, totalTokens: 0,
+                totalDuration: 0, acceptedSpeculativeTokens: 0,
+                rejectedSpeculativeTokens: 0
+            ))
+            return
+        }
+
         generationTask = Task.detached { [weak self] in
             guard let self else { return }
 
@@ -443,6 +494,17 @@ class InferenceEngine {
     func stopHealthMonitor() {
         healthMonitorTask?.cancel()
         healthMonitorTask = nil
+    }
+
+    func removeObservers() {
+        if let observer = forceStopObserver {
+            NotificationCenter.default.removeObserver(observer)
+            forceStopObserver = nil
+        }
+        if let observer = thermalEscalationObserver {
+            NotificationCenter.default.removeObserver(observer)
+            thermalEscalationObserver = nil
+        }
     }
 
     private func evictSlidingWindow(systemTokenCount: Int) async {

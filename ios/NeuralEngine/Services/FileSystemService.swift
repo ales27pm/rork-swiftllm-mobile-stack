@@ -23,6 +23,87 @@ nonisolated final class FileSystemService: Sendable {
         return url
     }
 
+    var modelStorageDirectory: URL {
+        let url = appSupportDirectory.appendingPathComponent("Models", isDirectory: true)
+        if !fm.fileExists(atPath: url.path) {
+            try? fm.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        excludeFromBackup(url)
+        return url
+    }
+
+    var tokenizerStorageDirectory: URL {
+        let url = appSupportDirectory.appendingPathComponent("Tokenizers", isDirectory: true)
+        if !fm.fileExists(atPath: url.path) {
+            try? fm.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        excludeFromBackup(url)
+        return url
+    }
+
+    var modelMetadataDirectory: URL {
+        let url = appSupportDirectory.appendingPathComponent("ModelMeta", isDirectory: true)
+        if !fm.fileExists(atPath: url.path) {
+            try? fm.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        return url
+    }
+
+    func excludeFromBackup(_ url: URL) {
+        var mutableURL = url
+        var resourceValues = URLResourceValues()
+        resourceValues.isExcludedFromBackup = true
+        try? mutableURL.setResourceValues(resourceValues)
+    }
+
+    func isExcludedFromBackup(_ url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.isExcludedFromBackupKey]) else { return false }
+        return values.isExcludedFromBackup ?? false
+    }
+
+    func ensureModelStorageReady() {
+        let _ = modelStorageDirectory
+        let _ = tokenizerStorageDirectory
+        let _ = modelMetadataDirectory
+    }
+
+    func modelPath(forModelID id: String) -> URL {
+        modelMetadataDirectory.appendingPathComponent("model_path_\(id).txt")
+    }
+
+    func tokenizerPath(forModelID id: String) -> URL {
+        modelMetadataDirectory.appendingPathComponent("tokenizer_path_\(id).txt")
+    }
+
+    func saveModelPath(_ url: URL, forModelID id: String) throws {
+        try url.path.write(to: modelPath(forModelID: id), atomically: true, encoding: .utf8)
+    }
+
+    func saveTokenizerPath(_ url: URL, forModelID id: String) throws {
+        try url.path.write(to: tokenizerPath(forModelID: id), atomically: true, encoding: .utf8)
+    }
+
+    func loadModelPath(forModelID id: String) -> URL? {
+        guard let path = try? String(contentsOf: modelPath(forModelID: id), encoding: .utf8) else { return nil }
+        let url = URL(fileURLWithPath: path)
+        return fm.fileExists(atPath: url.path) ? url : nil
+    }
+
+    func loadTokenizerPath(forModelID id: String) -> URL? {
+        guard let path = try? String(contentsOf: tokenizerPath(forModelID: id), encoding: .utf8) else { return nil }
+        let url = URL(fileURLWithPath: path)
+        return fm.fileExists(atPath: url.path) ? url : nil
+    }
+
+    func deleteModelAssets(forModelID id: String) {
+        try? fm.removeItem(at: modelPath(forModelID: id))
+        try? fm.removeItem(at: tokenizerPath(forModelID: id))
+    }
+
+    func modelStorageUsageBytes() -> Int64 {
+        directorySize(at: modelStorageDirectory) + directorySize(at: tokenizerStorageDirectory)
+    }
+
     func readString(at path: URL) -> String? {
         try? String(contentsOf: path, encoding: .utf8)
     }
