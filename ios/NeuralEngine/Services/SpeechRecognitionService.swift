@@ -8,6 +8,7 @@ class SpeechRecognitionService: NSObject {
     var isListening: Bool = false
     var audioLevel: Float = 0
     var error: String?
+    var isSpeechDetected: Bool = false
 
     private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -16,6 +17,19 @@ class SpeechRecognitionService: NSObject {
     private var silenceTimer: Timer?
     private var lastSpeechTime: Date = Date()
     private var onSilenceDetected: (() -> Void)?
+    private var speechStartTime: Date?
+
+    private var recentLevels: [Float] = []
+    private let levelHistorySize = 20
+    private var adaptiveThreshold: Float = -40
+    private var consecutiveSilenceFrames: Int = 0
+    private var consecutiveSpeechFrames: Int = 0
+    private let speechOnsetFrames = 3
+    private let speechOffsetFrames = 4
+
+    private var dynamicSilenceDuration: TimeInterval = 1.8
+    private let minSilenceDuration: TimeInterval = 1.2
+    private let maxSilenceDuration: TimeInterval = 3.0
 
     override init() {
         super.init()
@@ -52,6 +66,12 @@ class SpeechRecognitionService: NSObject {
         onSilenceDetected = onSilence
         transcript = ""
         error = nil
+        isSpeechDetected = false
+        consecutiveSilenceFrames = 0
+        consecutiveSpeechFrames = 0
+        recentLevels.removeAll()
+        dynamicSilenceDuration = 1.8
+        speechStartTime = nil
 
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
@@ -62,6 +82,9 @@ class SpeechRecognitionService: NSObject {
 
         recognitionRequest.shouldReportPartialResults = true
         recognitionRequest.requiresOnDeviceRecognition = speechRecognizer.supportsOnDeviceRecognition
+        if #available(iOS 18, *) {
+            recognitionRequest.addsPunctuation = true
+        }
 
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, taskError in
             guard let self else { return }
@@ -69,6 +92,13 @@ class SpeechRecognitionService: NSObject {
             if let result {
                 self.transcript = result.bestTranscription.formattedString
                 self.lastSpeechTime = Date()
+
+                if !self.isSpeechDetected {
+                    self.isSpeechDetected = true
+                    self.speechStartTime = Date()
+                }
+
+                self.updateDynamicSilenceDuration()
 
                 if result.isFinal {
                     self.stopListening()
@@ -79,11 +109,15 @@ class SpeechRecognitionService: NSObject {
             if let taskError {
                 let nsError = taskError as NSError
                 if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
-                    self.onSilenceDetected?()
+                    if !self.transcript.isEmpty {
+                        self.onSilenceDetected?()
+                    } else {
+                        self.stopListening()
+                    }
                 } else if nsError.code != 216 {
                     self.error = taskError.localizedDescription
+                    self.stopListening()
                 }
-                self.stopListening()
             }
         }
 
@@ -99,15 +133,17 @@ class SpeechRecognitionService: NSObject {
         try audioEngine.start()
         isListening = true
 
-        startSilenceDetection()
+        startAdaptiveSilenceDetection()
     }
 
     func stopListening() {
         silenceTimer?.invalidate()
         silenceTimer = nil
 
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
+        if audioEngine.isRunning {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
 
         recognitionRequest?.endAudio()
         recognitionRequest = nil
@@ -117,6 +153,7 @@ class SpeechRecognitionService: NSObject {
 
         isListening = false
         audioLevel = 0
+        isSpeechDetected = false
 
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
@@ -125,12 +162,30 @@ class SpeechRecognitionService: NSObject {
         guard let channelData = buffer.floatChannelData?[0] else { return }
         let frameLength = Int(buffer.frameLength)
 
-        var sum: Float = 0
+        var sumOfSquares: Float = 0
         for i in 0..<frameLength {
-            sum += abs(channelData[i])
+            sumOfSquares += channelData[i] * channelData[i]
         }
-        let average = sum / Float(frameLength)
-        let db = 20 * log10(max(average, 0.0001))
+        let rms = sqrt(sumOfSquares / Float(frameLength))
+        let db = 20 * log10(max(rms, 0.00001))
+
+        recentLevels.append(db)
+        if recentLevels.count > levelHistorySize {
+            recentLevels.removeFirst()
+        }
+        updateAdaptiveThreshold()
+
+        let isSpeechFrame = db > adaptiveThreshold
+        if isSpeechFrame {
+            consecutiveSpeechFrames += 1
+            consecutiveSilenceFrames = 0
+        } else {
+            consecutiveSilenceFrames += 1
+            if consecutiveSilenceFrames > speechOffsetFrames {
+                consecutiveSpeechFrames = 0
+            }
+        }
+
         let normalized = max(0, min(1, (db + 50) / 50))
 
         Task { @MainActor in
@@ -138,15 +193,66 @@ class SpeechRecognitionService: NSObject {
         }
     }
 
-    private func startSilenceDetection() {
+    private func updateAdaptiveThreshold() {
+        guard recentLevels.count >= 5 else { return }
+        let sorted = recentLevels.sorted()
+        let noiseFloor = sorted[sorted.count / 4]
+        adaptiveThreshold = noiseFloor + 8
+    }
+
+    private func updateDynamicSilenceDuration() {
+        let wordCount = transcript.split(separator: " ").count
+
+        if wordCount <= 3 {
+            dynamicSilenceDuration = minSilenceDuration
+        } else if wordCount <= 10 {
+            dynamicSilenceDuration = 1.5
+        } else {
+            dynamicSilenceDuration = 2.0
+        }
+
+        let endsWithConjunction = transcript.lowercased().hasSuffix(" and") ||
+            transcript.lowercased().hasSuffix(" but") ||
+            transcript.lowercased().hasSuffix(" or") ||
+            transcript.lowercased().hasSuffix(" because") ||
+            transcript.lowercased().hasSuffix(" so") ||
+            transcript.lowercased().hasSuffix(" then")
+
+        if endsWithConjunction {
+            dynamicSilenceDuration = maxSilenceDuration
+        }
+
+        let endsWithComma = transcript.hasSuffix(",")
+        if endsWithComma {
+            dynamicSilenceDuration = min(dynamicSilenceDuration + 0.5, maxSilenceDuration)
+        }
+    }
+
+    private func startAdaptiveSilenceDetection() {
         lastSpeechTime = Date()
-        silenceTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
             guard let self else { return }
             let elapsed = Date().timeIntervalSince(self.lastSpeechTime)
-            if elapsed > 2.0 && !self.transcript.isEmpty {
+
+            guard self.isSpeechDetected else {
+                if elapsed > 8.0 {
+                    self.stopListening()
+                    self.onSilenceDetected?()
+                }
+                return
+            }
+
+            let trimmed = self.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+
+            if elapsed > self.dynamicSilenceDuration {
                 self.stopListening()
                 self.onSilenceDetected?()
             }
         }
+    }
+
+    func detectBargeIn() -> Bool {
+        return consecutiveSpeechFrames >= speechOnsetFrames && audioLevel > 0.15
     }
 }
