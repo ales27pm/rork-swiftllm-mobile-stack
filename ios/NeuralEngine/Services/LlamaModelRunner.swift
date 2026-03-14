@@ -12,6 +12,8 @@ nonisolated final class LlamaModelRunner: @unchecked Sendable {
         return model != nil && context != nil
     }
 
+    private var nBatch: Int32 = 512
+
     func loadModel(at path: String, nCtx: Int32 = 2048, nGPULayers: Int32 = 99) throws {
         lock.lock()
         defer { lock.unlock() }
@@ -25,9 +27,10 @@ nonisolated final class LlamaModelRunner: @unchecked Sendable {
             throw LlamaRunnerError.modelLoadFailed
         }
 
+        let batchSize = min(nCtx, 512)
         var cParams = llama_context_default_params()
         cParams.n_ctx = UInt32(nCtx)
-        cParams.n_batch = UInt32(min(nCtx, 512))
+        cParams.n_batch = UInt32(batchSize)
         let threadCount = max(ProcessInfo.processInfo.activeProcessorCount - 2, 1)
         cParams.n_threads = Int32(threadCount)
         cParams.n_threads_batch = Int32(threadCount)
@@ -39,6 +42,7 @@ nonisolated final class LlamaModelRunner: @unchecked Sendable {
 
         model = loadedModel
         context = ctx
+        nBatch = batchSize
     }
 
     func generate(
@@ -74,13 +78,18 @@ nonisolated final class LlamaModelRunner: @unchecked Sendable {
         let prefillStart = Date()
 
         var tokens = promptTokens
-        let batch = tokens.withUnsafeMutableBufferPointer { buf in
-            llama_batch_get_one(buf.baseAddress, Int32(buf.count))
-        }
-
-        let prefillResult = llama_decode(context, batch)
-        guard prefillResult == 0 else {
-            throw LlamaRunnerError.decodeFailed
+        let chunkSize = Int(nBatch)
+        var offset = 0
+        while offset < tokens.count {
+            let end = min(offset + chunkSize, tokens.count)
+            let chunkCount = end - offset
+            let result = tokens.withUnsafeMutableBufferPointer { buf in
+                llama_decode(context, llama_batch_get_one(buf.baseAddress! + offset, Int32(chunkCount)))
+            }
+            guard result == 0 else {
+                throw LlamaRunnerError.decodeFailed
+            }
+            offset = end
         }
 
         let prefillDuration = Date().timeIntervalSince(prefillStart)

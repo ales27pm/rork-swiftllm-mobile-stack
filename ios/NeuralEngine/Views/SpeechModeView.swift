@@ -15,7 +15,15 @@ struct SpeechModeView: View {
     var body: some View {
         ZStack {
             backgroundLayer
-            contentLayer
+            VStack(spacing: 0) {
+                topBar
+                Spacer()
+                orbSection
+                Spacer()
+                transcriptArea
+                bottomControls
+            }
+            .padding(.bottom, 20)
         }
         .task {
             await viewModel.requestPermissions()
@@ -35,83 +43,76 @@ struct SpeechModeView: View {
     private var backgroundGradient: LinearGradient {
         switch viewModel.state {
         case .idle:
-            return LinearGradient(colors: [.black, Color(white: 0.08), .black], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [.black, Color(white: 0.08), .black], startPoint: .top, endPoint: .bottom)
         case .listening:
-            return LinearGradient(colors: [Color(red: 0, green: 0.05, blue: 0.2), Color(red: 0.05, green: 0.15, blue: 0.4), Color(red: 0, green: 0.05, blue: 0.15)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [Color(red: 0, green: 0.05, blue: 0.2), Color(red: 0.05, green: 0.15, blue: 0.4), Color(red: 0, green: 0.05, blue: 0.15)], startPoint: .top, endPoint: .bottom)
         case .processing:
-            return LinearGradient(colors: [Color(red: 0.1, green: 0, blue: 0.2), Color(red: 0.2, green: 0.05, blue: 0.35), Color(red: 0.08, green: 0, blue: 0.15)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [Color(red: 0.1, green: 0, blue: 0.2), Color(red: 0.2, green: 0.05, blue: 0.35), Color(red: 0.08, green: 0, blue: 0.15)], startPoint: .top, endPoint: .bottom)
         case .speaking:
-            return LinearGradient(colors: [Color(red: 0, green: 0.1, blue: 0.08), Color(red: 0.02, green: 0.22, blue: 0.15), Color(red: 0, green: 0.08, blue: 0.05)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [Color(red: 0, green: 0.1, blue: 0.08), Color(red: 0.02, green: 0.22, blue: 0.15), Color(red: 0, green: 0.08, blue: 0.05)], startPoint: .top, endPoint: .bottom)
         }
-    }
-
-    private var contentLayer: some View {
-        VStack(spacing: 0) {
-            topBar
-            Spacer()
-            orbSection
-            Spacer()
-            transcriptArea
-            bottomControls
-        }
-        .padding(.bottom, 20)
     }
 
     private var topBar: some View {
         HStack {
-            closeButton
+            Button {
+                viewModel.stopConversation()
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .frame(width: 36, height: 36)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Circle())
+            }
+
             Spacer()
-            statusLabel
+
+            VStack(spacing: 2) {
+                Text(stateLabel)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text("Speech Mode")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+
             Spacer()
+
             Color.clear.frame(width: 36, height: 36)
         }
         .padding(.horizontal, 20)
         .padding(.top, 8)
     }
 
-    private var closeButton: some View {
-        Button {
-            viewModel.stopConversation()
-            dismiss()
-        } label: {
-            Image(systemName: "xmark")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.7))
-                .frame(width: 36, height: 36)
-                .background(.ultraThinMaterial)
-                .clipShape(Circle())
-        }
-    }
-
-    private var statusLabel: some View {
-        VStack(spacing: 2) {
-            Text(stateLabel)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-            Text("Speech Mode")
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(0.5))
-        }
-    }
-
     private var stateLabel: String {
         switch viewModel.state {
-        case .idle: return "Ready"
-        case .listening: return "Listening..."
-        case .processing: return "Thinking..."
-        case .speaking: return "Speaking..."
+        case .idle: "Ready"
+        case .listening: "Listening..."
+        case .processing: "Thinking..."
+        case .speaking: "Speaking..."
         }
     }
 
     private var orbSection: some View {
-        ZStack {
-            orbRing0
-            orbRing1
-            orbRing2
-            orbCenter
-            orbStateIcon
+        OrbCanvasView(
+            phase: wavePhase,
+            state: viewModel.state,
+            orbRotation: orbRotation,
+            glowOpacity: glowOpacity,
+            pulseScale: pulseScale,
+            audioLevel: viewModel.audioLevel
+        )
+        .frame(width: 240, height: 240)
+        .onAppear {
+            withAnimation(.linear(duration: 20).repeatForever(autoreverses: false)) {
+                orbRotation = 360
+            }
+            withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
+                glowOpacity = 0.6
+            }
         }
-        .onAppear { startOrbAnimations() }
         .onChange(of: viewModel.state) { _, newState in
             withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) {
                 switch newState {
@@ -126,183 +127,79 @@ struct SpeechModeView: View {
         }
     }
 
-    private func startOrbAnimations() {
-        withAnimation(.linear(duration: 20).repeatForever(autoreverses: false)) {
-            orbRotation = 360
-        }
-        withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) {
-            glowOpacity = 0.6
-        }
-    }
-
-    private var orbRing0: some View {
-        makeRing(index: 0, size: 140)
-    }
-
-    private var orbRing1: some View {
-        makeRing(index: 1, size: 180)
-    }
-
-    private var orbRing2: some View {
-        makeRing(index: 2, size: 220)
-    }
-
-    private func makeRing(index: Int, size: CGFloat) -> some View {
-        let ringPhase = wavePhase + Double(index) * 0.8
-        let amp = orbAmplitude(for: index)
-        let ringOpacity = 0.3 - Double(index) * 0.08
-        let rotation = orbRotation + Double(index) * 30
-        return WaveRing(phase: ringPhase, amplitude: amp, ringIndex: index)
-            .stroke(ringColor.opacity(ringOpacity), lineWidth: 1.5)
-            .frame(width: size, height: size)
-            .rotationEffect(.degrees(rotation))
-    }
-
-    private var ringColor: Color {
-        switch viewModel.state {
-        case .idle: return .gray
-        case .listening: return .cyan
-        case .processing: return .purple
-        case .speaking: return .mint
-        }
-    }
-
-    private var orbCenter: some View {
-        let glowColor = orbGlowColor
-        let shadow1 = glowColor.opacity(glowOpacity)
-        let shadow2 = glowColor.opacity(glowOpacity * 0.5)
-        return Circle()
-            .fill(orbFill)
-            .frame(width: 120, height: 120)
-            .scaleEffect(pulseScale)
-            .shadow(color: shadow1, radius: 40)
-            .shadow(color: shadow2, radius: 80)
-    }
-
-    private var orbFill: RadialGradient {
-        RadialGradient(colors: orbCenterColors, center: .center, startRadius: 0, endRadius: 60)
-    }
-
-    private var orbCenterColors: [Color] {
-        switch viewModel.state {
-        case .idle: return [.white.opacity(0.15), .white.opacity(0.02)]
-        case .listening: return [.blue.opacity(0.4), .blue.opacity(0.05)]
-        case .processing: return [.purple.opacity(0.4), .purple.opacity(0.05)]
-        case .speaking: return [.green.opacity(0.3), .green.opacity(0.05)]
-        }
-    }
-
-    private var orbGlowColor: Color {
-        switch viewModel.state {
-        case .idle: return .white
-        case .listening: return .blue
-        case .processing: return .purple
-        case .speaking: return .green
-        }
-    }
-
-    private var orbStateIcon: some View {
-        Image(systemName: stateIcon)
-            .font(.system(size: 32, weight: .light))
-            .foregroundStyle(.white)
-    }
-
-    private var stateIcon: String {
-        switch viewModel.state {
-        case .idle: return "waveform"
-        case .listening: return "ear.fill"
-        case .processing: return "brain.filled.head.profile"
-        case .speaking: return "mouth.fill"
-        }
-    }
-
-    private func orbAmplitude(for ring: Int) -> Double {
-        let base: Double
-        switch viewModel.state {
-        case .idle: base = 0.02
-        case .listening: base = Double(viewModel.audioLevel) * 0.15 + 0.03
-        case .processing: base = 0.06
-        case .speaking: base = 0.08
-        }
-        return base * (1.0 - Double(ring) * 0.2)
-    }
-
     private var transcriptArea: some View {
         VStack(spacing: 12) {
-            userTranscriptText
-            responseTranscriptText
-            errorText
+            if !viewModel.displayText.isEmpty {
+                Text(viewModel.displayText)
+                    .font(.body)
+                    .foregroundStyle(.white.opacity(0.9))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .padding(.horizontal, 32)
+            }
+
+            if viewModel.state == .speaking, !viewModel.responseText.isEmpty {
+                Text(viewModel.responseText)
+                    .font(.callout)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(4)
+                    .padding(.horizontal, 32)
+            }
+
+            if let error = viewModel.errorMessage {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 32)
+            }
         }
         .frame(minHeight: 100)
         .animation(.easeInOut(duration: 0.3), value: viewModel.displayText)
         .animation(.easeInOut(duration: 0.3), value: viewModel.responseText)
     }
 
-    @ViewBuilder
-    private var userTranscriptText: some View {
-        if !viewModel.displayText.isEmpty {
-            Text(viewModel.displayText)
-                .font(.body)
-                .foregroundStyle(.white.opacity(0.9))
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
-                .padding(.horizontal, 32)
-        }
-    }
-
-    @ViewBuilder
-    private var responseTranscriptText: some View {
-        if viewModel.state == .speaking, !viewModel.responseText.isEmpty {
-            Text(viewModel.responseText)
-                .font(.callout)
-                .foregroundStyle(.white.opacity(0.6))
-                .multilineTextAlignment(.center)
-                .lineLimit(4)
-                .padding(.horizontal, 32)
-        }
-    }
-
-    @ViewBuilder
-    private var errorText: some View {
-        if let error = viewModel.errorMessage {
-            Label(error, systemImage: "exclamationmark.triangle.fill")
-                .font(.caption)
-                .foregroundStyle(.orange)
-                .padding(.horizontal, 32)
-        }
-    }
-
     private var bottomControls: some View {
         HStack(spacing: 40) {
-            skipButton
-            mainButton
-            endButton
+            if viewModel.state == .speaking {
+                Button {
+                    viewModel.synthesisService.stop()
+                    viewModel.startListening()
+                } label: {
+                    secondaryButtonLabel(icon: "forward.fill", text: "Skip")
+                }
+            }
+
+            Button {
+                handleMainButton()
+            } label: {
+                VStack(spacing: 6) {
+                    Circle()
+                        .fill(mainButtonColor.gradient)
+                        .frame(width: 72, height: 72)
+                        .shadow(color: mainButtonColor.opacity(0.4), radius: 12)
+                        .overlay {
+                            Image(systemName: mainButtonIconName)
+                                .font(.title.weight(.semibold))
+                                .foregroundStyle(.white)
+                        }
+                    Text(mainButtonText)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+            }
+            .sensoryFeedback(.impact(weight: .medium), trigger: viewModel.state)
+
+            if viewModel.state != .idle {
+                Button {
+                    viewModel.stopConversation()
+                } label: {
+                    secondaryButtonLabel(icon: "stop.fill", text: "End")
+                }
+            }
         }
         .padding(.bottom, 20)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: viewModel.state)
-    }
-
-    @ViewBuilder
-    private var skipButton: some View {
-        if viewModel.state == .speaking {
-            Button {
-                viewModel.synthesisService.stop()
-                viewModel.startListening()
-            } label: {
-                secondaryButtonLabel(icon: "forward.fill", text: "Skip")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var endButton: some View {
-        if viewModel.state != .idle {
-            Button {
-                viewModel.stopConversation()
-            } label: {
-                secondaryButtonLabel(icon: "stop.fill", text: "End")
-            }
-        }
     }
 
     private func secondaryButtonLabel(icon: String, text: String) -> some View {
@@ -319,56 +216,30 @@ struct SpeechModeView: View {
         }
     }
 
-    private var mainButton: some View {
-        Button {
-            handleMainButton()
-        } label: {
-            mainButtonLabel
-        }
-        .sensoryFeedback(.impact(weight: .medium), trigger: viewModel.state)
-    }
-
-    private var mainButtonLabel: some View {
-        VStack(spacing: 6) {
-            ZStack {
-                Circle()
-                    .fill(mainButtonColor.gradient)
-                    .frame(width: 72, height: 72)
-                    .shadow(color: mainButtonColor.opacity(0.4), radius: 12)
-                Image(systemName: mainButtonIconName)
-                    .font(.title.weight(.semibold))
-                    .foregroundStyle(.white)
-            }
-            Text(mainButtonText)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(0.6))
-        }
-    }
-
     private var mainButtonIconName: String {
         switch viewModel.state {
-        case .idle: return "mic.fill"
-        case .listening: return "mic.slash.fill"
-        case .processing: return "ellipsis"
-        case .speaking: return "mic.fill"
+        case .idle: "mic.fill"
+        case .listening: "mic.slash.fill"
+        case .processing: "ellipsis"
+        case .speaking: "mic.fill"
         }
     }
 
     private var mainButtonText: String {
         switch viewModel.state {
-        case .idle: return "Tap to Speak"
-        case .listening: return "Listening"
-        case .processing: return "Processing"
-        case .speaking: return "Interrupt"
+        case .idle: "Tap to Speak"
+        case .listening: "Listening"
+        case .processing: "Processing"
+        case .speaking: "Interrupt"
         }
     }
 
     private var mainButtonColor: Color {
         switch viewModel.state {
-        case .idle: return .blue
-        case .listening: return .red
-        case .processing: return .purple
-        case .speaking: return .blue
+        case .idle: .blue
+        case .listening: .red
+        case .processing: .purple
+        case .speaking: .blue
         }
     }
 
@@ -395,39 +266,130 @@ struct SpeechModeView: View {
     }
 }
 
-struct WaveRing: Shape {
-    var phase: Double
-    var amplitude: Double
-    var ringIndex: Int
+private struct OrbCanvasView: View {
+    let phase: Double
+    let state: SpeechModeState
+    let orbRotation: Double
+    let glowOpacity: Double
+    let pulseScale: CGFloat
+    let audioLevel: Float
 
-    var animatableData: AnimatablePair<Double, Double> {
-        get { AnimatablePair(phase, amplitude) }
-        set {
-            phase = newValue.first
-            amplitude = newValue.second
+    var body: some View {
+        Canvas { context, size in
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let ringColor = ringResolvedColor
+
+            for ringIndex in (0..<3).reversed() {
+                let baseSize: CGFloat = [140, 180, 220][ringIndex]
+                let radius = baseSize / 2
+                let ringPhase = phase + Double(ringIndex) * 0.8
+                let amp = orbAmplitude(for: ringIndex)
+                let ringOpacity = 0.3 - Double(ringIndex) * 0.08
+                let rotation = orbRotation + Double(ringIndex) * 30
+
+                var path = Path()
+                let pointCount = 180
+                for i in 0...pointCount {
+                    let angle = (Double(i) / Double(pointCount)) * 2 * .pi
+                    let wave = sin(angle * Double(4 + ringIndex) + ringPhase) * amp * radius
+                    let r = radius + wave
+                    let rotRad = rotation * .pi / 180
+                    let cosA = cos(angle + rotRad)
+                    let sinA = sin(angle + rotRad)
+                    let x = center.x + r * cosA
+                    let y = center.y + r * sinA
+                    if i == 0 {
+                        path.move(to: CGPoint(x: x, y: y))
+                    } else {
+                        path.addLine(to: CGPoint(x: x, y: y))
+                    }
+                }
+                path.closeSubpath()
+
+                context.stroke(path, with: .color(ringColor.opacity(ringOpacity)), lineWidth: 1.5)
+            }
+
+            let orbRadius: CGFloat = 60 * pulseScale
+            let glowColor = orbGlowResolvedColor
+
+            var orbPath = Path()
+            orbPath.addEllipse(in: CGRect(
+                x: center.x - orbRadius,
+                y: center.y - orbRadius,
+                width: orbRadius * 2,
+                height: orbRadius * 2
+            ))
+
+            context.fill(orbPath, with: .radialGradient(
+                Gradient(colors: orbCenterColors),
+                center: center,
+                startRadius: 0,
+                endRadius: orbRadius
+            ))
+
+            context.drawLayer { ctx in
+                ctx.addFilter(.blur(radius: 40))
+                var glowPath = Path()
+                glowPath.addEllipse(in: CGRect(
+                    x: center.x - orbRadius,
+                    y: center.y - orbRadius,
+                    width: orbRadius * 2,
+                    height: orbRadius * 2
+                ))
+                ctx.fill(glowPath, with: .color(glowColor.opacity(glowOpacity)))
+            }
+        }
+        .overlay {
+            Image(systemName: stateIcon)
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(.white)
         }
     }
 
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let radius = min(rect.width, rect.height) / 2
-        let pointCount = 180
-
-        for i in 0...pointCount {
-            let angle = (Double(i) / Double(pointCount)) * 2 * .pi
-            let wave = sin(angle * Double(4 + ringIndex) + phase) * amplitude * radius
-            let r = radius + wave
-            let x = center.x + r * cos(angle)
-            let y = center.y + r * sin(angle)
-            let point = CGPoint(x: x, y: y)
-            if i == 0 {
-                path.move(to: point)
-            } else {
-                path.addLine(to: point)
-            }
+    private var stateIcon: String {
+        switch state {
+        case .idle: "waveform"
+        case .listening: "ear.fill"
+        case .processing: "brain.filled.head.profile"
+        case .speaking: "mouth.fill"
         }
-        path.closeSubpath()
-        return path
+    }
+
+    private var ringResolvedColor: Color {
+        switch state {
+        case .idle: .gray
+        case .listening: .cyan
+        case .processing: .purple
+        case .speaking: .mint
+        }
+    }
+
+    private var orbGlowResolvedColor: Color {
+        switch state {
+        case .idle: .white
+        case .listening: .blue
+        case .processing: .purple
+        case .speaking: .green
+        }
+    }
+
+    private var orbCenterColors: [Color] {
+        switch state {
+        case .idle: [.white.opacity(0.15), .white.opacity(0.02)]
+        case .listening: [.blue.opacity(0.4), .blue.opacity(0.05)]
+        case .processing: [.purple.opacity(0.4), .purple.opacity(0.05)]
+        case .speaking: [.green.opacity(0.3), .green.opacity(0.05)]
+        }
+    }
+
+    private func orbAmplitude(for ring: Int) -> Double {
+        let base: Double
+        switch state {
+        case .idle: base = 0.02
+        case .listening: base = Double(audioLevel) * 0.15 + 0.03
+        case .processing: base = 0.06
+        case .speaking: base = 0.08
+        }
+        return base * (1.0 - Double(ring) * 0.2)
     }
 }
