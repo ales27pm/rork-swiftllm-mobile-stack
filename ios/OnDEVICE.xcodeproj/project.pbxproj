@@ -420,6 +420,8 @@
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Nexus needs calendar access to read and create events when you ask about your schedule.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "Nexus needs contacts access to look up people when you ask.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Nexus needs your location to answer location-based questions.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Nexus needs microphone access for speech mode to listen to your voice.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Nexus uses speech recognition to convert your voice into text for the AI assistant.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -459,6 +461,8 @@
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "Nexus needs calendar access to read and create events when you ask about your schedule.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "Nexus needs contacts access to look up people when you ask.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Nexus needs your location to answer location-based questions.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Nexus needs microphone access for speech mode to listen to your voice.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Nexus uses speech recognition to convert your voice into text for the AI assistant.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

@@ -2,7 +2,9 @@ import SwiftUI
 
 struct ChatView: View {
     @Bindable var viewModel: ChatViewModel
+    @Bindable var speechViewModel: SpeechViewModel
     @FocusState private var isInputFocused: Bool
+    @State private var showSpeechMode: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -268,24 +270,43 @@ struct ChatView: View {
                     }
                     .sensoryFeedback(.impact(weight: .medium), trigger: viewModel.isGenerating)
                 } else {
-                    Button {
-                        viewModel.sendMessage()
-                    } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(
-                                viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                    ? Color(.tertiaryLabel)
-                                    : .blue
-                            )
+                    HStack(spacing: 8) {
+                        Button {
+                            showSpeechMode = true
+                        } label: {
+                            Image(systemName: "waveform.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [.blue, .purple],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        }
+
+                        Button {
+                            viewModel.sendMessage()
+                        } label: {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(
+                                    viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                        ? Color(.tertiaryLabel)
+                                        : .blue
+                                )
+                        }
+                        .disabled(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    .disabled(viewModel.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .sensoryFeedback(.impact(weight: .light), trigger: viewModel.messages.count)
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Color(.secondarySystemBackground))
+        }
+        .fullScreenCover(isPresented: $showSpeechMode) {
+            SpeechModeView(viewModel: speechViewModel)
         }
     }
 

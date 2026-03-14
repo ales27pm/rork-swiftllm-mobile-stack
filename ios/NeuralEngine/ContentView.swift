@@ -18,12 +18,13 @@ struct ContentView: View {
     @State private var conversationService: ConversationService?
     @State private var memoryService: MemoryService?
     @State private var toolExecutor = ToolExecutor()
+    @State private var speechViewModel = SpeechViewModel()
 
     var body: some View {
         TabView(selection: $selectedTab) {
             Tab("Chat", systemImage: "sparkles", value: .chat) {
                 if let chatVM = chatViewModel {
-                    ChatView(viewModel: chatVM)
+                    ChatView(viewModel: chatVM, speechViewModel: speechViewModel)
                 } else {
                     ProgressView()
                 }
@@ -103,6 +104,10 @@ struct ContentView: View {
         modelManagerViewModel = ModelManagerViewModel(modelLoader: modelLoader)
         historyViewModel = HistoryViewModel(conversationService: convService)
         memoryViewModel = MemoryViewModel(memoryService: memService)
+
+        if let chatVM = chatViewModel {
+            speechViewModel.attach(to: chatVM)
+        }
     }
 }
 
