@@ -12,6 +12,10 @@ class ChatViewModel {
     var toolsEnabled: Bool = true
     var isVoiceMode: Bool = false
     var lastCognitionFrame: CognitionFrame?
+    var lastError: WrappedError?
+    var loadingProgress: Double = 0.0
+    var statusMessage: String = "Idle"
+    var isModelLoading: Bool = false
 
     var currentConversationId: String?
 
@@ -49,10 +53,62 @@ class ChatViewModel {
         restoreSettings()
     }
 
+    func dismissError() {
+        lastError = nil
+    }
+
+    func safeModelLoad() async {
+        guard !isModelLoading else { return }
+        isModelLoading = true
+        statusMessage = "Loading model..."
+        loadingProgress = 0.1
+        lastError = nil
+
+        do {
+            guard let modelID = modelLoader.activeModelID,
+                  let manifest = modelLoader.availableModels.first(where: { $0.id == modelID }) else {
+                isModelLoading = false
+                statusMessage = "No model selected"
+                loadingProgress = 0
+                return
+            }
+
+            loadingProgress = 0.3
+            statusMessage = "Initializing \(manifest.name)..."
+
+            if manifest.format == .gguf {
+                modelLoader.activateModel(modelID)
+            } else {
+                modelLoader.activateModel(modelID)
+            }
+
+            loadingProgress = 0.7
+            statusMessage = "Attaching engine..."
+
+            inferenceEngine.attachRunner(
+                modelLoader.modelRunner,
+                llamaRunner: modelLoader.llamaRunner,
+                tokenizer: modelLoader.tokenizer,
+                format: modelLoader.activeFormat
+            )
+
+            loadingProgress = 1.0
+            statusMessage = "Ready"
+        } catch {
+            let wrapped = NativeErrorWrapper.synthesize(error)
+            lastError = wrapped
+            statusMessage = wrapped.userMessage
+            loadingProgress = 0
+        }
+
+        isModelLoading = false
+    }
+
     func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         guard !isGenerating else { return }
+        lastError = nil
 
         if currentConversationId == nil {
             let conv = conversationService.createConversation(modelId: modelLoader.activeModelID)
@@ -67,6 +123,7 @@ class ChatViewModel {
             conversationService.saveMessage(userMessage, conversationId: convId)
         }
 
+        statusMessage = "Generating..."
         generateResponse(userText: text)
     }
 
@@ -74,6 +131,7 @@ class ChatViewModel {
         let assistantMessage = Message(role: .assistant, content: "", isStreaming: true)
         messages.append(assistantMessage)
         isGenerating = true
+        statusMessage = "Thinking..."
 
         let assistantIndex = messages.count - 1
 
@@ -112,16 +170,30 @@ class ChatViewModel {
             onToken: { [weak self] token in
                 guard let self else { return }
                 self.messages[assistantIndex].content += token
+                self.statusMessage = "Streaming..."
             },
             onComplete: { [weak self] metrics in
                 guard let self else { return }
                 self.messages[assistantIndex].isStreaming = false
                 self.messages[assistantIndex].metrics = metrics
                 self.isGenerating = false
+                self.statusMessage = "Ready"
 
                 let fullContent = self.messages[assistantIndex].content
 
+                if fullContent.isEmpty && metrics.totalTokens == 0 {
+                    let wrapped = WrappedError(
+                        domain: .inference,
+                        severity: .warning,
+                        userMessage: "No response generated. The model may need to be reloaded.",
+                        technicalDetail: "0 tokens generated, duration=\(metrics.totalDuration)s",
+                        recoveryAction: .reloadModel
+                    )
+                    self.lastError = wrapped
+                }
+
                 if self.toolsEnabled && ToolCallParser.containsToolCall(fullContent) {
+                    self.statusMessage = "Executing tools..."
                     self.handleToolCalls(assistantIndex: assistantIndex, userText: userText)
                 } else {
                     self.finalizeResponse(assistantIndex: assistantIndex, userText: userText)
@@ -192,6 +264,7 @@ class ChatViewModel {
             messages[lastIndex].isStreaming = false
         }
         isGenerating = false
+        statusMessage = "Stopped"
     }
 
     func clearChat() {
@@ -199,6 +272,8 @@ class ChatViewModel {
         messages.removeAll()
         isGenerating = false
         currentConversationId = nil
+        lastError = nil
+        statusMessage = "Idle"
     }
 
     func newConversation() {
@@ -206,6 +281,8 @@ class ChatViewModel {
         messages.removeAll()
         isGenerating = false
         currentConversationId = nil
+        lastError = nil
+        statusMessage = "Ready"
     }
 
     func loadConversation(_ id: String) {

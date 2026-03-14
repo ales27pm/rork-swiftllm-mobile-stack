@@ -108,6 +108,20 @@ struct SpeechModeView: View {
                     Color(red: 0, green: 0.04, blue: 0.03), Color(red: 0, green: 0.08, blue: 0.05), Color(red: 0, green: 0.04, blue: 0.03)
                 ]
             )
+        case .timedOut, .error:
+            MeshGradient(
+                width: 3, height: 3,
+                points: [
+                    [0, 0], [0.5, 0], [1, 0],
+                    [0, 0.5], [0.5, 0.5], [1, 0.5],
+                    [0, 1], [0.5, 1], [1, 1]
+                ],
+                colors: [
+                    Color(red: 0.12, green: 0.02, blue: 0), Color(red: 0.15, green: 0.03, blue: 0), Color(red: 0.12, green: 0.02, blue: 0),
+                    Color(red: 0.2, green: 0.05, blue: 0.02), Color(red: 0.3, green: 0.08, blue: 0.03), Color(red: 0.2, green: 0.05, blue: 0.02),
+                    Color(red: 0.08, green: 0.01, blue: 0), Color(red: 0.1, green: 0.02, blue: 0), Color(red: 0.08, green: 0.01, blue: 0)
+                ]
+            )
         }
     }
 
@@ -170,6 +184,8 @@ struct SpeechModeView: View {
         case .listening: .cyan
         case .processing: .purple
         case .speaking: .green
+        case .timedOut: .orange
+        case .error: .red
         }
     }
 
@@ -179,6 +195,8 @@ struct SpeechModeView: View {
         case .listening: "Listening"
         case .processing: "Thinking"
         case .speaking: "Speaking"
+        case .timedOut: "Timed Out"
+        case .error: "Error"
         }
     }
 
@@ -371,6 +389,8 @@ struct SpeechModeView: View {
         case .listening: "mic.badge.xmark"
         case .processing: "ellipsis"
         case .speaking: "mic.fill"
+        case .timedOut: "arrow.clockwise"
+        case .error: "exclamationmark.triangle.fill"
         }
     }
 
@@ -380,6 +400,8 @@ struct SpeechModeView: View {
         case .listening: .red
         case .processing: .purple
         case .speaking: .blue
+        case .timedOut: .orange
+        case .error: .red
         }
     }
 
@@ -401,6 +423,9 @@ struct SpeechModeView: View {
             break
         case .speaking:
             viewModel.interruptAndListen()
+        case .timedOut, .error:
+            viewModel.dismissError()
+            viewModel.startConversation()
         }
     }
 }
@@ -566,6 +591,8 @@ private struct OrbCanvasView: View {
         case .listening: "ear.fill"
         case .processing: "brain.filled.head.profile"
         case .speaking: "mouth.fill"
+        case .timedOut: "clock.arrow.circlepath"
+        case .error: "exclamationmark.triangle"
         }
     }
 
@@ -575,6 +602,8 @@ private struct OrbCanvasView: View {
         case .listening: .cyan
         case .processing: .purple
         case .speaking: .mint
+        case .timedOut: .orange
+        case .error: .red
         }
     }
 
@@ -584,6 +613,8 @@ private struct OrbCanvasView: View {
         case .listening: .blue
         case .processing: .purple
         case .speaking: .green
+        case .timedOut: .orange
+        case .error: .red
         }
     }
 
@@ -593,6 +624,8 @@ private struct OrbCanvasView: View {
         case .listening: [.blue.opacity(0.45), .cyan.opacity(0.05)]
         case .processing: [.purple.opacity(0.45), .indigo.opacity(0.05)]
         case .speaking: [.green.opacity(0.35), .mint.opacity(0.05)]
+        case .timedOut: [.orange.opacity(0.35), .yellow.opacity(0.05)]
+        case .error: [.red.opacity(0.35), .orange.opacity(0.05)]
         }
     }
 
@@ -603,6 +636,7 @@ private struct OrbCanvasView: View {
         case .listening: base = Double(audioLevel) * 0.18 + 0.025
         case .processing: base = 0.05 + sin(phase * 2) * 0.02
         case .speaking: base = 0.06 + speechProgress * 0.04
+        case .timedOut, .error: base = 0.02
         }
         return base * (1.0 - Double(ring) * 0.15)
     }

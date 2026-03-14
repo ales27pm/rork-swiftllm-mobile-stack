@@ -5,6 +5,8 @@ nonisolated enum SpeechModeState: Sendable {
     case listening
     case processing
     case speaking
+    case timedOut
+    case error
 }
 
 nonisolated struct VoiceTranscriptEntry: Identifiable, Sendable {
@@ -29,10 +31,13 @@ class SpeechViewModel {
     var audioLevel: Float = 0
     var isAuthorized: Bool = false
     var errorMessage: String?
+    var lastError: WrappedError?
     var conversationTranscript: [VoiceTranscriptEntry] = []
     var isAutoListenEnabled: Bool = true
     var turnCount: Int = 0
     var sessionDuration: TimeInterval = 0
+    var statusMessage: String = "Idle"
+    var consecutiveTimeouts: Int = 0
 
     let recognitionService = SpeechRecognitionService()
     let synthesisService = SpeechSynthesisService()
@@ -41,22 +46,45 @@ class SpeechViewModel {
     private var sessionStartTime: Date?
     private var sessionTimer: Timer?
     private var bargeInMonitor: Timer?
+    private var responseWaitTask: Task<Void, Never>?
+
+    private let inactivityTimeoutSeconds: TimeInterval = 15
+    private let maxConsecutiveTimeouts = 3
 
     func attach(to chatViewModel: ChatViewModel) {
         self.chatViewModel = chatViewModel
     }
 
+    func dismissError() {
+        lastError = nil
+        errorMessage = nil
+        if state == .error || state == .timedOut {
+            state = .idle
+        }
+    }
+
     func requestPermissions() async {
         isAuthorized = await recognitionService.requestAuthorization()
         if !isAuthorized {
-            errorMessage = recognitionService.error ?? "Permissions required for speech mode"
+            let msg = recognitionService.error ?? "Permissions required for speech mode"
+            errorMessage = msg
+            lastError = WrappedError(
+                domain: .speech,
+                severity: .warning,
+                userMessage: msg,
+                technicalDetail: "SFSpeechRecognizer or AVAudioSession authorization denied",
+                recoveryAction: .none
+            )
         }
     }
 
     func startConversation() {
         guard isAuthorized else { return }
         errorMessage = nil
+        lastError = nil
+        consecutiveTimeouts = 0
         chatViewModel?.isVoiceMode = true
+        statusMessage = "Starting..."
 
         if sessionStartTime == nil {
             sessionStartTime = Date()
@@ -68,6 +96,8 @@ class SpeechViewModel {
     }
 
     func stopConversation() {
+        responseWaitTask?.cancel()
+        responseWaitTask = nil
         recognitionService.stopListening()
         synthesisService.stop()
         stopBargeInMonitor()
@@ -80,6 +110,8 @@ class SpeechViewModel {
         audioLevel = 0
         sessionStartTime = nil
         sessionDuration = 0
+        consecutiveTimeouts = 0
+        statusMessage = "Idle"
     }
 
     func startListening() {
@@ -87,6 +119,8 @@ class SpeechViewModel {
         displayText = ""
         responseText = ""
         stopBargeInMonitor()
+        statusMessage = "Listening..."
+        consecutiveTimeouts = 0
 
         do {
             try recognitionService.startListening { [weak self] in
@@ -98,6 +132,7 @@ class SpeechViewModel {
                         self.startListening()
                     } else {
                         self.state = .idle
+                        self.statusMessage = "Ready"
                     }
                     return
                 }
@@ -105,14 +140,19 @@ class SpeechViewModel {
                 self.processTranscript(transcript)
             }
         } catch {
-            errorMessage = error.localizedDescription
-            state = .idle
+            let wrapped = NativeErrorWrapper.synthesize(error)
+            lastError = wrapped
+            errorMessage = wrapped.userMessage
+            state = .error
+            statusMessage = "Speech error"
         }
     }
 
     func interruptAndListen() {
         synthesisService.stop()
         stopBargeInMonitor()
+        responseWaitTask?.cancel()
+        responseWaitTask = nil
         startListening()
     }
 
@@ -120,6 +160,7 @@ class SpeechViewModel {
         state = .processing
         displayText = text
         turnCount += 1
+        statusMessage = "Processing..."
 
         conversationTranscript.append(
             VoiceTranscriptEntry(role: .user, text: text)
@@ -127,38 +168,67 @@ class SpeechViewModel {
 
         guard let chatViewModel else {
             state = .idle
+            statusMessage = "No chat engine"
             return
         }
 
         chatViewModel.inputText = text
         chatViewModel.sendMessage()
 
-        Task {
-            await waitForResponse()
+        responseWaitTask?.cancel()
+        responseWaitTask = Task {
+            await waitForResponseWithTimeout()
         }
     }
 
-    private func waitForResponse() async {
+    private func waitForResponseWithTimeout() async {
         guard let chatViewModel else { return }
 
+        let deadline = Date().addingTimeInterval(inactivityTimeoutSeconds)
+
         while chatViewModel.isGenerating || chatViewModel.isExecutingTools {
+            if Date() > deadline {
+                handleResponseTimeout()
+                return
+            }
+            if Task.isCancelled { return }
             try? await Task.sleep(for: .milliseconds(80))
+        }
+
+        if Task.isCancelled { return }
+
+        if let chatError = chatViewModel.lastError, chatError.severity >= .error {
+            lastError = WrappedError(
+                domain: .inference,
+                severity: .warning,
+                userMessage: "Generation failed: \(chatError.userMessage)",
+                technicalDetail: chatError.technicalDetail,
+                recoveryAction: chatError.recoveryAction
+            )
+            statusMessage = "Generation error"
+            resumeAfterError()
+            return
         }
 
         guard let lastAssistant = chatViewModel.messages.last(where: {
             $0.role == .assistant && !$0.isToolExecution
         }) else {
-            if isAutoListenEnabled {
-                startListening()
-            } else {
-                state = .idle
-            }
+            statusMessage = "No response"
+            resumeAfterError()
             return
         }
 
         let response = lastAssistant.content
+        guard !response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            statusMessage = "Empty response"
+            resumeAfterError()
+            return
+        }
+
+        consecutiveTimeouts = 0
         responseText = response
         state = .speaking
+        statusMessage = "Speaking..."
 
         conversationTranscript.append(
             VoiceTranscriptEntry(role: .assistant, text: response)
@@ -174,6 +244,7 @@ class SpeechViewModel {
             onComplete: { [weak self] in
                 guard let self else { return }
                 self.stopBargeInMonitor()
+                self.statusMessage = "Ready"
 
                 if self.isAutoListenEnabled {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -186,6 +257,48 @@ class SpeechViewModel {
                 }
             }
         )
+    }
+
+    private func handleResponseTimeout() {
+        consecutiveTimeouts += 1
+        statusMessage = "Response timed out"
+
+        if consecutiveTimeouts >= maxConsecutiveTimeouts {
+            state = .timedOut
+            lastError = WrappedError(
+                domain: .inference,
+                severity: .error,
+                userMessage: "Response timed out repeatedly. The model may be stuck.",
+                technicalDetail: "Inactivity timeout after \(Int(inactivityTimeoutSeconds))s, \(consecutiveTimeouts) consecutive timeouts",
+                recoveryAction: .restartSession
+            )
+            chatViewModel?.stopGeneration()
+            return
+        }
+
+        lastError = WrappedError(
+            domain: .inference,
+            severity: .warning,
+            userMessage: "Response took too long. Retrying...",
+            technicalDetail: "Inactivity timeout after \(Int(inactivityTimeoutSeconds))s",
+            recoveryAction: .retry
+        )
+        chatViewModel?.stopGeneration()
+
+        resumeAfterError()
+    }
+
+    private func resumeAfterError() {
+        if isAutoListenEnabled && consecutiveTimeouts < maxConsecutiveTimeouts {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self else { return }
+                if self.state == .processing || self.state == .error {
+                    self.startListening()
+                }
+            }
+        } else {
+            state = .idle
+        }
     }
 
     private func startBargeInMonitor() {
