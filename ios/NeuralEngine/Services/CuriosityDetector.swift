@@ -17,19 +17,71 @@ struct CuriosityDetector {
         (#"(?i)\bhow\s+come\b"#, 0.9),
     ]
 
-    static func detect(text: String, memoryResults: [RetrievalResult]) -> CuriosityState {
+    static func detect(
+        text: String,
+        memoryResults: [RetrievalResult],
+        emotion: EmotionalState
+    ) -> CuriosityState {
         let topics = extractTopics(from: text)
         let curiosityLevel = measureCuriosityLevel(text: text)
         let knowledgeGap = computeKnowledgeGap(topics: topics, memoryResults: memoryResults)
-        let explorationPriority = knowledgeGap * 0.6 + curiosityLevel * 0.4
+        let vaCuriosity = computeValenceArousalCuriosity(emotion: emotion)
+        let infoGapIntensity = computeInformationGapIntensity(
+            textCuriosity: curiosityLevel,
+            vaCuriosity: vaCuriosity,
+            knowledgeGap: knowledgeGap
+        )
+        let explorationPriority = knowledgeGap * 0.4 + curiosityLevel * 0.25 + vaCuriosity * 0.2 + infoGapIntensity * 0.15
         let suggestedQueries = generateSuggestedQueries(topics: topics)
 
         return CuriosityState(
             detectedTopics: topics,
             knowledgeGap: knowledgeGap,
             explorationPriority: explorationPriority,
-            suggestedQueries: suggestedQueries
+            suggestedQueries: suggestedQueries,
+            valenceArousalCuriosity: vaCuriosity,
+            informationGapIntensity: infoGapIntensity
         )
+    }
+
+    private static func computeValenceArousalCuriosity(emotion: EmotionalState) -> Double {
+        let valenceNum: Double
+        switch emotion.valence {
+        case .positive: valenceNum = 0.6
+        case .neutral: valenceNum = 0.3
+        case .mixed: valenceNum = 0.4
+        case .negative: valenceNum = -0.3
+        }
+
+        let arousalNum: Double
+        switch emotion.arousal {
+        case .high: arousalNum = 0.9
+        case .medium: arousalNum = 0.5
+        case .low: arousalNum = 0.2
+        }
+
+        let curiosityIndex = (arousalNum * 0.7) - (valenceNum * 0.3)
+        let emotionBoost: Double
+        switch emotion.dominantEmotion {
+        case "curiosity": emotionBoost = 0.3
+        case "confusion": emotionBoost = 0.2
+        case "awe": emotionBoost = 0.15
+        case "excitement": emotionBoost = 0.1
+        case "frustration": emotionBoost = 0.05
+        default: emotionBoost = 0
+        }
+
+        return max(0, min(1, curiosityIndex + emotionBoost))
+    }
+
+    private static func computeInformationGapIntensity(
+        textCuriosity: Double,
+        vaCuriosity: Double,
+        knowledgeGap: Double
+    ) -> Double {
+        let gapSignal = knowledgeGap * 0.5 + vaCuriosity * 0.3 + textCuriosity * 0.2
+        let amplification: Double = (knowledgeGap > 0.7 && vaCuriosity > 0.5) ? 0.15 : 0
+        return max(0, min(1, gapSignal + amplification))
     }
 
     private static func extractTopics(from text: String) -> [String] {
@@ -122,7 +174,13 @@ struct CuriosityDetector {
             parts.append("Knowledge gap detected for: \(topics). Be transparent if your knowledge is limited on these topics.")
         }
 
-        if state.explorationPriority > 0.7 {
+        if state.valenceArousalCuriosity > 0.6 {
+            parts.append("High emotional curiosity signal (V/A: \(Int(state.valenceArousalCuriosity * 100))%) — the user's emotional state suggests strong information-seeking drive.")
+        }
+
+        if state.informationGapIntensity > 0.7 {
+            parts.append("Intense information gap detected — provide comprehensive depth and proactively address likely follow-up questions.")
+        } else if state.explorationPriority > 0.7 {
             parts.append("High exploration opportunity — provide depth and suggest follow-up avenues the user might explore.")
         }
 

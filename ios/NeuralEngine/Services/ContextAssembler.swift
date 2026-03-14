@@ -25,6 +25,9 @@ struct ContextAssembler {
         let cognitionInjections = buildCognitionInjections(frame: frame)
         if !cognitionInjections.isEmpty { sections.append(cognitionInjections) }
 
+        let reasoningSection = buildReasoningSection(frame: frame)
+        if !reasoningSection.isEmpty { sections.append(reasoningSection) }
+
         if conversationHistory.count > conversationSummaryThreshold {
             let summary = buildConversationSummary(history: conversationHistory)
             if !summary.isEmpty { sections.append(summary) }
@@ -64,9 +67,10 @@ struct ContextAssembler {
 
         Core principles:
         - Persistent Memory: You remember past conversations and user preferences. Reference them naturally when relevant.
-        - Structured Reasoning: You use Tree of Thought analysis to evaluate multiple approaches before responding.
+        - Structured Reasoning: You use Tree of Thought analysis with convergence-based pruning to evaluate multiple approaches before responding.
         - Emotional Intelligence: You detect and adapt to the user's emotional state and communication style.
         - Metacognition: You monitor your own confidence and uncertainty, communicating limitations honestly.
+        - Self-Correction: You detect when previous responses were incorrect or misunderstood, and proactively correct course.
         - Epistemic Honesty: Never fabricate information. Distinguish between facts, inferences, and speculation. Use calibrated language ("I believe", "likely", "I'm uncertain about"). Never hallucinate URLs or citations.
 
         Clarification protocol:
@@ -124,9 +128,15 @@ struct ContextAssembler {
         parts.append("Complexity: \(frame.metacognition.complexityLevel.rawValue)")
         parts.append("Uncertainty: \(Int(frame.metacognition.uncertaintyLevel * 100))%")
         parts.append("Cognitive load: \(frame.metacognition.cognitiveLoad.rawValue)")
+        parts.append("Convergence: \(Int(frame.metacognition.convergenceScore * 100))%")
 
         if frame.metacognition.isTimeSensitive {
             parts.append("⚡ Time-sensitive query")
+        }
+
+        if !frame.metacognition.selfCorrectionFlags.isEmpty {
+            let domains = frame.metacognition.selfCorrectionFlags.map(\.domain).joined(separator: ", ")
+            parts.append("⚠ Self-correction active: \(domains)")
         }
 
         return parts.joined(separator: "\n")
@@ -146,6 +156,41 @@ struct ContextAssembler {
         }
 
         return parts.count > 1 ? parts.joined(separator: "\n") : ""
+    }
+
+    private static func buildReasoningSection(frame: CognitionFrame) -> String {
+        let trace = frame.reasoningTrace
+        guard trace.iterations.count > 1 || !trace.selfCorrections.isEmpty || trace.totalPruned > 0 else { return "" }
+
+        var parts: [String] = ["[Reasoning Trace]"]
+        parts.append("Strategy: \(trace.dominantStrategy.rawValue)")
+        parts.append("Convergence: \(Int(trace.finalConvergence * 100))% after \(trace.iterations.count) iteration(s)")
+
+        if trace.totalPruned > 0 {
+            parts.append("Pruned paths: \(trace.totalPruned)")
+        }
+
+        if !trace.selfCorrections.isEmpty {
+            parts.append("Self-corrections:")
+            for correction in trace.selfCorrections.prefix(2) {
+                parts.append("  - \(correction)")
+            }
+        }
+
+        let tree = frame.thoughtTree
+        if tree.synthesisStrategy == .multiPerspective {
+            parts.append("NOTE: Low convergence — present multiple perspectives before concluding.")
+        } else if tree.synthesisStrategy == .hedgedResponse {
+            parts.append("NOTE: High uncertainty or correction needed — use calibrated, hedged language.")
+        } else if tree.synthesisStrategy == .decompose {
+            parts.append("NOTE: Complex query — decompose into sub-problems before answering.")
+        }
+
+        if frame.curiosity.valenceArousalCuriosity > 0.6 {
+            parts.append("Curiosity V/A signal: \(Int(frame.curiosity.valenceArousalCuriosity * 100))% — user's emotional state indicates strong information-seeking drive.")
+        }
+
+        return parts.joined(separator: "\n")
     }
 
     private static func buildConversationSummary(history: [Message]) -> String {

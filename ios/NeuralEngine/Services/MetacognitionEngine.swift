@@ -13,6 +13,18 @@ struct MetacognitionEngine {
         let confidence = computeConfidence(uncertainty: uncertainty, memoryCount: memoryResults.count)
         let timeSensitive = detectTimeSensitivity(text: text)
         let knowledgeLimit = memoryResults.isEmpty && containsKnowledgeQuery(text)
+        let convergence = computeConvergenceScore(
+            text: text,
+            complexity: complexity,
+            uncertainty: uncertainty,
+            memoryCount: memoryResults.count,
+            historyCount: conversationHistory.count
+        )
+        let selfCorrections = detectSelfCorrectionNeeds(
+            text: text,
+            history: conversationHistory,
+            uncertainty: uncertainty
+        )
 
         let shouldDecompose = complexity == .complex || complexity == .expert
         let shouldClarify = ambiguity.detected && confidence < 0.5
@@ -23,14 +35,81 @@ struct MetacognitionEngine {
             uncertaintyLevel: uncertainty,
             cognitiveLoad: cognitiveLoad,
             confidenceCalibration: confidence,
+            convergenceScore: convergence,
             shouldDecompose: shouldDecompose,
             shouldSeekClarification: shouldClarify,
             shouldSearchWeb: shouldSearch,
             isTimeSensitive: timeSensitive,
             ambiguityDetected: ambiguity.detected,
             ambiguityReasons: ambiguity.reasons,
-            knowledgeLimitHit: knowledgeLimit
+            knowledgeLimitHit: knowledgeLimit,
+            selfCorrectionFlags: selfCorrections
         )
+    }
+
+    private static func computeConvergenceScore(
+        text: String,
+        complexity: ComplexityLevel,
+        uncertainty: Double,
+        memoryCount: Int,
+        historyCount: Int
+    ) -> Double {
+        let depthFactor = Double(text.count) / 100.0
+        let complexityWeight: Double
+        switch complexity {
+        case .simple: complexityWeight = 0.9
+        case .moderate: complexityWeight = 0.7
+        case .complex: complexityWeight = 0.4
+        case .expert: complexityWeight = 0.2
+        }
+
+        let memoryBoost = memoryCount > 0 ? min(0.2, Double(memoryCount) * 0.04) : 0
+        let historyPenalty = min(0.15, Double(historyCount) * 0.01)
+
+        let sigmoid = 1.0 / (1.0 + exp(-Double(historyCount) + 3.0))
+        let raw = complexityWeight * (1.0 - uncertainty) + memoryBoost - historyPenalty + sigmoid * 0.1
+        return max(0, min(1, raw))
+    }
+
+    private static func detectSelfCorrectionNeeds(
+        text: String,
+        history: [Message],
+        uncertainty: Double
+    ) -> [SelfCorrectionFlag] {
+        var flags: [SelfCorrectionFlag] = []
+
+        let correctionPatterns: [(pattern: String, domain: String, issue: String)] = [
+            (#"(?i)\b(no|wrong|incorrect|that'?s not right|you'?re wrong|actually)\b"#, "factual", "User indicates previous response was incorrect"),
+            (#"(?i)\b(i said|i meant|i was asking|not what i meant|misunderstood)\b"#, "comprehension", "User clarifying intent — previous interpretation may be wrong"),
+            (#"(?i)\b(again|repeat|already told you|i just said)\b"#, "attention", "User repeating themselves — previous response missed key information"),
+            (#"(?i)\b(but earlier|you said|contradicting|inconsistent)\b"#, "consistency", "Potential contradiction with earlier response detected"),
+        ]
+
+        for (pattern, domain, issue) in correctionPatterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            if regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
+                let severity = uncertainty > 0.5 ? 0.9 : 0.7
+                flags.append(SelfCorrectionFlag(domain: domain, issue: issue, severity: severity))
+            }
+        }
+
+        let recentAssistant = history.suffix(4).filter { $0.role == .assistant }
+        let recentUser = history.suffix(4).filter { $0.role == .user }
+        if recentAssistant.count >= 2 && recentUser.count >= 2 {
+            let lastAssistant = recentAssistant.last?.content.lowercased() ?? ""
+            let currentLower = text.lowercased()
+            if currentLower.contains("no") || currentLower.contains("wrong") || currentLower.contains("not") {
+                if lastAssistant.count > 20 {
+                    flags.append(SelfCorrectionFlag(
+                        domain: "dialogue",
+                        issue: "Negative feedback loop detected — user may be dissatisfied with response direction",
+                        severity: 0.6
+                    ))
+                }
+            }
+        }
+
+        return flags
     }
 
     private static func assessComplexity(text: String) -> ComplexityLevel {
@@ -237,6 +316,10 @@ struct MetacognitionEngine {
             parts.append("High cognitive load context. Structure your response with clear sections or numbered steps.")
         }
 
+        if state.convergenceScore < 0.3 {
+            parts.append("Low reasoning convergence — multiple valid interpretations exist. Present alternatives explicitly.")
+        }
+
         let content = parts.joined(separator: " ")
         let priority: Double = state.uncertaintyLevel > 0.6 ? 0.85 : (state.shouldDecompose ? 0.7 : 0.4)
 
@@ -244,6 +327,31 @@ struct MetacognitionEngine {
             type: .metacognition,
             content: content,
             priority: content.isEmpty ? 0 : priority,
+            estimatedTokens: content.count / 4
+        )
+    }
+
+    static func buildSelfCorrectionInjection(flags: [SelfCorrectionFlag]) -> ContextInjection {
+        guard !flags.isEmpty else {
+            return ContextInjection(type: .selfCorrection, content: "", priority: 0, estimatedTokens: 0)
+        }
+
+        var parts: [String] = ["[Self-Correction Active]"]
+        for flag in flags.sorted(by: { $0.severity > $1.severity }).prefix(3) {
+            parts.append("- [\(flag.domain)] \(flag.issue)")
+        }
+
+        let highSeverity = flags.contains { $0.severity > 0.7 }
+        if highSeverity {
+            parts.append("IMPORTANT: Acknowledge the correction explicitly. Do not repeat the same error. Re-evaluate your assumptions.")
+        }
+
+        let content = parts.joined(separator: "\n")
+        let maxSeverity = flags.map(\.severity).max() ?? 0
+        return ContextInjection(
+            type: .selfCorrection,
+            content: content,
+            priority: min(0.95, maxSeverity),
             estimatedTokens: content.count / 4
         )
     }
