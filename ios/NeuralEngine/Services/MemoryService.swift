@@ -245,18 +245,178 @@ class MemoryService {
     func extractAndStoreMemory(userText: String, assistantText: String) {
         guard shouldExtractMemory(userText: userText, assistantText: assistantText) else { return }
 
-        let combined = userText + " " + assistantText
-        let keywords = extractKeywords(from: combined)
-        let category = classifyCategory(userText)
+        let extractions = extractMemorableContent(userText: userText, assistantText: assistantText)
 
-        let memory = MemoryEntry(
-            content: String(userText.prefix(200)),
-            keywords: keywords,
-            category: category,
-            importance: keywords.count >= 3 ? 4 : 3,
-            source: .conversation
-        )
+        if extractions.isEmpty {
+            let combined = userText + " " + assistantText
+            let keywords = extractKeywords(from: combined)
+            let category = classifyCategory(userText)
+            let memory = MemoryEntry(
+                content: String(userText.prefix(200)),
+                keywords: keywords,
+                category: category,
+                importance: keywords.count >= 3 ? 4 : 3,
+                source: .conversation
+            )
+            addMemoryWithDedup(memory)
+        } else {
+            for extraction in extractions {
+                addMemoryWithDedup(extraction)
+            }
+        }
+
+        consolidateMemories()
+    }
+
+    private func extractMemorableContent(userText: String, assistantText: String) -> [MemoryEntry] {
+        var entries: [MemoryEntry] = []
+        let lower = userText.lowercased()
+
+        let namePatterns = [
+            #"(?i)my name is ([\w\s]+)"#,
+            #"(?i)i'?m ([\w]+)\b"#,
+            #"(?i)call me ([\w]+)"#,
+        ]
+        for pattern in namePatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               let match = regex.firstMatch(in: userText, range: NSRange(userText.startIndex..., in: userText)),
+               let range = Range(match.range(at: 1), in: userText) {
+                let name = String(userText[range]).trimmingCharacters(in: .whitespaces)
+                if name.count > 1 && name.count < 30 {
+                    entries.append(MemoryEntry(
+                        content: "User's name is \(name)",
+                        keywords: ["name", name.lowercased()],
+                        category: .fact,
+                        importance: 5,
+                        source: .conversation
+                    ))
+                }
+            }
+        }
+
+        let preferencePatterns: [(String, String)] = [
+            (#"(?i)i (?:really )?(?:like|love|enjoy|prefer|adore) (.+?)(?:\.|$|,|!)"#, "preference"),
+            (#"(?i)i (?:hate|dislike|can'?t stand|don'?t like) (.+?)(?:\.|$|,|!)"#, "dislike"),
+            (#"(?i)my favou?rite (?:is|are) (.+?)(?:\.|$|,|!)"#, "favorite"),
+        ]
+        for (pattern, kind) in preferencePatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               let match = regex.firstMatch(in: userText, range: NSRange(userText.startIndex..., in: userText)),
+               let range = Range(match.range(at: 1), in: userText) {
+                let subject = String(userText[range]).trimmingCharacters(in: .whitespaces)
+                if subject.count > 2 && subject.count < 100 {
+                    entries.append(MemoryEntry(
+                        content: "User \(kind): \(subject)",
+                        keywords: extractKeywords(from: subject) + [kind],
+                        category: .preference,
+                        importance: 4,
+                        source: .conversation
+                    ))
+                }
+            }
+        }
+
+        let goalPatterns = [
+            #"(?i)i (?:want to|need to|plan to|am going to|will) (.+?)(?:\.|$|,|!)"#,
+            #"(?i)my goal is (.+?)(?:\.|$|,|!)"#,
+            #"(?i)i'?m (?:working on|trying to|learning) (.+?)(?:\.|$|,|!)"#,
+        ]
+        for pattern in goalPatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               let match = regex.firstMatch(in: userText, range: NSRange(userText.startIndex..., in: userText)),
+               let range = Range(match.range(at: 1), in: userText) {
+                let goal = String(userText[range]).trimmingCharacters(in: .whitespaces)
+                if goal.count > 3 && goal.count < 150 {
+                    entries.append(MemoryEntry(
+                        content: "User goal: \(goal)",
+                        keywords: extractKeywords(from: goal) + ["goal"],
+                        category: .context,
+                        importance: 4,
+                        source: .conversation
+                    ))
+                }
+            }
+        }
+
+        if lower.contains("remember") || lower.contains("always") || lower.contains("make sure") || lower.contains("never") || lower.contains("don't forget") {
+            entries.append(MemoryEntry(
+                content: String(userText.prefix(200)),
+                keywords: extractKeywords(from: userText) + ["instruction"],
+                category: .instruction,
+                importance: 5,
+                source: .conversation
+            ))
+        }
+
+        let factPatterns = [
+            #"(?i)i (?:work|live|study|am from|was born|am a|am an) (.+?)(?:\.|$|,|!)"#,
+            #"(?i)i have (?:a |an )?(.+?)(?:\.|$|,|!)"#,
+        ]
+        for pattern in factPatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               let match = regex.firstMatch(in: userText, range: NSRange(userText.startIndex..., in: userText)),
+               let range = Range(match.range(at: 1), in: userText) {
+                let fact = String(userText[range]).trimmingCharacters(in: .whitespaces)
+                if fact.count > 2 && fact.count < 100 {
+                    entries.append(MemoryEntry(
+                        content: "User fact: \(fact)",
+                        keywords: extractKeywords(from: fact) + ["personal"],
+                        category: .fact,
+                        importance: 4,
+                        source: .conversation
+                    ))
+                }
+            }
+        }
+
+        return entries
+    }
+
+    private func addMemoryWithDedup(_ memory: MemoryEntry) {
+        for existing in memories {
+            let similarity = contentSimilarity(memory.content, existing.content)
+            if similarity > 0.85 {
+                if memory.importance > existing.importance {
+                    var updated = existing
+                    updated.content = memory.content
+                    updated.keywords = Array(Set(existing.keywords + memory.keywords))
+                    updated.importance = max(existing.importance, memory.importance)
+                    updated.lastAccessed = Date().timeIntervalSince1970 * 1000
+                    addMemory(updated)
+                } else {
+                    reinforceMemory(existing.id)
+                }
+                return
+            }
+        }
         addMemory(memory)
+    }
+
+    private func contentSimilarity(_ a: String, _ b: String) -> Double {
+        let tokensA = Set(tokenize(a))
+        let tokensB = Set(tokenize(b))
+        guard !tokensA.isEmpty || !tokensB.isEmpty else { return 0 }
+        let intersection = tokensA.intersection(tokensB).count
+        let union = tokensA.union(tokensB).count
+        return union > 0 ? Double(intersection) / Double(union) : 0
+    }
+
+    private func consolidateMemories() {
+        let maxPerCategory = 15
+        let categoryCounts = Dictionary(grouping: memories, by: \.category)
+
+        for (category, entries) in categoryCounts where entries.count > maxPerCategory {
+            let sorted = entries.sorted { a, b in
+                let scoreA = Double(a.importance) * 0.4 + a.decay * 0.3 + Double(a.accessCount) * 0.1 + (a.activationLevel * 0.2)
+                let scoreB = Double(b.importance) * 0.4 + b.decay * 0.3 + Double(b.accessCount) * 0.1 + (b.activationLevel * 0.2)
+                return scoreA > scoreB
+            }
+
+            let toRemove = sorted.suffix(from: maxPerCategory)
+            for entry in toRemove {
+                deleteMemory(entry.id)
+            }
+        }
     }
 
     func buildContextInjection(query: String) -> String {

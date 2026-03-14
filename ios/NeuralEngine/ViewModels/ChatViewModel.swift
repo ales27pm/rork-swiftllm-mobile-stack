@@ -10,6 +10,8 @@ class ChatViewModel {
     var samplingConfig = SamplingConfig()
     var systemPrompt: String = "You are Nexus, a helpful and intelligent AI assistant running locally on-device. You have access to memory from past conversations and use it to provide personalized, contextual responses."
     var toolsEnabled: Bool = true
+    var isVoiceMode: Bool = false
+    var lastCognitionFrame: CognitionFrame?
 
     var currentConversationId: String?
 
@@ -75,15 +77,24 @@ class ChatViewModel {
 
         let assistantIndex = messages.count - 1
 
-        let memoryContext = memoryService.buildContextInjection(query: userText)
+        let frame = CognitionEngine.process(
+            userText: userText,
+            conversationHistory: messages,
+            memoryService: memoryService
+        )
+        lastCognitionFrame = frame
 
-        var enrichedSystemPrompt = systemPrompt
-        if !memoryContext.isEmpty {
-            enrichedSystemPrompt += "\n\n" + memoryContext
-        }
-        if toolsEnabled {
-            enrichedSystemPrompt += ToolExecutor.buildToolsPrompt()
-        }
+        let memoryResults = memoryService.searchMemories(query: userText, maxResults: 8)
+        let associativeResults = memoryService.getAssociativeMemories(query: userText, directResults: memoryResults)
+        let allMemoryResults = memoryResults + associativeResults
+
+        let enrichedSystemPrompt = ContextAssembler.assembleSystemPrompt(
+            frame: frame,
+            memoryResults: allMemoryResults,
+            conversationHistory: messages,
+            toolsEnabled: toolsEnabled,
+            isVoiceMode: isVoiceMode
+        )
 
         var chatMessages: [[String: String]] = [
             ["role": "system", "content": enrichedSystemPrompt]
