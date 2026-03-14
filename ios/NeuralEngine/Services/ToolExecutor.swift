@@ -1,0 +1,465 @@
+import Foundation
+import UIKit
+import CoreLocation
+import EventKit
+import Contacts
+import MessageUI
+import UserNotifications
+
+@MainActor
+@Observable
+class ToolExecutor: NSObject {
+    private let locationManager = CLLocationManager()
+    private let eventStore = EKEventStore()
+    private let contactStore = CNContactStore()
+    private var locationContinuation: CheckedContinuation<CLLocation?, Never>?
+    private var pendingShareContent: String?
+    var pendingSMSTo: String?
+    var pendingSMSBody: String?
+    var pendingEmailTo: String?
+    var pendingEmailSubject: String?
+    var pendingEmailBody: String?
+    var showShareSheet: Bool = false
+    var showSMSComposer: Bool = false
+    var showEmailComposer: Bool = false
+    var shareItems: [Any] = []
+
+    override init() {
+        super.init()
+    }
+
+    func execute(_ call: ToolCall) async -> ToolResult {
+        guard let tool = DeviceToolName(rawValue: call.name) else {
+            return ToolResult(toolName: call.name, success: false, data: "Unknown tool: \(call.name)", displayIcon: "exclamationmark.triangle.fill")
+        }
+
+        switch tool {
+        case .getLocation:
+            return await executeGetLocation()
+        case .getBatteryStatus:
+            return executeGetBattery()
+        case .getNetworkInfo:
+            return executeGetNetwork()
+        case .getDeviceInfo:
+            return executeGetDeviceInfo()
+        case .getCurrentTime:
+            return executeGetCurrentTime()
+        case .getWeather:
+            return await executeGetWeather()
+        case .getScreenBrightness:
+            return executeGetBrightness()
+        case .setScreenBrightness:
+            return executeSetBrightness(call.parameters)
+        case .triggerHaptic:
+            return executeTriggerHaptic(call.parameters)
+        case .getCalendarEvents:
+            return await executeGetCalendarEvents(call.parameters)
+        case .createCalendarEvent:
+            return await executeCreateCalendarEvent(call.parameters)
+        case .getContacts:
+            return await executeGetContacts(call.parameters)
+        case .sendSMS:
+            return executeSendSMS(call.parameters)
+        case .sendEmail:
+            return executeSendEmail(call.parameters)
+        case .shareContent:
+            return executeShareContent(call.parameters)
+        case .setKeepAwake:
+            return executeSetKeepAwake(call.parameters)
+        case .getNotificationStatus:
+            return await executeGetNotificationStatus()
+        case .scheduleNotification:
+            return await executeScheduleNotification(call.parameters)
+        case .takeScreenshot:
+            return executeScreenshot()
+        case .openMaps:
+            return executeOpenMaps(call.parameters)
+        }
+    }
+
+    private func executeGetLocation() async -> ToolResult {
+        let status = locationManager.authorizationStatus
+        if status == .notDetermined {
+            locationManager.requestWhenInUseAuthorization()
+            try? await Task.sleep(for: .seconds(1))
+        }
+
+        guard locationManager.authorizationStatus == .authorizedWhenInUse ||
+              locationManager.authorizationStatus == .authorizedAlways else {
+            return ToolResult(toolName: "get_location", success: false, data: "Location permission not granted", displayIcon: "location.slash.fill")
+        }
+
+        locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        locationManager.delegate = self
+
+        let location = await withCheckedContinuation { (continuation: CheckedContinuation<CLLocation?, Never>) in
+            self.locationContinuation = continuation
+            self.locationManager.requestLocation()
+        }
+
+        guard let location else {
+            return ToolResult(toolName: "get_location", success: false, data: "Could not determine location", displayIcon: "location.slash.fill")
+        }
+
+        let geocoder = CLGeocoder()
+        var address = "Unknown"
+        if let placemarks = try? await geocoder.reverseGeocodeLocation(location),
+           let place = placemarks.first {
+            let parts = [place.name, place.locality, place.administrativeArea, place.country].compactMap { $0 }
+            address = parts.joined(separator: ", ")
+        }
+
+        let data = """
+        {"latitude": \(location.coordinate.latitude), "longitude": \(location.coordinate.longitude), "altitude": \(location.altitude), "accuracy": \(location.horizontalAccuracy), "address": "\(address)"}
+        """
+        return ToolResult(toolName: "get_location", success: true, data: data, displayIcon: "location.fill")
+    }
+
+    private func executeGetBattery() -> ToolResult {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        let level = UIDevice.current.batteryLevel
+        let state: String
+        switch UIDevice.current.batteryState {
+        case .charging: state = "charging"
+        case .full: state = "full"
+        case .unplugged: state = "unplugged"
+        case .unknown: state = "unknown"
+        @unknown default: state = "unknown"
+        }
+        let percentage = level >= 0 ? Int(level * 100) : -1
+        let data = "{\"level\": \(percentage), \"state\": \"\(state)\", \"lowPowerMode\": \(ProcessInfo.processInfo.isLowPowerModeEnabled)}"
+        return ToolResult(toolName: "get_battery_status", success: true, data: data, displayIcon: "battery.100percent")
+    }
+
+    private func executeGetNetwork() -> ToolResult {
+        var info: [String: Any] = [:]
+        info["available"] = true
+
+        let processInfo = ProcessInfo.processInfo
+        info["hostName"] = processInfo.hostName
+        info["thermalState"] = "\(processInfo.thermalState.rawValue)"
+
+        let data: String
+        if let jsonData = try? JSONSerialization.data(withJSONObject: info),
+           let jsonStr = String(data: jsonData, encoding: .utf8) {
+            data = jsonStr
+        } else {
+            data = "{\"available\": true}"
+        }
+        return ToolResult(toolName: "get_network_info", success: true, data: data, displayIcon: "wifi")
+    }
+
+    private func executeGetDeviceInfo() -> ToolResult {
+        let device = UIDevice.current
+        let processInfo = ProcessInfo.processInfo
+        let data = """
+        {"model": "\(device.model)", "name": "\(device.name)", "systemName": "\(device.systemName)", "systemVersion": "\(device.systemVersion)", "processorCount": \(processInfo.processorCount), "physicalMemory": \(processInfo.physicalMemory), "activeProcessorCount": \(processInfo.activeProcessorCount)}
+        """
+        return ToolResult(toolName: "get_device_info", success: true, data: data, displayIcon: "iphone")
+    }
+
+    private func executeGetCurrentTime() -> ToolResult {
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let readable = now.formatted(date: .complete, time: .complete)
+        let tz = TimeZone.current
+        let data = "{\"iso8601\": \"\(formatter.string(from: now))\", \"readable\": \"\(readable)\", \"timezone\": \"\(tz.identifier)\", \"utcOffset\": \(tz.secondsFromGMT() / 3600)}"
+        return ToolResult(toolName: "get_current_time", success: true, data: data, displayIcon: "clock.fill")
+    }
+
+    private func executeGetWeather() async -> ToolResult {
+        return ToolResult(toolName: "get_weather", success: false, data: "Weather data requires WeatherKit entitlement. Use get_location and describe conditions based on the region.", displayIcon: "cloud.fill")
+    }
+
+    private func executeGetBrightness() -> ToolResult {
+        let brightness = UIScreen.main.brightness
+        return ToolResult(toolName: "get_screen_brightness", success: true, data: "{\"brightness\": \(brightness)}", displayIcon: "sun.max.fill")
+    }
+
+    private func executeSetBrightness(_ params: [String: Any]) -> ToolResult {
+        guard let level = params["level"] as? Double else {
+            return ToolResult(toolName: "set_screen_brightness", success: false, data: "Missing 'level' parameter (0.0-1.0)", displayIcon: "sun.max.fill")
+        }
+        let clamped = max(0, min(1, level))
+        UIScreen.main.brightness = clamped
+        return ToolResult(toolName: "set_screen_brightness", success: true, data: "{\"brightness\": \(clamped)}", displayIcon: "sun.max.fill")
+    }
+
+    private func executeTriggerHaptic(_ params: [String: Any]) -> ToolResult {
+        let style = params["style"] as? String ?? "medium"
+        switch style {
+        case "light":
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        case "heavy":
+            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+        case "success":
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        case "warning":
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        case "error":
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        default:
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        }
+        return ToolResult(toolName: "trigger_haptic", success: true, data: "{\"style\": \"\(style)\"}", displayIcon: "hand.tap.fill")
+    }
+
+    private func executeGetCalendarEvents(_ params: [String: Any]) async -> ToolResult {
+        let days = params["days"] as? Int ?? 7
+
+        do {
+            let granted = try await eventStore.requestFullAccessToEvents()
+            guard granted else {
+                return ToolResult(toolName: "get_calendar_events", success: false, data: "Calendar access not granted", displayIcon: "calendar.badge.exclamationmark")
+            }
+        } catch {
+            return ToolResult(toolName: "get_calendar_events", success: false, data: "Calendar access error: \(error.localizedDescription)", displayIcon: "calendar.badge.exclamationmark")
+        }
+
+        let startDate = Date()
+        let endDate = Calendar.current.date(byAdding: .day, value: days, to: startDate) ?? startDate
+        let predicate = eventStore.predicateForEvents(withStart: startDate, end: endDate, calendars: nil)
+        let events = eventStore.events(matching: predicate)
+
+        let eventList = events.prefix(20).map { event -> [String: String] in
+            let df = ISO8601DateFormatter()
+            return [
+                "title": event.title ?? "Untitled",
+                "startDate": df.string(from: event.startDate),
+                "endDate": df.string(from: event.endDate),
+                "location": event.location ?? "",
+                "calendar": event.calendar.title
+            ]
+        }
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: eventList),
+              let jsonStr = String(data: jsonData, encoding: .utf8) else {
+            return ToolResult(toolName: "get_calendar_events", success: true, data: "[]", displayIcon: "calendar")
+        }
+        return ToolResult(toolName: "get_calendar_events", success: true, data: jsonStr, displayIcon: "calendar")
+    }
+
+    private func executeCreateCalendarEvent(_ params: [String: Any]) async -> ToolResult {
+        guard let title = params["title"] as? String,
+              let startStr = params["startDate"] as? String,
+              let endStr = params["endDate"] as? String else {
+            return ToolResult(toolName: "create_calendar_event", success: false, data: "Missing required parameters: title, startDate, endDate", displayIcon: "calendar.badge.plus")
+        }
+
+        do {
+            let granted = try await eventStore.requestFullAccessToEvents()
+            guard granted else {
+                return ToolResult(toolName: "create_calendar_event", success: false, data: "Calendar access not granted", displayIcon: "calendar.badge.exclamationmark")
+            }
+        } catch {
+            return ToolResult(toolName: "create_calendar_event", success: false, data: "Calendar access error", displayIcon: "calendar.badge.exclamationmark")
+        }
+
+        let df = ISO8601DateFormatter()
+        guard let startDate = df.date(from: startStr), let endDate = df.date(from: endStr) else {
+            return ToolResult(toolName: "create_calendar_event", success: false, data: "Invalid date format. Use ISO8601.", displayIcon: "calendar.badge.exclamationmark")
+        }
+
+        let event = EKEvent(eventStore: eventStore)
+        event.title = title
+        event.startDate = startDate
+        event.endDate = endDate
+        event.notes = params["notes"] as? String
+        event.calendar = eventStore.defaultCalendarForNewEvents
+
+        do {
+            try eventStore.save(event, span: .thisEvent)
+            return ToolResult(toolName: "create_calendar_event", success: true, data: "{\"eventId\": \"\(event.eventIdentifier ?? "")\", \"title\": \"\(title)\"}", displayIcon: "calendar.badge.plus")
+        } catch {
+            return ToolResult(toolName: "create_calendar_event", success: false, data: "Failed to create event: \(error.localizedDescription)", displayIcon: "calendar.badge.exclamationmark")
+        }
+    }
+
+    private func executeGetContacts(_ params: [String: Any]) async -> ToolResult {
+        let status = CNContactStore.authorizationStatus(for: .contacts)
+        if status == .notDetermined {
+            guard (try? await contactStore.requestAccess(for: .contacts)) == true else {
+                return ToolResult(toolName: "get_contacts", success: false, data: "Contacts access not granted", displayIcon: "person.crop.circle.badge.exclamationmark")
+            }
+        } else if status != .authorized {
+            return ToolResult(toolName: "get_contacts", success: false, data: "Contacts access not granted", displayIcon: "person.crop.circle.badge.exclamationmark")
+        }
+
+        let keysToFetch: [CNKeyDescriptor] = [
+            CNContactGivenNameKey as CNKeyDescriptor,
+            CNContactFamilyNameKey as CNKeyDescriptor,
+            CNContactPhoneNumbersKey as CNKeyDescriptor,
+            CNContactEmailAddressesKey as CNKeyDescriptor
+        ]
+
+        let query = params["query"] as? String
+        let request = CNContactFetchRequest(keysToFetch: keysToFetch)
+
+        if let query, !query.isEmpty {
+            request.predicate = CNContact.predicateForContacts(matchingName: query)
+        }
+
+        var contacts: [[String: Any]] = []
+        do {
+            try contactStore.enumerateContacts(with: request) { contact, stop in
+                let entry: [String: Any] = [
+                    "name": "\(contact.givenName) \(contact.familyName)".trimmingCharacters(in: .whitespaces),
+                    "phones": contact.phoneNumbers.map { $0.value.stringValue },
+                    "emails": contact.emailAddresses.map { $0.value as String }
+                ]
+                contacts.append(entry)
+                if contacts.count >= 20 { stop.pointee = true }
+            }
+        } catch {
+            return ToolResult(toolName: "get_contacts", success: false, data: "Failed to fetch contacts: \(error.localizedDescription)", displayIcon: "person.crop.circle.badge.exclamationmark")
+        }
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: contacts),
+              let jsonStr = String(data: jsonData, encoding: .utf8) else {
+            return ToolResult(toolName: "get_contacts", success: true, data: "[]", displayIcon: "person.2.fill")
+        }
+        return ToolResult(toolName: "get_contacts", success: true, data: jsonStr, displayIcon: "person.2.fill")
+    }
+
+    private func executeSendSMS(_ params: [String: Any]) -> ToolResult {
+        guard let to = params["to"] as? String, let body = params["body"] as? String else {
+            return ToolResult(toolName: "send_sms", success: false, data: "Missing 'to' or 'body' parameters", displayIcon: "message.fill")
+        }
+        pendingSMSTo = to
+        pendingSMSBody = body
+        showSMSComposer = true
+        return ToolResult(toolName: "send_sms", success: true, data: "{\"status\": \"composer_opened\", \"to\": \"\(to)\"}", displayIcon: "message.fill")
+    }
+
+    private func executeSendEmail(_ params: [String: Any]) -> ToolResult {
+        guard let to = params["to"] as? String else {
+            return ToolResult(toolName: "send_email", success: false, data: "Missing 'to' parameter", displayIcon: "envelope.fill")
+        }
+        pendingEmailTo = to
+        pendingEmailSubject = params["subject"] as? String ?? ""
+        pendingEmailBody = params["body"] as? String ?? ""
+        showEmailComposer = true
+        return ToolResult(toolName: "send_email", success: true, data: "{\"status\": \"composer_opened\", \"to\": \"\(to)\"}", displayIcon: "envelope.fill")
+    }
+
+    private func executeShareContent(_ params: [String: Any]) -> ToolResult {
+        guard let text = params["text"] as? String else {
+            return ToolResult(toolName: "share_content", success: false, data: "Missing 'text' parameter", displayIcon: "square.and.arrow.up")
+        }
+        shareItems = [text]
+        showShareSheet = true
+        return ToolResult(toolName: "share_content", success: true, data: "{\"status\": \"share_sheet_opened\"}", displayIcon: "square.and.arrow.up")
+    }
+
+    private func executeSetKeepAwake(_ params: [String: Any]) -> ToolResult {
+        let enabled = params["enabled"] as? Bool ?? true
+        UIApplication.shared.isIdleTimerDisabled = enabled
+        return ToolResult(toolName: "set_keep_awake", success: true, data: "{\"keepAwake\": \(enabled)}", displayIcon: enabled ? "eye.fill" : "eye.slash.fill")
+    }
+
+    private func executeGetNotificationStatus() async -> ToolResult {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        let status: String
+        switch settings.authorizationStatus {
+        case .authorized: status = "authorized"
+        case .denied: status = "denied"
+        case .provisional: status = "provisional"
+        case .notDetermined: status = "not_determined"
+        case .ephemeral: status = "ephemeral"
+        @unknown default: status = "unknown"
+        }
+        return ToolResult(toolName: "get_notification_status", success: true, data: "{\"status\": \"\(status)\"}", displayIcon: "bell.fill")
+    }
+
+    private func executeScheduleNotification(_ params: [String: Any]) async -> ToolResult {
+        guard let title = params["title"] as? String, let body = params["body"] as? String else {
+            return ToolResult(toolName: "schedule_notification", success: false, data: "Missing 'title' or 'body'", displayIcon: "bell.slash.fill")
+        }
+        let seconds = params["seconds"] as? Double ?? 5.0
+
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        if settings.authorizationStatus == .notDetermined {
+            _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, seconds), repeats: false)
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
+
+        do {
+            try await center.add(request)
+            return ToolResult(toolName: "schedule_notification", success: true, data: "{\"scheduled\": true, \"delaySeconds\": \(seconds)}", displayIcon: "bell.badge.fill")
+        } catch {
+            return ToolResult(toolName: "schedule_notification", success: false, data: "Failed: \(error.localizedDescription)", displayIcon: "bell.slash.fill")
+        }
+    }
+
+    private func executeScreenshot() -> ToolResult {
+        guard let window = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first?.windows.first else {
+            return ToolResult(toolName: "take_screenshot", success: false, data: "No active window", displayIcon: "camera.viewfinder")
+        }
+
+        let renderer = UIGraphicsImageRenderer(bounds: window.bounds)
+        let image = renderer.image { ctx in
+            window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+        }
+
+        if let data = image.pngData() {
+            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("screenshot_\(Int(Date().timeIntervalSince1970)).png")
+            try? data.write(to: tempURL)
+            return ToolResult(toolName: "take_screenshot", success: true, data: "{\"saved\": true, \"path\": \"\(tempURL.path)\"}", displayIcon: "camera.viewfinder")
+        }
+        return ToolResult(toolName: "take_screenshot", success: false, data: "Failed to capture screenshot", displayIcon: "camera.viewfinder")
+    }
+
+    private func executeOpenMaps(_ params: [String: Any]) -> ToolResult {
+        var urlString: String
+        if let query = params["query"] as? String {
+            let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+            urlString = "maps://?q=\(encoded)"
+        } else if let lat = params["latitude"] as? Double, let lon = params["longitude"] as? Double {
+            urlString = "maps://?ll=\(lat),\(lon)"
+        } else {
+            return ToolResult(toolName: "open_maps", success: false, data: "Missing 'query' or 'latitude'/'longitude'", displayIcon: "map.fill")
+        }
+
+        if let url = URL(string: urlString) {
+            UIApplication.shared.open(url)
+            return ToolResult(toolName: "open_maps", success: true, data: "{\"opened\": true}", displayIcon: "map.fill")
+        }
+        return ToolResult(toolName: "open_maps", success: false, data: "Invalid maps URL", displayIcon: "map.fill")
+    }
+
+    static func buildToolsPrompt() -> String {
+        var prompt = "\n\nYou have access to the following device tools. To use a tool, include a tool call in your response using this format:\n<tool_call>{\"name\": \"tool_name\", \"parameters\": {}}</tool_call>\n\nYou can call multiple tools in one response. After tool execution, you'll receive the results and should incorporate them into your response naturally.\n\nAvailable tools:\n"
+        for tool in DeviceToolName.allCases {
+            prompt += "- \(tool.rawValue): \(tool.description) Parameters: \(tool.parametersSchema)\n"
+        }
+        prompt += "\nOnly call tools when the user's request requires device capabilities. Respond normally for general conversation."
+        return prompt
+    }
+}
+
+extension ToolExecutor: CLLocationManagerDelegate {
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        Task { @MainActor in
+            locationContinuation?.resume(returning: locations.first)
+            locationContinuation = nil
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in
+            locationContinuation?.resume(returning: nil)
+            locationContinuation = nil
+        }
+    }
+}

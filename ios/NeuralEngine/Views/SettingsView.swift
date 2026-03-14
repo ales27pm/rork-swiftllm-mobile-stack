@@ -19,6 +19,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             hfTokenSection
+            toolsSection
             samplingSection
             systemPromptSection
             runtimeSection
@@ -170,6 +171,51 @@ struct SettingsView: View {
         } footer: {
             Text("Required to download gated models. Get your token at huggingface.co/settings/tokens.")
         }
+    }
+
+    private var toolsSection: some View {
+        Section {
+            Toggle(isOn: Binding(
+                get: { chatViewModel.toolsEnabled },
+                set: { chatViewModel.toolsEnabled = $0; chatViewModel.saveSettings() }
+            )) {
+                Label("Device Tools", systemImage: "wrench.and.screwdriver.fill")
+            }
+
+            if chatViewModel.toolsEnabled {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(toolCategories.keys.sorted()), id: \.self) { category in
+                        HStack(spacing: 6) {
+                            Image(systemName: toolCategories[category] ?? "circle")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .frame(width: 20)
+                            Text(category)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        } header: {
+            Label("Tool Calling", systemImage: "hammer.fill")
+        } footer: {
+            Text("When enabled, the AI can access device capabilities like location, battery, calendar, contacts, and more through natural conversation.")
+        }
+    }
+
+    private var toolCategories: [String: String] {
+        [
+            "Location & Maps": "location.fill",
+            "Battery & Device": "battery.100percent",
+            "Calendar & Events": "calendar",
+            "Contacts": "person.2.fill",
+            "Notifications": "bell.fill",
+            "Screen & Haptics": "sun.max.fill",
+            "Sharing & Messaging": "square.and.arrow.up",
+            "Date & Time": "clock.fill"
+        ]
     }
 
     private var aboutSection: some View {

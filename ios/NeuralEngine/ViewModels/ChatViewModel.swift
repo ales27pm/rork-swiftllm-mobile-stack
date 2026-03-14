@@ -6,8 +6,10 @@ class ChatViewModel {
     var messages: [Message] = []
     var inputText: String = ""
     var isGenerating: Bool = false
+    var isExecutingTools: Bool = false
     var samplingConfig = SamplingConfig()
     var systemPrompt: String = "You are Nexus, a helpful and intelligent AI assistant running locally on-device. You have access to memory from past conversations and use it to provide personalized, contextual responses."
+    var toolsEnabled: Bool = true
 
     var currentConversationId: String?
 
@@ -19,6 +21,7 @@ class ChatViewModel {
     let database: DatabaseService
     let conversationService: ConversationService
     let memoryService: MemoryService
+    var toolExecutor: ToolExecutor
 
     init(
         inferenceEngine: InferenceEngine,
@@ -28,7 +31,8 @@ class ChatViewModel {
         keyValueStore: KeyValueStore,
         database: DatabaseService,
         conversationService: ConversationService,
-        memoryService: MemoryService
+        memoryService: MemoryService,
+        toolExecutor: ToolExecutor
     ) {
         self.inferenceEngine = inferenceEngine
         self.metricsLogger = metricsLogger
@@ -38,6 +42,7 @@ class ChatViewModel {
         self.database = database
         self.conversationService = conversationService
         self.memoryService = memoryService
+        self.toolExecutor = toolExecutor
         inferenceEngine.attachRunner(modelLoader.modelRunner, llamaRunner: modelLoader.llamaRunner, tokenizer: modelLoader.tokenizer, format: modelLoader.activeFormat)
         restoreSettings()
     }
@@ -60,17 +65,24 @@ class ChatViewModel {
             conversationService.saveMessage(userMessage, conversationId: convId)
         }
 
+        generateResponse(userText: text)
+    }
+
+    private func generateResponse(userText: String, toolContext: [[String: String]] = []) {
         let assistantMessage = Message(role: .assistant, content: "", isStreaming: true)
         messages.append(assistantMessage)
         isGenerating = true
 
         let assistantIndex = messages.count - 1
 
-        let memoryContext = memoryService.buildContextInjection(query: text)
+        let memoryContext = memoryService.buildContextInjection(query: userText)
 
         var enrichedSystemPrompt = systemPrompt
         if !memoryContext.isEmpty {
             enrichedSystemPrompt += "\n\n" + memoryContext
+        }
+        if toolsEnabled {
+            enrichedSystemPrompt += ToolExecutor.buildToolsPrompt()
         }
 
         var chatMessages: [[String: String]] = [
@@ -80,6 +92,7 @@ class ChatViewModel {
             if msg.role == .assistant && msg.content.isEmpty { continue }
             chatMessages.append(["role": msg.role.rawValue, "content": msg.content])
         }
+        chatMessages.append(contentsOf: toolContext)
 
         inferenceEngine.generate(
             messages: chatMessages,
@@ -95,24 +108,71 @@ class ChatViewModel {
                 self.messages[assistantIndex].metrics = metrics
                 self.isGenerating = false
 
-                if let convId = self.currentConversationId {
-                    self.conversationService.saveMessage(self.messages[assistantIndex], conversationId: convId)
+                let fullContent = self.messages[assistantIndex].content
 
-                    let userMsgCount = self.messages.filter { $0.role == .user }.count
-                    let assistantContent = self.messages[assistantIndex].content
-                    var conv = self.conversationService.conversations.first { $0.id == convId } ?? Conversation(id: convId)
-                    conv.lastMessage = String(assistantContent.prefix(100))
-                    conv.messageCount = self.messages.filter { $0.role != .system }.count
-                    conv.updatedAt = Date()
-                    if userMsgCount == 1 {
-                        conv.title = self.conversationService.generateTitle(from: text)
-                    }
-                    self.conversationService.updateConversation(conv)
-
-                    self.memoryService.extractAndStoreMemory(userText: text, assistantText: assistantContent)
+                if self.toolsEnabled && ToolCallParser.containsToolCall(fullContent) {
+                    self.handleToolCalls(assistantIndex: assistantIndex, userText: userText)
+                } else {
+                    self.finalizeResponse(assistantIndex: assistantIndex, userText: userText)
                 }
             }
         )
+    }
+
+    private func handleToolCalls(assistantIndex: Int, userText: String) {
+        let fullContent = messages[assistantIndex].content
+        let toolCalls = ToolCallParser.parse(from: fullContent)
+        let cleanedContent = ToolCallParser.stripToolCalls(from: fullContent)
+        messages[assistantIndex].content = cleanedContent
+
+        guard !toolCalls.isEmpty else {
+            finalizeResponse(assistantIndex: assistantIndex, userText: userText)
+            return
+        }
+
+        isExecutingTools = true
+
+        let toolMessage = Message(role: .tool, content: "", isToolExecution: true)
+        messages.append(toolMessage)
+        let toolMsgIndex = messages.count - 1
+
+        Task {
+            var results: [ToolResult] = []
+            for call in toolCalls {
+                let result = await toolExecutor.execute(call)
+                results.append(result)
+            }
+
+            messages[toolMsgIndex].toolResults = results
+            messages[toolMsgIndex].content = results.map { "[\($0.toolName)] \($0.data)" }.joined(separator: "\n")
+            isExecutingTools = false
+
+            var toolContextMessages: [[String: String]] = []
+            for result in results {
+                toolContextMessages.append(["role": "tool", "content": "Tool result for \(result.toolName): \(result.data)"])
+            }
+
+            generateResponse(userText: userText, toolContext: toolContextMessages)
+        }
+    }
+
+    private func finalizeResponse(assistantIndex: Int, userText: String) {
+        if let convId = currentConversationId {
+            conversationService.saveMessage(messages[assistantIndex], conversationId: convId)
+
+            let userMsgCount = messages.filter { $0.role == .user }.count
+            let assistantContent = messages[assistantIndex].content
+            var conv = conversationService.conversations.first { $0.id == convId } ?? Conversation(id: convId)
+            conv.lastMessage = String(assistantContent.prefix(100))
+            conv.messageCount = messages.filter { $0.role != .system }.count
+            conv.updatedAt = Date()
+            if userMsgCount == 1 {
+                conv.title = conversationService.generateTitle(from: userText)
+            }
+            conversationService.updateConversation(conv)
+
+            memoryService.extractAndStoreMemory(userText: userText, assistantText: assistantContent)
+        }
     }
 
     func stopGeneration() {
@@ -163,6 +223,7 @@ class ChatViewModel {
         keyValueStore.setDouble(Double(samplingConfig.repetitionPenalty), forKey: "sampling_repPenalty")
         keyValueStore.setInt(samplingConfig.maxTokens, forKey: "sampling_maxTokens")
         keyValueStore.setString(systemPrompt, forKey: "system_prompt")
+        keyValueStore.setInt(toolsEnabled ? 1 : 0, forKey: "tools_enabled")
     }
 
     func logGeneration(metrics: GenerationMetrics) {
@@ -199,6 +260,9 @@ class ChatViewModel {
         }
         if let prompt = keyValueStore.getString("system_prompt") {
             systemPrompt = prompt
+        }
+        if let toolsPref = keyValueStore.getInt("tools_enabled") {
+            toolsEnabled = toolsPref == 1
         }
     }
 }

@@ -17,12 +17,17 @@ struct ChatView: View {
             }
             .background(Color(.systemBackground))
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $viewModel.toolExecutor.showShareSheet) {
+                if !viewModel.toolExecutor.shareItems.isEmpty {
+                    ShareSheet(items: viewModel.toolExecutor.shareItems)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     headerTitle
                 }
                 ToolbarItem(placement: .topBarLeading) {
-                    if viewModel.isGenerating {
+                    if viewModel.isGenerating || viewModel.isExecutingTools {
                         liveSpeedBadge
                     } else {
                         Button {
@@ -45,6 +50,13 @@ struct ChatView: View {
                                 viewModel.clearChat()
                             }
                         }
+                        Divider()
+                        Toggle(isOn: Binding(
+                            get: { viewModel.toolsEnabled },
+                            set: { viewModel.toolsEnabled = $0; viewModel.saveSettings() }
+                        )) {
+                            Label("Device Tools", systemImage: "wrench.and.screwdriver")
+                        }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                             .foregroundStyle(.secondary)
@@ -56,8 +68,16 @@ struct ChatView: View {
 
     private var headerTitle: some View {
         VStack(spacing: 1) {
-            Text("Nexus")
-                .font(.subheadline.bold())
+            HStack(spacing: 4) {
+                Text("Nexus")
+                    .font(.subheadline.bold())
+
+                if viewModel.toolsEnabled {
+                    Image(systemName: "wrench.and.screwdriver.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.orange)
+                }
+            }
 
             HStack(spacing: 4) {
                 Circle()
@@ -76,13 +96,19 @@ struct ChatView: View {
             ProgressView()
                 .controlSize(.mini)
 
-            Text("\(viewModel.metricsLogger.currentMetrics.decodeTokensPerSecond, specifier: "%.1f") t/s")
-                .font(.caption2.monospacedDigit().bold())
-                .foregroundStyle(.blue)
+            if viewModel.isExecutingTools {
+                Text("Tools")
+                    .font(.caption2.monospacedDigit().bold())
+                    .foregroundStyle(.orange)
+            } else {
+                Text("\(viewModel.metricsLogger.currentMetrics.decodeTokensPerSecond, specifier: "%.1f") t/s")
+                    .font(.caption2.monospacedDigit().bold())
+                    .foregroundStyle(.blue)
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(.blue.opacity(0.1))
+        .background(viewModel.isExecutingTools ? .orange.opacity(0.1) : .blue.opacity(0.1))
         .clipShape(Capsule())
     }
 
@@ -117,7 +143,7 @@ struct ChatView: View {
                 Text("Nexus AI")
                     .font(.title2.bold())
 
-                Text("On-device intelligence with memory\nPrivate · Fast · Contextual")
+                Text("On-device intelligence with tools\nPrivate · Fast · Contextual")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -134,9 +160,10 @@ struct ChatView: View {
             }
 
             VStack(spacing: 8) {
-                promptSuggestion("What can you remember about me?", icon: "brain")
-                promptSuggestion("Explain how on-device inference works", icon: "cpu")
-                promptSuggestion("Help me brainstorm project ideas", icon: "lightbulb.fill")
+                promptSuggestion("What's my battery level?", icon: "battery.100percent")
+                promptSuggestion("Where am I right now?", icon: "location.fill")
+                promptSuggestion("What's on my calendar this week?", icon: "calendar")
+                promptSuggestion("What time is it?", icon: "clock.fill")
             }
             .padding(.top, 4)
 
@@ -178,19 +205,24 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(viewModel.messages) { message in
-                        MessageBubbleView(message: message)
-                            .id(message.id)
-                            .contextMenu {
-                                Button("Copy", systemImage: "doc.on.doc") {
-                                    UIPasteboard.general.string = message.content
-                                }
-                                if message.role == .assistant, let metrics = message.metrics {
-                                    Button("Copy Metrics", systemImage: "chart.bar") {
-                                        let text = "\(metrics.decodeTokensPerSecond.formatted(.number.precision(.fractionLength(1)))) tok/s · \(metrics.totalTokens) tokens · \(metrics.totalDuration.formatted(.number.precision(.fractionLength(2))))s"
-                                        UIPasteboard.general.string = text
+                        if message.isToolExecution {
+                            ToolResultBubbleView(message: message)
+                                .id(message.id)
+                        } else if message.role != .tool {
+                            MessageBubbleView(message: message)
+                                .id(message.id)
+                                .contextMenu {
+                                    Button("Copy", systemImage: "doc.on.doc") {
+                                        UIPasteboard.general.string = message.content
+                                    }
+                                    if message.role == .assistant, let metrics = message.metrics {
+                                        Button("Copy Metrics", systemImage: "chart.bar") {
+                                            let text = "\(metrics.decodeTokensPerSecond.formatted(.number.precision(.fractionLength(1)))) tok/s · \(metrics.totalTokens) tokens · \(metrics.totalDuration.formatted(.number.precision(.fractionLength(2))))s"
+                                            UIPasteboard.general.string = text
+                                        }
                                     }
                                 }
-                            }
+                        }
                     }
                 }
                 .padding(.vertical, 12)
@@ -225,7 +257,7 @@ struct ChatView: View {
                         }
                     }
 
-                if viewModel.isGenerating {
+                if viewModel.isGenerating || viewModel.isExecutingTools {
                     Button {
                         viewModel.stopGeneration()
                     } label: {
@@ -258,10 +290,20 @@ struct ChatView: View {
     }
 
     private func copyConversation() {
-        let text = viewModel.messages.map { msg in
+        let text = viewModel.messages.filter { !$0.isToolExecution }.map { msg in
             let role = msg.role == .user ? "You" : "Nexus"
             return "\(role): \(msg.content)"
         }.joined(separator: "\n\n")
         UIPasteboard.general.string = text
     }
+}
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

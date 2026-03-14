@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var memoryViewModel: MemoryViewModel?
     @State private var conversationService: ConversationService?
     @State private var memoryService: MemoryService?
+    @State private var toolExecutor = ToolExecutor()
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -95,7 +96,8 @@ struct ContentView: View {
             keyValueStore: keyValueStore,
             database: database,
             conversationService: convService,
-            memoryService: memService
+            memoryService: memService,
+            toolExecutor: toolExecutor
         )
 
         modelManagerViewModel = ModelManagerViewModel(modelLoader: modelLoader)
