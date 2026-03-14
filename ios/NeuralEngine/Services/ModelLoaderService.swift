@@ -578,14 +578,7 @@ class ModelLoaderService {
 
             do {
                 if let modelURL = loadModelPath(forModelID: modelID) {
-                    let computeUnits: MLComputeUnits
-                    switch thermalComputeUnits {
-                    case .all: computeUnits = .all
-                    case .cpuAndNeuralEngine: computeUnits = .cpuAndNeuralEngine
-                    case .cpuOnly: computeUnits = .cpuOnly
-                    default: computeUnits = .all
-                    }
-                    try await modelRunner.loadModel(at: modelURL, computeUnits: computeUnits)
+                    try await modelRunner.loadModel(at: modelURL, computeUnits: thermalComputeUnits)
                 }
             } catch {
                 print("Model load failed: \(error)")
@@ -593,6 +586,27 @@ class ModelLoaderService {
                 activeModelID = nil
             }
         }
+    }
+
+    func reactivateCurrentModel() {
+        guard let modelID = activeModelID else { return }
+        guard activeFormat == .coreML else { return }
+
+        Task {
+            do {
+                if let modelURL = loadModelPath(forModelID: modelID) {
+                    try await modelRunner.loadModel(at: modelURL, computeUnits: thermalComputeUnits)
+                }
+            } catch {
+                print("Reactivation failed: \(error)")
+                modelStatuses[modelID] = .failed("Recovery failed: \(error.localizedDescription)")
+                activeModelID = nil
+            }
+        }
+    }
+
+    var runnerHealthStatus: HealthStatus {
+        modelRunner.healthCheck()
     }
 
     private func activateGGUFModel(modelID: String, manifest: ModelManifest) {

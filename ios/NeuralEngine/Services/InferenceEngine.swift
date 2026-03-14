@@ -7,6 +7,7 @@ class InferenceEngine {
     var isGenerating: Bool = false
     var currentText: String = ""
     var sessionCache = SessionCache()
+    var lastHealthStatus: HealthStatus?
 
     private let kvCache = KVCacheArena()
     private let prefixCache = PromptPrefixCache()
@@ -16,6 +17,7 @@ class InferenceEngine {
     private let thermalGovernor: ThermalGovernor
 
     private var generationTask: Task<Void, Never>?
+    private var healthMonitorTask: Task<Void, Never>?
     private var modelRunner: CoreMLModelRunner?
     private var llamaRunner: LlamaModelRunner?
     private var tokenizer: TokenizerService?
@@ -23,6 +25,10 @@ class InferenceEngine {
 
     private let slidingWindowSize: Int = 1536
     private let evictionThreshold: Int = 1800
+    private let maxRecoveryAttempts = 3
+
+    private var recoveryInProgress: Bool = false
+    private var onRecoveryNeeded: (() -> Void)?
 
     init(metricsLogger: MetricsLogger, thermalGovernor: ThermalGovernor) {
         self.metricsLogger = metricsLogger
@@ -34,10 +40,15 @@ class InferenceEngine {
         self.llamaRunner = llamaRunner
         self.tokenizer = tokenizer
         self.activeFormat = format
+        startHealthMonitor()
     }
 
     func updateFormat(_ format: ModelFormat) {
         self.activeFormat = format
+    }
+
+    func setRecoveryHandler(_ handler: @escaping () -> Void) {
+        self.onRecoveryNeeded = handler
     }
 
     var hasModel: Bool {
@@ -127,14 +138,29 @@ class InferenceEngine {
                 if !tokensToProcess.isEmpty {
                     let _ = try runner.predictLogits(inputIDs: tokensToProcess)
                 }
+            } catch let error as CoreMLRunnerError where error.isEviction {
+                let recovered = await self.attemptInlineRecovery(runner: runner)
+                if recovered {
+                    runner.resetState()
+                    do {
+                        if !tokensToProcess.isEmpty {
+                            let _ = try runner.predictLogits(inputIDs: tokensToProcess)
+                        }
+                    } catch {
+                        self.isGenerating = false
+                        self.notifyRecoveryNeeded()
+                        onComplete(self.failedMetrics(since: prefillStart))
+                        return
+                    }
+                } else {
+                    self.isGenerating = false
+                    self.notifyRecoveryNeeded()
+                    onComplete(self.failedMetrics(since: prefillStart))
+                    return
+                }
             } catch {
                 self.isGenerating = false
-                onComplete(GenerationMetrics(
-                    timeToFirstToken: 0, prefillTokensPerSecond: 0,
-                    decodeTokensPerSecond: 0, totalTokens: 0,
-                    totalDuration: Date().timeIntervalSince(prefillStart),
-                    acceptedSpeculativeTokens: 0, rejectedSpeculativeTokens: 0
-                ))
+                onComplete(self.failedMetrics(since: prefillStart))
                 return
             }
 
@@ -220,6 +246,20 @@ class InferenceEngine {
                     let estimatedMem = await self.kvCache.estimatedMemoryBytes
                     self.metricsLogger.recordMemory(estimatedMem)
 
+                } catch let error as CoreMLRunnerError where error.isEviction {
+                    let recovered = await self.attemptInlineRecovery(runner: runner)
+                    if recovered {
+                        runner.resetState()
+                        do {
+                            let _ = try runner.predictLogits(inputIDs: self.sessionCache.allTokens)
+                            continue
+                        } catch {
+                            break
+                        }
+                    } else {
+                        self.notifyRecoveryNeeded()
+                        break
+                    }
                 } catch {
                     break
                 }
@@ -245,6 +285,57 @@ class InferenceEngine {
 
             onComplete(metrics)
             self.isGenerating = false
+        }
+    }
+
+    private func attemptInlineRecovery(runner: CoreMLModelRunner) async -> Bool {
+        guard !recoveryInProgress else { return false }
+        recoveryInProgress = true
+        defer { recoveryInProgress = false }
+
+        for attempt in 0..<maxRecoveryAttempts {
+            let backoff = 0.5 * pow(2.0, Double(attempt))
+            try? await Task.sleep(for: .seconds(backoff))
+
+            do {
+                try await runner.attemptRecovery()
+                return true
+            } catch {
+                continue
+            }
+        }
+
+        return false
+    }
+
+    private func notifyRecoveryNeeded() {
+        onRecoveryNeeded?()
+    }
+
+    private func failedMetrics(since start: Date) -> GenerationMetrics {
+        GenerationMetrics(
+            timeToFirstToken: 0, prefillTokensPerSecond: 0,
+            decodeTokensPerSecond: 0, totalTokens: 0,
+            totalDuration: Date().timeIntervalSince(start),
+            acceptedSpeculativeTokens: 0, rejectedSpeculativeTokens: 0
+        )
+    }
+
+    private func startHealthMonitor() {
+        healthMonitorTask?.cancel()
+        healthMonitorTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(15))
+                guard let self else { return }
+                guard self.activeFormat == .coreML, let runner = self.modelRunner else { continue }
+
+                let status = runner.healthCheck()
+                self.lastHealthStatus = status
+
+                if !status.isHealthy && status.state == .evicted && !self.isGenerating {
+                    let _ = await self.attemptInlineRecovery(runner: runner)
+                }
+            }
         }
     }
 
@@ -349,6 +440,11 @@ class InferenceEngine {
         }
     }
 
+    func stopHealthMonitor() {
+        healthMonitorTask?.cancel()
+        healthMonitorTask = nil
+    }
+
     private func evictSlidingWindow(systemTokenCount: Int) async {
         let keepCount = slidingWindowSize
         let totalTokens = sessionCache.allTokens.count
@@ -393,5 +489,12 @@ class InferenceEngine {
         }
         result += "<|im_start|>assistant\n"
         return result
+    }
+}
+
+extension CoreMLRunnerError {
+    var isEviction: Bool {
+        if case .modelEvicted = self { return true }
+        return false
     }
 }
