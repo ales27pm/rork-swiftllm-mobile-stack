@@ -1,5 +1,56 @@
 import Foundation
 
+nonisolated struct DiagnosticEvent: Sendable, Identifiable {
+    let id: UUID
+    let code: DiagnosticCode
+    let message: String
+    let severity: DiagnosticSeverity
+    let timestamp: Date
+    let metadata: [String: String]
+
+    init(code: DiagnosticCode, message: String, severity: DiagnosticSeverity, metadata: [String: String] = [:]) {
+        self.id = UUID()
+        self.code = code
+        self.message = message
+        self.severity = severity
+        self.timestamp = Date()
+        self.metadata = metadata
+    }
+}
+
+nonisolated enum DiagnosticCode: String, Sendable {
+    case modelEvicted = "MODEL_EVICTED"
+    case memoryPressure = "MEMORY_PRESSURE"
+    case thermalEscalation = "THERMAL_ESCALATION"
+    case recoveryStarted = "RECOVERY_STARTED"
+    case recoveryCompleted = "RECOVERY_COMPLETED"
+    case recoveryFailed = "RECOVERY_FAILED"
+    case computeUnitDegraded = "COMPUTE_DEGRADED"
+    case contextEviction = "CONTEXT_EVICTION"
+    case inferenceThrottled = "INFERENCE_THROTTLED"
+    case healthCheckFailed = "HEALTH_CHECK_FAILED"
+    case prefixCacheHit = "PREFIX_CACHE_HIT"
+    case generationComplete = "GENERATION_COMPLETE"
+}
+
+nonisolated enum DiagnosticSeverity: Int, Sendable, Comparable {
+    case info = 0
+    case warning = 1
+    case critical = 2
+
+    static func < (lhs: DiagnosticSeverity, rhs: DiagnosticSeverity) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+
+    var label: String {
+        switch self {
+        case .info: return "Info"
+        case .warning: return "Warning"
+        case .critical: return "Critical"
+        }
+    }
+}
+
 @Observable
 @MainActor
 class MetricsLogger {
@@ -7,6 +58,12 @@ class MetricsLogger {
     var history: [InferenceMetrics] = []
     var speedHistory: [Double] = []
     var totalEvictedTokens: Int = 0
+    var diagnosticEvents: [DiagnosticEvent] = []
+    var lastDiagnosticCode: DiagnosticCode?
+    var activeComputeLabel: String = "All"
+    var totalRecoveries: Int = 0
+    var totalEvictions: Int = 0
+    var sessionUptime: Date = Date()
 
     private var generationStart: Date?
     private var firstTokenTime: Date?
@@ -92,5 +149,80 @@ class MetricsLogger {
     var averageDecodeSpeed: Double {
         guard !history.isEmpty else { return 0 }
         return history.map(\.decodeTokensPerSecond).reduce(0, +) / Double(history.count)
+    }
+
+    func recordDiagnostic(_ event: DiagnosticEvent) {
+        diagnosticEvents.append(event)
+        lastDiagnosticCode = event.code
+        if diagnosticEvents.count > 200 {
+            diagnosticEvents.removeFirst()
+        }
+    }
+
+    func recordModelEviction(reason: String, computeUnits: String) {
+        totalEvictions += 1
+        recordDiagnostic(DiagnosticEvent(
+            code: .modelEvicted,
+            message: "Neural Engine eviction detected",
+            severity: .critical,
+            metadata: ["reason": reason, "computeUnits": computeUnits]
+        ))
+    }
+
+    func recordRecovery(success: Bool, newComputeUnits: String) {
+        if success {
+            totalRecoveries += 1
+            activeComputeLabel = newComputeUnits
+            recordDiagnostic(DiagnosticEvent(
+                code: .recoveryCompleted,
+                message: "Model recovered on \(newComputeUnits)",
+                severity: .info,
+                metadata: ["computeUnits": newComputeUnits]
+            ))
+        } else {
+            recordDiagnostic(DiagnosticEvent(
+                code: .recoveryFailed,
+                message: "Recovery failed",
+                severity: .critical
+            ))
+        }
+    }
+
+    func recordComputeUnitChange(_ label: String) {
+        let previous = activeComputeLabel
+        activeComputeLabel = label
+        if previous != label {
+            recordDiagnostic(DiagnosticEvent(
+                code: .computeUnitDegraded,
+                message: "Compute degraded: \(previous) → \(label)",
+                severity: .warning,
+                metadata: ["from": previous, "to": label]
+            ))
+        }
+    }
+
+    func recordThrottleEvent(thermalState: String, penalty: Double) {
+        recordDiagnostic(DiagnosticEvent(
+            code: .inferenceThrottled,
+            message: "Inference throttled at \(thermalState)",
+            severity: .warning,
+            metadata: ["thermalState": thermalState, "penalty": String(format: "%.1f", penalty)]
+        ))
+    }
+
+    var recentCriticalEvents: [DiagnosticEvent] {
+        diagnosticEvents.filter { $0.severity == .critical }.suffix(5).reversed()
+    }
+
+    var uptimeFormatted: String {
+        let interval = Date().timeIntervalSince(sessionUptime)
+        let minutes = Int(interval) / 60
+        let seconds = Int(interval) % 60
+        return String(format: "%dm %02ds", minutes, seconds)
+    }
+
+    func clearDiagnostics() {
+        diagnosticEvents.removeAll()
+        lastDiagnosticCode = nil
     }
 }

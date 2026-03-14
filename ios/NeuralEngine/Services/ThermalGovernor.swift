@@ -22,6 +22,7 @@ class ThermalGovernor {
     private var monitorTask: Task<Void, Never>?
     private var memorySource: DispatchSourceMemoryPressure?
     private var onCriticalMemory: (() -> Void)?
+    var metricsLogger: MetricsLogger?
     private var thermalObserver: NSObjectProtocol?
     private var previousThermalState: ProcessInfo.ThermalState = .nominal
 
@@ -113,7 +114,10 @@ class ThermalGovernor {
         if newState == .critical {
             totalThrottleEvents += 1
             inferenceThrottled = true
+            metricsLogger?.recordThrottleEvent(thermalState: "Critical", penalty: currentPenalty)
             NotificationCenter.default.post(name: .forceInferenceStop, object: nil)
+        } else if newState == .serious {
+            metricsLogger?.recordThrottleEvent(thermalState: "Serious", penalty: currentPenalty)
         } else if newState == .nominal || newState == .fair {
             inferenceThrottled = false
         }
@@ -160,6 +164,12 @@ class ThermalGovernor {
                     self.currentMode = self.chooseMode(thermalState: self.thermalState, memoryPressure: .critical)
                     self.onCriticalMemory?()
                     self.totalThrottleEvents += 1
+                    self.metricsLogger?.recordDiagnostic(DiagnosticEvent(
+                        code: .memoryPressure,
+                        message: "Critical memory pressure detected",
+                        severity: .critical,
+                        metadata: ["level": "critical"]
+                    ))
                     NotificationCenter.default.post(name: .forceInferenceStop, object: nil)
                     NotificationCenter.default.post(name: .memoryPressureEscalated, object: nil, userInfo: [
                         "level": "critical",

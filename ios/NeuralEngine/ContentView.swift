@@ -59,6 +59,20 @@ struct ContentView: View {
                 }
             }
 
+            Tab("Metrics", systemImage: "gauge.with.dots.needle.67percent", value: .metrics) {
+                NavigationStack {
+                    if let engine = inferenceEngine {
+                        MetricsDashboardView(
+                            metricsLogger: metricsLogger,
+                            thermalGovernor: thermalGovernor,
+                            inferenceEngine: engine
+                        )
+                    } else {
+                        ProgressView()
+                    }
+                }
+            }
+
             Tab("Settings", systemImage: "gearshape", value: .settings) {
                 NavigationStack {
                     if let chatVM = chatViewModel {
@@ -79,6 +93,8 @@ struct ContentView: View {
 
     private func setupViewModels() {
         guard inferenceEngine == nil else { return }
+
+        thermalGovernor.metricsLogger = metricsLogger
 
         let engine = InferenceEngine(metricsLogger: metricsLogger, thermalGovernor: thermalGovernor)
         inferenceEngine = engine
@@ -116,5 +132,6 @@ enum AppTab: String {
     case history
     case memory
     case models
+    case metrics
     case settings
 }

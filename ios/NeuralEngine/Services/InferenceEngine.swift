@@ -170,7 +170,9 @@ class InferenceEngine {
                     let _ = try runner.predictLogits(inputIDs: tokensToProcess)
                 }
             } catch let error as CoreMLRunnerError where error.isEviction {
+                self.metricsLogger.recordModelEviction(reason: error.localizedDescription, computeUnits: self.metricsLogger.activeComputeLabel)
                 let recovered = await self.attemptInlineRecovery(runner: runner)
+                self.metricsLogger.recordRecovery(success: recovered, newComputeUnits: recovered ? self.computeUnitsLabel(runner) : self.metricsLogger.activeComputeLabel)
                 if recovered {
                     runner.resetState()
                     do {
@@ -287,7 +289,9 @@ class InferenceEngine {
                     self.metricsLogger.recordMemory(estimatedMem)
 
                 } catch let error as CoreMLRunnerError where error.isEviction {
+                    self.metricsLogger.recordModelEviction(reason: error.localizedDescription, computeUnits: self.metricsLogger.activeComputeLabel)
                     let recovered = await self.attemptInlineRecovery(runner: runner)
+                    self.metricsLogger.recordRecovery(success: recovered, newComputeUnits: recovered ? self.computeUnitsLabel(runner) : self.metricsLogger.activeComputeLabel)
                     if recovered {
                         runner.resetState()
                         do {
@@ -373,6 +377,11 @@ class InferenceEngine {
                 self.lastHealthStatus = status
 
                 if !status.isHealthy && status.state == .evicted && !self.isGenerating {
+                    self.metricsLogger.recordDiagnostic(DiagnosticEvent(
+                        code: .healthCheckFailed,
+                        message: "Health check: \(status.diagnosticSummary)",
+                        severity: .warning
+                    ))
                     let _ = await self.attemptInlineRecovery(runner: runner)
                 }
             }
@@ -494,6 +503,17 @@ class InferenceEngine {
     func stopHealthMonitor() {
         healthMonitorTask?.cancel()
         healthMonitorTask = nil
+    }
+
+    private func computeUnitsLabel(_ runner: CoreMLModelRunner) -> String {
+        let health = runner.healthCheck()
+        switch health.computeUnits {
+        case .all: return "All"
+        case .cpuAndNeuralEngine: return "CPU+ANE"
+        case .cpuOnly: return "CPU"
+        case .cpuAndGPU: return "CPU+GPU"
+        @unknown default: return "Unknown"
+        }
     }
 
     func removeObservers() {
