@@ -16,6 +16,7 @@ struct MetricsDashboardView: View {
                 
                 switch selectedSection {
                 case .overview:
+                    systemHealthCard
                     diagnosticBanner
                     speedSparklineSection
                     liveMetricsSection
@@ -80,6 +81,64 @@ struct MetricsDashboardView: View {
             }
         }
         .contentMargins(.horizontal, 0)
+    }
+
+    private var systemHealthLatency: Double {
+        metricsLogger.currentMetrics.avgTokenLatencyMS
+    }
+
+    private var systemHealthCard: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(systemHealthColor.opacity(0.15))
+                    .frame(width: 44, height: 44)
+
+                Image(systemName: systemHealthIcon)
+                    .font(.title3)
+                    .foregroundStyle(systemHealthColor)
+                    .symbolEffect(.pulse, options: systemHealthLatency < 50 ? .default : .repeating, isActive: systemHealthLatency >= 50)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("System Health")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text(systemHealthLabel)
+                    .font(.title3.bold())
+                    .foregroundStyle(systemHealthColor)
+                    .contentTransition(.numericText())
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 3) {
+                Text("Avg Latency")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("\(systemHealthLatency, specifier: "%.1f") ms")
+                    .font(.headline.monospacedDigit())
+                    .foregroundStyle(.primary)
+                    .contentTransition(.numericText(value: systemHealthLatency))
+            }
+        }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(.rect(cornerRadius: 16))
+    }
+
+    private var systemHealthLabel: String {
+        systemHealthLatency < 50 ? "Optimal" : (systemHealthLatency < 100 ? "Degraded" : "Critical")
+    }
+
+    private var systemHealthColor: Color {
+        systemHealthLatency < 50 ? .green : (systemHealthLatency < 100 ? .orange : .red)
+    }
+
+    private var systemHealthIcon: String {
+        systemHealthLatency < 50 ? "checkmark.seal.fill" : (systemHealthLatency < 100 ? "exclamationmark.triangle.fill" : "xmark.octagon.fill")
     }
 
     @ViewBuilder

@@ -20,6 +20,8 @@ class ChatViewModel {
     var reasoningReplayLog: [ReasoningReplayEntry] = []
     var activeReasoningDepth: Int = 0
     var activeConvergence: Double = 0
+    var expectedResponseLength: ResponseLength?
+    var lastIntentClassification: IntentClassification?
 
     var currentConversationId: String?
 
@@ -133,11 +135,15 @@ class ChatViewModel {
         isModelLoading = false
     }
 
-    func sendMessage() {
+    func sendIntent() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         guard !isGenerating else { return }
         lastError = nil
+
+        let intent = IntentClassifier.classify(text: text, conversationHistory: messages)
+        lastIntentClassification = intent
+        expectedResponseLength = intent.expectedResponseLength
 
         if currentConversationId == nil {
             let conv = conversationService.createConversation(modelId: modelLoader.activeModelID)
@@ -152,8 +158,21 @@ class ChatViewModel {
             conversationService.saveMessage(userMessage, conversationId: convId)
         }
 
-        statusMessage = "Generating..."
+        statusMessage = statusForIntent(intent)
         generateResponse(userText: text)
+    }
+
+    func sendMessage() {
+        sendIntent()
+    }
+
+    private func statusForIntent(_ intent: IntentClassification) -> String {
+        switch intent.expectedResponseLength {
+        case .brief: return "Generating brief response..."
+        case .moderate: return "Generating..."
+        case .detailed: return "Generating detailed response..."
+        case .comprehensive: return "Generating comprehensive response..."
+        }
     }
 
     private func generateResponse(userText: String, toolContext: [[String: String]] = []) {
@@ -208,6 +227,7 @@ class ChatViewModel {
                 self.messages[assistantIndex].metrics = metrics
                 self.isGenerating = false
                 self.statusMessage = "Ready"
+                self.expectedResponseLength = nil
 
                 let fullContent = self.messages[assistantIndex].content
 

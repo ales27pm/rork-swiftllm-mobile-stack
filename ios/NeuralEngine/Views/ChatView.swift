@@ -245,6 +245,11 @@ struct ChatView: View {
                     }
                 }
             }
+            .onChange(of: viewModel.messages.last?.content) { _, _ in
+                if let last = viewModel.messages.last, last.isStreaming {
+                    proxy.scrollTo(last.id, anchor: .bottom)
+                }
+            }
         }
     }
 
@@ -268,13 +273,21 @@ struct ChatView: View {
                     }
 
                 if viewModel.isGenerating || viewModel.isExecutingTools {
-                    Button {
-                        viewModel.stopGeneration()
-                    } label: {
-                        Image(systemName: "stop.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(.red)
-                            .symbolEffect(.pulse, options: .repeating)
+                    VStack(spacing: 4) {
+                        if let length = viewModel.expectedResponseLength {
+                            Text(length.rawValue.capitalized)
+                                .font(.system(size: 9).weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .transition(.opacity)
+                        }
+                        Button {
+                            viewModel.stopGeneration()
+                        } label: {
+                            Image(systemName: "stop.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(.red)
+                                .symbolEffect(.pulse, options: .repeating)
+                        }
                     }
                     .sensoryFeedback(.impact(weight: .medium), trigger: viewModel.isGenerating)
                 } else {
@@ -294,7 +307,7 @@ struct ChatView: View {
                         }
 
                         Button {
-                            viewModel.sendMessage()
+                            viewModel.sendIntent()
                         } label: {
                             Image(systemName: "arrow.up.circle.fill")
                                 .font(.title2)
