@@ -4,6 +4,7 @@ struct MetricsDashboardView: View {
     let metricsLogger: MetricsLogger
     let thermalGovernor: ThermalGovernor
     let inferenceEngine: InferenceEngine
+    let chatViewModel: ChatViewModel
 
     @State private var selectedSection: DashboardSection = .overview
     @State private var pulseEviction: Bool = false
@@ -28,6 +29,9 @@ struct MetricsDashboardView: View {
                     diagnosticEventLogSection
                 case .history:
                     historySection
+                case .reasoning:
+                    reasoningTelemetrySection
+                    reasoningReplayLogSection
                 }
             }
             .padding(.horizontal, 16)
@@ -702,6 +706,218 @@ struct MetricsDashboardView: View {
         .clipShape(.rect(cornerRadius: 16))
     }
 
+    private var reasoningTelemetrySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Reasoning State", systemImage: "brain.head.profile.fill")
+                .font(.headline)
+
+            if let frame = chatViewModel.lastCognitionFrame {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    MetricCardView(
+                        title: "Convergence",
+                        value: String(format: "%.0f", frame.reasoningTrace.finalConvergence * 100),
+                        unit: "%",
+                        icon: "arrow.triangle.merge",
+                        color: frame.reasoningTrace.finalConvergence > 0.7 ? .green : .orange
+                    )
+
+                    MetricCardView(
+                        title: "Tree Depth",
+                        value: "\(frame.thoughtTree.maxDepthReached)",
+                        unit: "levels",
+                        icon: "tree",
+                        color: .purple
+                    )
+
+                    MetricCardView(
+                        title: "Active Branches",
+                        value: "\(frame.thoughtTree.branches.count - frame.thoughtTree.prunedBranches.count)",
+                        unit: "paths",
+                        icon: "arrow.triangle.branch",
+                        color: .blue
+                    )
+
+                    MetricCardView(
+                        title: "Pruned",
+                        value: "\(frame.thoughtTree.prunedBranches.count)",
+                        unit: "branches",
+                        icon: "scissors",
+                        color: .red
+                    )
+
+                    MetricCardView(
+                        title: "Complexity",
+                        value: frame.metacognition.complexityLevel.rawValue.capitalized,
+                        unit: "",
+                        icon: "gauge.with.dots.needle.67percent",
+                        color: complexityColor(frame.metacognition.complexityLevel)
+                    )
+
+                    MetricCardView(
+                        title: "Uncertainty",
+                        value: String(format: "%.0f", frame.metacognition.uncertaintyLevel * 100),
+                        unit: "%",
+                        icon: "questionmark.diamond",
+                        color: frame.metacognition.uncertaintyLevel > 0.6 ? .red : .green
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lightbulb.fill")
+                            .font(.caption)
+                            .foregroundStyle(.yellow)
+                        Text("Strategy: \(frame.reasoningTrace.dominantStrategy.rawValue)")
+                            .font(.subheadline.bold())
+                    }
+
+                    if !frame.metacognition.selfCorrectionFlags.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.uturn.backward.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                            Text("\(frame.metacognition.selfCorrectionFlags.count) self-correction(s) active")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+
+                    if frame.metacognition.entropyAnalysis.shouldEscalate {
+                        HStack(spacing: 6) {
+                            Image(systemName: "flame.fill")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                            Text("High entropy — escalated reasoning")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(.tertiarySystemGroupedBackground))
+                .clipShape(.rect(cornerRadius: 10))
+            } else {
+                VStack(spacing: 8) {
+                    Image(systemName: "brain")
+                        .font(.title2)
+                        .foregroundStyle(.tertiary)
+                    Text("No reasoning data yet")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text("Send a message to see reasoning telemetry")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+            }
+        }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(.rect(cornerRadius: 16))
+    }
+
+    private var reasoningReplayLogSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Reasoning Replay", systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+                    .font(.headline)
+                Spacer()
+                Text("\(chatViewModel.reasoningReplayLog.count) entries")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            if chatViewModel.reasoningReplayLog.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "text.line.last.and.arrowtriangle.forward")
+                        .font(.title2)
+                        .foregroundStyle(.tertiary)
+                    Text("No replay data")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+            } else {
+                ForEach(Array(chatViewModel.reasoningReplayLog.suffix(10).reversed().enumerated()), id: \.element.id) { _, entry in
+                    replayRow(entry)
+                }
+            }
+        }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(.rect(cornerRadius: 16))
+    }
+
+    private func replayRow(_ entry: ReasoningReplayEntry) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Circle()
+                .fill(entry.convergence > 0.7 ? Color.green : (entry.convergence > 0.4 ? Color.orange : Color.red))
+                .frame(width: 8, height: 8)
+                .padding(.top, 5)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(entry.strategy.capitalized)
+                        .font(.caption.bold().monospaced())
+                        .foregroundStyle(.blue)
+
+                    Spacer()
+
+                    Text(entry.timestamp, style: .time)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                Text("\(entry.complexityLevel) · \(Int(entry.convergence * 100))% converged · depth \(entry.treeDepth)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 6) {
+                    Text("\(entry.activeBranches) active")
+                        .font(.system(size: 9).monospaced())
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color(.quaternarySystemFill))
+                        .clipShape(Capsule())
+
+                    if entry.prunedBranches > 0 {
+                        Text("\(entry.prunedBranches) pruned")
+                            .font(.system(size: 9).monospaced())
+                            .foregroundStyle(.orange)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.orange.opacity(0.1))
+                            .clipShape(Capsule())
+                    }
+
+                    if entry.selfCorrectionCount > 0 {
+                        Text("\(entry.selfCorrectionCount) corrections")
+                            .font(.system(size: 9).monospaced())
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.red.opacity(0.1))
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func complexityColor(_ level: ComplexityLevel) -> Color {
+        switch level {
+        case .simple: return .green
+        case .moderate: return .yellow
+        case .complex: return .orange
+        case .expert: return .red
+        }
+    }
+
     private var historySection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Generation History", systemImage: "clock.arrow.circlepath")
@@ -885,6 +1101,7 @@ struct MetricsDashboardView: View {
 enum DashboardSection: String, CaseIterable {
     case overview
     case hardware
+    case reasoning
     case diagnostics
     case history
 
@@ -892,6 +1109,7 @@ enum DashboardSection: String, CaseIterable {
         switch self {
         case .overview: return "Overview"
         case .hardware: return "Hardware"
+        case .reasoning: return "Reasoning"
         case .diagnostics: return "Diagnostics"
         case .history: return "History"
         }
@@ -901,6 +1119,7 @@ enum DashboardSection: String, CaseIterable {
         switch self {
         case .overview: return "gauge.with.dots.needle.67percent"
         case .hardware: return "cpu"
+        case .reasoning: return "brain.head.profile.fill"
         case .diagnostics: return "stethoscope"
         case .history: return "clock.arrow.circlepath"
         }

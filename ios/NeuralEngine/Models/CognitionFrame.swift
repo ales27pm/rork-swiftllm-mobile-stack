@@ -188,3 +188,17 @@ nonisolated enum InjectionSubtype: String, Sendable {
     case verificationPrompt
     case depthExpansion
 }
+
+nonisolated struct ReasoningReplayEntry: Identifiable, Sendable {
+    let id: UUID = UUID()
+    let timestamp: Date
+    let status: String
+    let convergence: Double
+    let activeBranches: Int
+    let prunedBranches: Int
+    let strategy: String
+    let treeDepth: Int
+    let complexityLevel: String
+    let uncertaintyLevel: Double
+    let selfCorrectionCount: Int
+}

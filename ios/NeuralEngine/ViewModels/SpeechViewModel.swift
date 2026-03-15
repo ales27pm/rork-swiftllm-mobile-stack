@@ -51,6 +51,18 @@ class SpeechViewModel {
     private let inactivityTimeoutSeconds: TimeInterval = 15
     private let maxConsecutiveTimeouts = 3
 
+    private let noiseWords: Set<String> = [
+        "um", "uh", "ah", "eh", "hmm", "hm", "mm",
+        "bye", "goodbye", "bye bye",
+        "thank you", "thanks", "thank",
+        "okay", "ok",
+        "hello", "hi", "hey",
+        "yeah", "yep", "nah", "nope",
+        "oh", "ooh", "ugh",
+    ]
+
+    private let silenceThresholdDB: Float = -35
+
     func attach(to chatViewModel: ChatViewModel) {
         self.chatViewModel = chatViewModel
     }
@@ -156,7 +168,38 @@ class SpeechViewModel {
         startListening()
     }
 
+    private func isNoiseTranscription(_ text: String) -> Bool {
+        let cleaned = text.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "[^a-z\\s]", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+
+        if cleaned.isEmpty { return true }
+
+        if noiseWords.contains(cleaned) { return true }
+
+        let words = cleaned.split(separator: " ").map(String.init)
+        if words.count <= 2 && words.allSatisfy({ noiseWords.contains($0) }) {
+            return true
+        }
+
+        return false
+    }
+
     private func processTranscript(_ text: String) {
+        if isNoiseTranscription(text) {
+            statusMessage = "Filtered noise"
+            if isAutoListenEnabled {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    self?.startListening()
+                }
+            } else {
+                state = .idle
+                statusMessage = "Ready"
+            }
+            return
+        }
+
         state = .processing
         displayText = text
         turnCount += 1

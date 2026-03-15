@@ -17,6 +17,10 @@ class ChatViewModel {
     var statusMessage: String = "Idle"
     var isModelLoading: Bool = false
 
+    var reasoningReplayLog: [ReasoningReplayEntry] = []
+    var activeReasoningDepth: Int = 0
+    var activeConvergence: Double = 0
+
     var currentConversationId: String?
 
     let inferenceEngine: InferenceEngine
@@ -55,6 +59,31 @@ class ChatViewModel {
 
     func dismissError() {
         lastError = nil
+    }
+
+    func replayReasoningState() -> [ReasoningReplayEntry] {
+        reasoningReplayLog
+    }
+
+    private func recordReasoningReplay(frame: CognitionFrame) {
+        let entry = ReasoningReplayEntry(
+            timestamp: Date(),
+            status: statusMessage,
+            convergence: frame.reasoningTrace.finalConvergence,
+            activeBranches: frame.thoughtTree.branches.count - frame.thoughtTree.prunedBranches.count,
+            prunedBranches: frame.thoughtTree.prunedBranches.count,
+            strategy: frame.reasoningTrace.dominantStrategy.rawValue,
+            treeDepth: frame.thoughtTree.maxDepthReached,
+            complexityLevel: frame.metacognition.complexityLevel.rawValue,
+            uncertaintyLevel: frame.metacognition.uncertaintyLevel,
+            selfCorrectionCount: frame.metacognition.selfCorrectionFlags.count
+        )
+        reasoningReplayLog.append(entry)
+        if reasoningReplayLog.count > 50 {
+            reasoningReplayLog.removeFirst()
+        }
+        activeReasoningDepth = frame.thoughtTree.maxDepthReached
+        activeConvergence = frame.reasoningTrace.finalConvergence
     }
 
     func safeModelLoad() async {
@@ -141,6 +170,7 @@ class ChatViewModel {
             memoryService: memoryService
         )
         lastCognitionFrame = frame
+        recordReasoningReplay(frame: frame)
 
         let memoryResults = memoryService.searchMemories(query: userText, maxResults: 8)
         let associativeResults = memoryService.getAssociativeMemories(query: userText, directResults: memoryResults)

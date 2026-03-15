@@ -9,10 +9,18 @@ struct ChatView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                if let error = viewModel.lastError {
+                    diagnosticBanner(error)
+                }
+
                 if viewModel.messages.isEmpty {
                     emptyState
                 } else {
                     messageList
+                }
+
+                if viewModel.isGenerating, let frame = viewModel.lastCognitionFrame {
+                    reasoningStatusBar(frame)
                 }
 
                 inputBar
@@ -308,6 +316,103 @@ struct ChatView: View {
         .fullScreenCover(isPresented: $showSpeechMode) {
             SpeechModeView(viewModel: speechViewModel)
         }
+    }
+
+    private func diagnosticBanner(_ error: WrappedError) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: error.severity == .critical ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(error.severity == .critical ? .red : .orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(error.userMessage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+
+                HStack(spacing: 4) {
+                    Text(error.domain.rawValue)
+                        .font(.system(size: 9).monospaced())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Color(.quaternarySystemFill))
+                        .clipShape(Capsule())
+
+                    if error.recoveryAction != .none {
+                        Text(error.recoveryAction.rawValue)
+                            .font(.system(size: 9).monospaced())
+                            .foregroundStyle(.blue)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.blue.opacity(0.1))
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                viewModel.dismissError()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .background(Color(.quaternarySystemFill))
+                    .clipShape(Circle())
+            }
+        }
+        .padding(10)
+        .background(error.severity == .critical ? Color.red.opacity(0.08) : Color.orange.opacity(0.08))
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundStyle(error.severity == .critical ? Color.red.opacity(0.2) : Color.orange.opacity(0.2)),
+            alignment: .bottom
+        )
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .animation(.spring(duration: 0.3), value: viewModel.lastError?.id)
+    }
+
+    private func reasoningStatusBar(_ frame: CognitionFrame) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "brain.head.profile.fill")
+                .font(.caption2)
+                .foregroundStyle(.purple)
+                .symbolEffect(.pulse, options: .repeating)
+
+            Text(frame.reasoningTrace.dominantStrategy.rawValue)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.purple)
+
+            Spacer()
+
+            HStack(spacing: 4) {
+                Text("\(Int(frame.reasoningTrace.finalConvergence * 100))%")
+                    .font(.caption2.monospacedDigit().bold())
+                    .foregroundStyle(frame.reasoningTrace.finalConvergence > 0.7 ? .green : .orange)
+
+                Text("converged")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+            }
+
+            if frame.thoughtTree.prunedBranches.count > 0 {
+                Text("\(frame.thoughtTree.prunedBranches.count) pruned")
+                    .font(.system(size: 9).monospaced())
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.orange.opacity(0.1))
+                    .clipShape(Capsule())
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color(.secondarySystemBackground))
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .animation(.spring(duration: 0.3), value: viewModel.isGenerating)
     }
 
     private func copyConversation() {

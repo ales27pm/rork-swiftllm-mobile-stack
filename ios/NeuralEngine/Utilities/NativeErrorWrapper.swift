@@ -61,6 +61,29 @@ nonisolated enum RecoveryAction: String, Sendable {
 }
 
 enum NativeErrorWrapper {
+    private static let nativeErrorCodeMap: [String: [Int: (ErrorDomain, ErrorSeverity, String, String, RecoveryAction)]] = [
+        "com.apple.CoreML": [
+            -1: (.coreML, .critical, "Hardware compute failed. Switching to CPU.", "ANE execution plan failure", .switchToCPU),
+            -2: (.coreML, .critical, "Model memory evicted by system.", "GPU/ANE resource reclaimed", .reloadModel),
+            -4: (.coreML, .critical, "Neural Engine incompatible. Falling back.", "ErrorCode -4: Plan Build failure", .switchToCPU),
+            -6: (.coreML, .error, "Model output shape mismatch.", "Tensor shape validation failed", .reloadModel),
+            11: (.coreML, .critical, "Model evicted during inference.", "Mid-inference ANE eviction", .reloadModel),
+        ],
+        "kAFAssistantErrorDomain": [
+            1110: (.speech, .info, "No speech detected.", "kAFAssistantErrorDomain code 1110: no speech input", .retry),
+            209: (.speech, .warning, "Speech service busy. Try again.", "Recognition service contention", .retry),
+            203: (.speech, .error, "Speech recognition unavailable.", "On-device recognizer not loaded", .retry),
+        ],
+        "NSPOSIXErrorDomain": [
+            12: (.fileSystem, .error, "Not enough memory available.", "ENOMEM: insufficient memory for allocation", .reduceContext),
+            28: (.fileSystem, .error, "Not enough storage space.", "ENOSPC: device storage full", .clearCache),
+        ],
+        "NSCocoaErrorDomain": [
+            260: (.fileSystem, .error, "Model file not found.", "NSFileReadNoSuchFileError", .reloadModel),
+            513: (.fileSystem, .error, "Cannot write to model directory.", "NSFileWriteNoPermissionError", .clearCache),
+        ],
+    ]
+
     static func synthesize(_ error: Error) -> WrappedError {
         if let coreMLError = error as? CoreMLRunnerError {
             return wrapCoreMLError(coreMLError)
@@ -72,12 +95,35 @@ enum NativeErrorWrapper {
 
         let nsError = error as NSError
 
+        if let domainMap = nativeErrorCodeMap[nsError.domain],
+           let mapped = domainMap[nsError.code] {
+            return WrappedError(
+                domain: mapped.0,
+                severity: mapped.1,
+                userMessage: mapped.2,
+                technicalDetail: "\(nsError.domain):\(nsError.code) — \(mapped.3)",
+                recoveryAction: mapped.4,
+                underlyingError: error
+            )
+        }
+
         if nsError.domain == "com.apple.CoreML" {
             return wrapRawCoreMLError(nsError)
         }
 
         if nsError.domain == "kAFAssistantErrorDomain" {
             return wrapSpeechError(nsError)
+        }
+
+        if nsError.domain.contains("runtime_error") || nsError.localizedDescription.contains("std::runtime_error") {
+            return WrappedError(
+                domain: .coreML,
+                severity: .critical,
+                userMessage: "A native runtime error occurred. The model may need to be reloaded.",
+                technicalDetail: "JSI/C++ runtime_error intercepted: \(nsError.localizedDescription)",
+                recoveryAction: .reloadModel,
+                underlyingError: error
+            )
         }
 
         return WrappedError(
@@ -88,6 +134,17 @@ enum NativeErrorWrapper {
             recoveryAction: .retry,
             underlyingError: error
         )
+    }
+
+    static func diagnosticLabel(for error: WrappedError) -> String {
+        let severityIcon: String
+        switch error.severity {
+        case .info: severityIcon = "ℹ️"
+        case .warning: severityIcon = "⚠️"
+        case .error: severityIcon = "❌"
+        case .critical: severityIcon = "🔴"
+        }
+        return "\(severityIcon) [\(error.domain.rawValue)] \(error.userMessage)"
     }
 
     private static func wrapCoreMLError(_ error: CoreMLRunnerError) -> WrappedError {

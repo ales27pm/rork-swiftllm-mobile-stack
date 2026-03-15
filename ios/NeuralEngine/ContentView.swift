@@ -61,11 +61,12 @@ struct ContentView: View {
 
             Tab("Metrics", systemImage: "gauge.with.dots.needle.67percent", value: .metrics) {
                 NavigationStack {
-                    if let engine = inferenceEngine {
+                    if let engine = inferenceEngine, let chatVM = chatViewModel {
                         MetricsDashboardView(
                             metricsLogger: metricsLogger,
                             thermalGovernor: thermalGovernor,
-                            inferenceEngine: engine
+                            inferenceEngine: engine,
+                            chatViewModel: chatVM
                         )
                     } else {
                         ProgressView()
