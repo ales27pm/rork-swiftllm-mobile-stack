@@ -31,6 +31,13 @@ nonisolated enum DiagnosticCode: String, Sendable {
     case healthCheckFailed = "HEALTH_CHECK_FAILED"
     case prefixCacheHit = "PREFIX_CACHE_HIT"
     case generationComplete = "GENERATION_COMPLETE"
+    case assetIntegrityPassed = "ASSET_INTEGRITY_PASSED"
+    case assetIntegrityFailed = "ASSET_INTEGRITY_FAILED"
+    case assetChecksumMismatch = "ASSET_CHECKSUM_MISMATCH"
+    case assetRepairStarted = "ASSET_REPAIR_STARTED"
+    case assetRepairCompleted = "ASSET_REPAIR_COMPLETED"
+    case assetRepairFailed = "ASSET_REPAIR_FAILED"
+    case partialDownloadDetected = "PARTIAL_DOWNLOAD_DETECTED"
 }
 
 nonisolated enum DiagnosticSeverity: Int, Sendable, Comparable {

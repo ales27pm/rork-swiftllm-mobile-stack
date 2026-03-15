@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 nonisolated final class FileSystemService: Sendable {
     private let fm = FileManager.default
@@ -251,5 +252,154 @@ nonisolated final class FileSystemService: Sendable {
             if !delete(at: url) { success = false }
         }
         return success
+    }
+
+    func computeSHA256(for url: URL) -> String? {
+        let isDir = isDirectory(at: url)
+        if isDir {
+            return computeDirectorySHA256(at: url)
+        }
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let digest = SHA256.hash(data: data)
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    func computeStreamingSHA256(for url: URL) -> String? {
+        guard let stream = InputStream(url: url) else { return nil }
+        stream.open()
+        defer { stream.close() }
+
+        var hasher = SHA256()
+        let bufferSize = 1_048_576
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+
+        while stream.hasBytesAvailable {
+            let bytesRead = stream.read(buffer, maxLength: bufferSize)
+            if bytesRead < 0 { return nil }
+            if bytesRead == 0 { break }
+            hasher.update(bufferPointer: UnsafeRawBufferPointer(start: buffer, count: bytesRead))
+        }
+
+        let digest = hasher.finalize()
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func computeDirectorySHA256(at directory: URL) -> String? {
+        guard let enumerator = fm.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        var hasher = SHA256()
+        var fileURLs: [URL] = []
+
+        while let url = enumerator.nextObject() as? URL {
+            let isFile = (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) ?? false
+            if isFile {
+                fileURLs.append(url)
+            }
+        }
+
+        fileURLs.sort { $0.path < $1.path }
+
+        for fileURL in fileURLs {
+            let relativePath = fileURL.path.replacingOccurrences(of: directory.path, with: "")
+            if let pathData = relativePath.data(using: .utf8) {
+                hasher.update(data: pathData)
+            }
+            guard let data = try? Data(contentsOf: fileURL) else { continue }
+            hasher.update(data: data)
+        }
+
+        let digest = hasher.finalize()
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    func verifyModelIntegrity(at url: URL, format: String) -> AssetIntegrityResult {
+        guard fm.fileExists(atPath: url.path) else {
+            return .missing
+        }
+
+        switch format {
+        case "mlpackage":
+            let manifest = url.appendingPathComponent("Manifest.json")
+            guard fm.fileExists(atPath: manifest.path) else {
+                return .corrupted("Missing Manifest.json")
+            }
+            let dataDir = url.appendingPathComponent("Data")
+            guard fm.fileExists(atPath: dataDir.path) else {
+                return .corrupted("Missing Data directory")
+            }
+            let dataContents = listContents(of: dataDir)
+            if dataContents.isEmpty {
+                return .corrupted("Data directory is empty — incomplete download")
+            }
+            return .intact
+
+        case "mlmodelc":
+            guard isDirectory(at: url) else {
+                return .corrupted("Expected directory for compiled model")
+            }
+            let contents = listContents(of: url)
+            if contents.isEmpty {
+                return .corrupted("Compiled model directory is empty")
+            }
+            let hasModelFile = contents.contains { $0.pathExtension == "espresso" || $0.lastPathComponent == "model.mil" || $0.lastPathComponent == "coremldata.bin" || $0.pathExtension == "bin" }
+            if !hasModelFile {
+                return .corrupted("No valid model data files found")
+            }
+            return .intact
+
+        case "gguf":
+            guard let size = fileSize(at: url), size > 1024 else {
+                return .corrupted("GGUF file too small — likely truncated")
+            }
+            if let data = try? Data(contentsOf: url, options: .mappedIfSafe) {
+                let magic: [UInt8] = [0x47, 0x47, 0x55, 0x46]
+                let header = Array(data.prefix(4))
+                if header != magic {
+                    return .corrupted("Invalid GGUF magic bytes")
+                }
+            }
+            return .intact
+
+        default:
+            return .intact
+        }
+    }
+
+    func checksumPath(forModelID id: String) -> URL {
+        modelMetadataDirectory.appendingPathComponent("checksum_\(id).txt")
+    }
+
+    func saveChecksum(_ hash: String, forModelID id: String) {
+        _ = writeString(hash, to: checksumPath(forModelID: id))
+    }
+
+    func loadChecksum(forModelID id: String) -> String? {
+        readString(at: checksumPath(forModelID: id))
+    }
+}
+
+nonisolated enum AssetIntegrityResult: Sendable, Equatable {
+    case intact
+    case missing
+    case corrupted(String)
+    case checksumMismatch(expected: String, actual: String)
+
+    var isValid: Bool {
+        if case .intact = self { return true }
+        return false
+    }
+
+    var description: String {
+        switch self {
+        case .intact: return "Integrity verified"
+        case .missing: return "Asset not found"
+        case .corrupted(let reason): return "Corrupted: \(reason)"
+        case .checksumMismatch(let expected, let actual): return "Checksum mismatch: expected \(expected.prefix(12))… got \(actual.prefix(12))…"
+        }
     }
 }

@@ -315,19 +315,28 @@ class ModelLoaderService {
         for model in availableModels {
             if let modelURL = loadModelPath(forModelID: model.id) {
                 let ext = modelURL.pathExtension
-                if ext == "gguf" {
-                    modelStatuses[model.id] = .ready
-                } else if ext == "mlmodelc" {
-                    modelStatuses[model.id] = .ready
-                } else if ext == "mlpackage" {
-                    let manifestURL = modelURL.appendingPathComponent("Manifest.json")
-                    if FileManager.default.fileExists(atPath: manifestURL.path) {
-                        modelStatuses[model.id] = .ready
+                let integrityResult = fileSystem.verifyModelIntegrity(at: modelURL, format: ext)
+
+                switch integrityResult {
+                case .intact:
+                    if !model.checksum.isEmpty {
+                        if let storedHash = fileSystem.loadChecksum(forModelID: model.id), storedHash == model.checksum {
+                            modelStatuses[model.id] = .ready
+                        } else if fileSystem.loadChecksum(forModelID: model.id) == nil {
+                            modelStatuses[model.id] = .ready
+                        } else {
+                            modelStatuses[model.id] = .failed("Checksum mismatch. Delete and re-download.")
+                        }
                     } else {
-                        modelStatuses[model.id] = .failed("Model package is incomplete. Delete and re-download.")
+                        modelStatuses[model.id] = .ready
                     }
-                } else {
-                    modelStatuses[model.id] = .ready
+                case .missing:
+                    modelStatuses[model.id] = .notDownloaded
+                    fileSystem.deleteModelAssets(forModelID: model.id)
+                case .corrupted(let reason):
+                    modelStatuses[model.id] = .failed("\(reason). Delete and re-download.")
+                case .checksumMismatch:
+                    modelStatuses[model.id] = .failed("Integrity check failed. Delete and re-download.")
                 }
             }
         }
@@ -390,6 +399,12 @@ class ModelLoaderService {
 
                 if let url = modelURL {
                     let ext = url.pathExtension
+
+                    let preIntegrity = fileSystem.verifyModelIntegrity(at: url, format: ext)
+                    if case .corrupted(let reason) = preIntegrity {
+                        throw ModelLoaderError.partialDownload("Downloaded asset is corrupted: \(reason)")
+                    }
+
                     if ext == "mlmodelc" {
                         try saveModelPath(url, forModelID: modelID)
                     } else if ext == "mlpackage" {
@@ -419,7 +434,28 @@ class ModelLoaderService {
                     throw ModelLoaderError.noModelFound("No CoreML model file found in the downloaded repository. This repo may not contain CoreML models.")
                 }
 
+                try verifyTokenizerDependencies(in: tokenizerDir)
                 try saveTokenizerPath(tokenizerDir, forModelID: modelID)
+
+                if let savedURL = loadModelPath(forModelID: modelID) {
+                    let postIntegrity = fileSystem.verifyModelIntegrity(at: savedURL, format: savedURL.pathExtension)
+                    guard postIntegrity.isValid else {
+                        throw ModelLoaderError.integrityCheckFailed("Post-save integrity check failed: \(postIntegrity.description)")
+                    }
+
+                    if !manifest.checksum.isEmpty {
+                        if let hash = fileSystem.computeSHA256(for: savedURL) {
+                            fileSystem.saveChecksum(hash, forModelID: modelID)
+                            if hash != manifest.checksum {
+                                throw ModelLoaderError.checksumMismatch(expected: manifest.checksum, actual: hash)
+                            }
+                        }
+                    } else {
+                        if let hash = fileSystem.computeSHA256(for: savedURL) {
+                            fileSystem.saveChecksum(hash, forModelID: modelID)
+                        }
+                    }
+                }
 
                 modelStatuses[modelID] = .ready
             } catch {
@@ -504,7 +540,36 @@ class ModelLoaderService {
                     throw ModelLoaderError.noModelFound("No GGUF file found in downloaded repository.")
                 }
 
+                let ggufIntegrity = fileSystem.verifyModelIntegrity(at: url, format: "gguf")
+                guard ggufIntegrity.isValid else {
+                    throw ModelLoaderError.integrityCheckFailed("GGUF integrity failed: \(ggufIntegrity.description)")
+                }
+
+                if manifest.sizeBytes > 0 {
+                    if let actualSize = fileSystem.fileSize(at: url) {
+                        let tolerance = Double(manifest.sizeBytes) * 0.05
+                        let lowerBound = Double(manifest.sizeBytes) - tolerance
+                        if Double(actualSize) < lowerBound {
+                            throw ModelLoaderError.partialDownload("GGUF file appears truncated: \(actualSize) bytes vs expected ~\(manifest.sizeBytes) bytes")
+                        }
+                    }
+                }
+
                 try saveModelPath(url, forModelID: modelID)
+
+                if !manifest.checksum.isEmpty {
+                    if let hash = fileSystem.computeStreamingSHA256(for: url) {
+                        fileSystem.saveChecksum(hash, forModelID: modelID)
+                        if hash != manifest.checksum {
+                            throw ModelLoaderError.checksumMismatch(expected: manifest.checksum, actual: hash)
+                        }
+                    }
+                } else {
+                    if let hash = fileSystem.computeStreamingSHA256(for: url) {
+                        fileSystem.saveChecksum(hash, forModelID: modelID)
+                    }
+                }
+
                 modelStatuses[modelID] = .ready
             } catch {
                 if !Task.isCancelled {
@@ -732,18 +797,98 @@ class ModelLoaderService {
     private func loadTokenizerPath(forModelID id: String) -> URL? {
         fileSystem.loadTokenizerPath(forModelID: id)
     }
+
+    private func verifyTokenizerDependencies(in directory: URL) throws {
+        let requiredFiles = ["tokenizer.json"]
+        for fileName in requiredFiles {
+            let fileURL = directory.appendingPathComponent(fileName)
+            if !FileManager.default.fileExists(atPath: fileURL.path) {
+                let contents = fileSystem.listContents(of: directory)
+                let subDirs = contents.filter { fileSystem.isDirectory(at: $0) }
+                var found = false
+                for subDir in subDirs {
+                    let nested = subDir.appendingPathComponent(fileName)
+                    if FileManager.default.fileExists(atPath: nested.path) {
+                        found = true
+                        break
+                    }
+                    let deepContents = fileSystem.listContents(of: subDir)
+                    for deepDir in deepContents where fileSystem.isDirectory(at: deepDir) {
+                        let deepNested = deepDir.appendingPathComponent(fileName)
+                        if FileManager.default.fileExists(atPath: deepNested.path) {
+                            found = true
+                            break
+                        }
+                    }
+                    if found { break }
+                }
+                if !found {
+                    throw ModelLoaderError.integrityCheckFailed("Missing required tokenizer file: \(fileName)")
+                }
+            }
+        }
+    }
+
+    func verifyModelIntegrity(forModelID modelID: String) -> AssetIntegrityResult {
+        guard let modelURL = loadModelPath(forModelID: modelID) else {
+            return .missing
+        }
+        let ext = modelURL.pathExtension
+        let structuralResult = fileSystem.verifyModelIntegrity(at: modelURL, format: ext)
+        guard structuralResult.isValid else { return structuralResult }
+
+        guard let manifest = availableModels.first(where: { $0.id == modelID }) else {
+            return structuralResult
+        }
+
+        if !manifest.checksum.isEmpty {
+            if let storedHash = fileSystem.loadChecksum(forModelID: modelID) {
+                if storedHash != manifest.checksum {
+                    return .checksumMismatch(expected: manifest.checksum, actual: storedHash)
+                }
+            }
+        }
+
+        return .intact
+    }
+
+    func initiateAssetRepair(forModelID modelID: String) {
+        guard let manifest = availableModels.first(where: { $0.id == modelID }) else { return }
+
+        fileSystem.deleteModelAssets(forModelID: modelID)
+        modelStatuses[modelID] = .notDownloaded
+
+        downloadModel(modelID)
+    }
+
+    func runFullIntegrityAudit() -> [String: AssetIntegrityResult] {
+        var results: [String: AssetIntegrityResult] = [:]
+        for model in availableModels {
+            guard modelStatuses[model.id] == .some(.ready) else { continue }
+            results[model.id] = verifyModelIntegrity(forModelID: model.id)
+        }
+        return results
+    }
 }
 
 nonisolated enum ModelLoaderError: Error, Sendable, LocalizedError {
     case invalidPackage(String)
     case noModelFound(String)
     case compilationFailed(String)
+    case integrityCheckFailed(String)
+    case checksumMismatch(expected: String, actual: String)
+    case assetRepairFailed(String)
+    case partialDownload(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidPackage(let msg): return msg
         case .noModelFound(let msg): return msg
         case .compilationFailed(let msg): return msg
+        case .integrityCheckFailed(let msg): return msg
+        case .checksumMismatch(let expected, let actual): return "Checksum mismatch: expected \(expected.prefix(12))… got \(actual.prefix(12))…"
+        case .assetRepairFailed(let msg): return msg
+        case .partialDownload(let msg): return msg
         }
     }
 }
