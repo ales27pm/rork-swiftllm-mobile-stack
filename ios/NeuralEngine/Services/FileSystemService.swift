@@ -328,6 +328,13 @@ nonisolated final class FileSystemService: Sendable {
             guard fm.fileExists(atPath: manifest.path) else {
                 return .corrupted("Missing Manifest.json")
             }
+            if let manifestData = try? Data(contentsOf: manifest),
+               let manifestJSON = try? JSONSerialization.jsonObject(with: manifestData) as? [String: Any] {
+                let hasItems = manifestJSON["itemInfoEntries"] != nil || manifestJSON["rootModelIdentifier"] != nil
+                if !hasItems {
+                    return .corrupted("Manifest.json is malformed — missing expected keys")
+                }
+            }
             let dataDir = url.appendingPathComponent("Data")
             guard fm.fileExists(atPath: dataDir.path) else {
                 return .corrupted("Missing Data directory")
@@ -349,6 +356,15 @@ nonisolated final class FileSystemService: Sendable {
             let hasModelFile = contents.contains { $0.pathExtension == "espresso" || $0.lastPathComponent == "model.mil" || $0.lastPathComponent == "coremldata.bin" || $0.pathExtension == "bin" }
             if !hasModelFile {
                 return .corrupted("No valid model data files found")
+            }
+            let metadataIndicators = ["metadata.json", "coremldata.bin", "model.mil"]
+            let presentMetadata = contents.filter { metadataIndicators.contains($0.lastPathComponent) }
+            if presentMetadata.isEmpty {
+                return .corrupted("Compiled model metadata stripped by OS — recompilation required")
+            }
+            let totalSize = directorySize(at: url)
+            if totalSize < 1024 {
+                return .corrupted("Compiled model directory too small — likely stripped or truncated")
             }
             return .intact
 

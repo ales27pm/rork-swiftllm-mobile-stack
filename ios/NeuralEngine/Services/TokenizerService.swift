@@ -1,6 +1,22 @@
 import Foundation
 import Tokenizers
 
+nonisolated struct TokenizerSchemaInfo: Sendable {
+    let version: String?
+    let modelType: String?
+    let tokenizerClass: String?
+    let isCompatible: Bool
+    let diagnosticCode: TokenizerDiagnostic
+}
+
+nonisolated enum TokenizerDiagnostic: String, Sendable {
+    case valid = "TOKENIZER_VALID"
+    case missingConfig = "TOKENIZER_MISSING_CONFIG"
+    case schemaMismatch = "TOKENIZER_SCHEMA_MISMATCH"
+    case corruptedEncoding = "TOKENIZER_CORRUPTED_ENCODING"
+    case unknownFormat = "TOKENIZER_UNKNOWN_FORMAT"
+}
+
 final class TokenizerService: @unchecked Sendable {
     private let lock = NSLock()
     private var tokenizer: Tokenizer?
@@ -8,12 +24,25 @@ final class TokenizerService: @unchecked Sendable {
     private var fallbackReverse: [String: Int] = [:]
     private var _vocabularySize: Int = 32000
     private var isRealTokenizer: Bool = false
+    private var schemaInfo: TokenizerSchemaInfo?
 
     static let bosToken = 1
     static let eosToken = 2
     static let padToken = 0
     static let unknownToken = 3
     static let specialTokens: Set<Int> = [0, 1, 2, 3]
+
+    static let supportedTokenizerClasses: Set<String> = [
+        "PreTrainedTokenizerFast",
+        "LlamaTokenizer",
+        "LlamaTokenizerFast",
+        "GPT2Tokenizer",
+        "GPT2TokenizerFast",
+        "Qwen2Tokenizer",
+        "Qwen2TokenizerFast",
+        "GemmaTokenizer",
+        "GemmaTokenizerFast"
+    ]
 
     private var eosTokenIDs: Set<Int> = [2]
 
@@ -119,6 +148,120 @@ final class TokenizerService: @unchecked Sendable {
             return _vocabularySize
         }
         return fallbackVocabulary.count
+    }
+
+    var currentSchemaInfo: TokenizerSchemaInfo? {
+        lock.lock()
+        defer { lock.unlock() }
+        return schemaInfo
+    }
+
+    func validateSchema(in directory: URL) -> TokenizerSchemaInfo {
+        let configURL = directory.appendingPathComponent("tokenizer_config.json")
+        let tokenizerURL = directory.appendingPathComponent("tokenizer.json")
+
+        var resolvedConfigURL = configURL
+        if !FileManager.default.fileExists(atPath: configURL.path) {
+            if let nested = findFile(named: "tokenizer_config.json", in: directory) {
+                resolvedConfigURL = nested
+            } else {
+                return TokenizerSchemaInfo(
+                    version: nil,
+                    modelType: nil,
+                    tokenizerClass: nil,
+                    isCompatible: false,
+                    diagnosticCode: .missingConfig
+                )
+            }
+        }
+
+        guard let configData = try? Data(contentsOf: resolvedConfigURL),
+              let config = try? JSONSerialization.jsonObject(with: configData) as? [String: Any] else {
+            return TokenizerSchemaInfo(
+                version: nil,
+                modelType: nil,
+                tokenizerClass: nil,
+                isCompatible: false,
+                diagnosticCode: .corruptedEncoding
+            )
+        }
+
+        let version = config["version"] as? String
+            ?? config["tokenizer_version"] as? String
+            ?? config["transformers_version"] as? String
+        let modelType = config["model_type"] as? String
+        let tokenizerClass = config["tokenizer_class"] as? String
+
+        var resolvedTokenizerURL = tokenizerURL
+        if !FileManager.default.fileExists(atPath: tokenizerURL.path) {
+            if let nested = findFile(named: "tokenizer.json", in: directory) {
+                resolvedTokenizerURL = nested
+            }
+        }
+
+        if FileManager.default.fileExists(atPath: resolvedTokenizerURL.path) {
+            guard let tokData = try? Data(contentsOf: resolvedTokenizerURL),
+                  let tokJSON = try? JSONSerialization.jsonObject(with: tokData) as? [String: Any] else {
+                return TokenizerSchemaInfo(
+                    version: version,
+                    modelType: modelType,
+                    tokenizerClass: tokenizerClass,
+                    isCompatible: false,
+                    diagnosticCode: .corruptedEncoding
+                )
+            }
+
+            let hasModel = tokJSON["model"] != nil
+            let hasAddedTokens = tokJSON["added_tokens"] != nil
+            if !hasModel && !hasAddedTokens {
+                return TokenizerSchemaInfo(
+                    version: version,
+                    modelType: modelType,
+                    tokenizerClass: tokenizerClass,
+                    isCompatible: false,
+                    diagnosticCode: .corruptedEncoding
+                )
+            }
+        }
+
+        if let tokClass = tokenizerClass, !Self.supportedTokenizerClasses.contains(tokClass) {
+            return TokenizerSchemaInfo(
+                version: version,
+                modelType: modelType,
+                tokenizerClass: tokenizerClass,
+                isCompatible: false,
+                diagnosticCode: .schemaMismatch
+            )
+        }
+
+        let info = TokenizerSchemaInfo(
+            version: version,
+            modelType: modelType,
+            tokenizerClass: tokenizerClass,
+            isCompatible: true,
+            diagnosticCode: .valid
+        )
+
+        lock.lock()
+        schemaInfo = info
+        lock.unlock()
+
+        return info
+    }
+
+    private func findFile(named name: String, in directory: URL) -> URL? {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        while let url = enumerator.nextObject() as? URL {
+            if url.lastPathComponent == name {
+                return url
+            }
+        }
+        return nil
     }
 
     func applyTemplate(messages: [[String: String]]) -> String? {

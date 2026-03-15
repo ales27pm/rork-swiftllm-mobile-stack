@@ -435,6 +435,21 @@ class ModelLoaderService {
                 }
 
                 try verifyTokenizerDependencies(in: tokenizerDir)
+
+                let schemaResult = tokenizer.validateSchema(in: tokenizerDir)
+                if !schemaResult.isCompatible {
+                    switch schemaResult.diagnosticCode {
+                    case .corruptedEncoding:
+                        throw ModelLoaderError.integrityCheckFailed("Tokenizer encoding corrupted — BPE schema may have been altered by a coremltools version change. Delete and re-download.")
+                    case .schemaMismatch:
+                        throw ModelLoaderError.integrityCheckFailed("Unsupported tokenizer class: \(schemaResult.tokenizerClass ?? "unknown"). Asset repair required.")
+                    case .missingConfig:
+                        print("[AssetPipeline] tokenizer_config.json not found — proceeding with fallback tokenizer")
+                    default:
+                        break
+                    }
+                }
+
                 try saveTokenizerPath(tokenizerDir, forModelID: modelID)
 
                 if let savedURL = loadModelPath(forModelID: modelID) {
