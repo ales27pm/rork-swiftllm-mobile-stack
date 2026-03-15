@@ -57,6 +57,10 @@ struct ContentView: View {
                 MapView()
             }
 
+            Tab("Scan", systemImage: "doc.text.viewfinder", value: .scan) {
+                DocumentAnalysisView()
+            }
+
             Tab("Models", systemImage: "square.stack.3d.up", value: .models) {
                 NavigationStack {
                     if let modelVM = modelManagerViewModel {
@@ -147,6 +151,7 @@ enum AppTab: String {
     case memory
     case browse
     case map
+    case scan
     case models
     case metrics
     case settings
