@@ -49,6 +49,10 @@ struct ContentView: View {
                 }
             }
 
+            Tab("Map", systemImage: "map", value: .map) {
+                MapView()
+            }
+
             Tab("Models", systemImage: "square.stack.3d.up", value: .models) {
                 NavigationStack {
                     if let modelVM = modelManagerViewModel {
@@ -132,6 +136,7 @@ enum AppTab: String {
     case chat
     case history
     case memory
+    case map
     case models
     case metrics
     case settings
