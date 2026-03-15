@@ -21,6 +21,9 @@ nonisolated enum DeviceToolName: String, CaseIterable, Sendable {
     case scheduleNotification = "schedule_notification"
     case takeScreenshot = "take_screenshot"
     case openMaps = "open_maps"
+    case webSearch = "web_search"
+    case fetchURL = "fetch_url"
+    case openURL = "open_url"
 
     var description: String {
         switch self {
@@ -44,6 +47,9 @@ nonisolated enum DeviceToolName: String, CaseIterable, Sendable {
         case .scheduleNotification: return "Schedule a local notification. Parameters: {\"title\": string, \"body\": string, \"seconds\": delay in seconds}"
         case .takeScreenshot: return "Capture a screenshot of the current screen"
         case .openMaps: return "Open Maps app. Parameters: {\"query\": search string} or {\"latitude\": number, \"longitude\": number}"
+        case .webSearch: return "Search the web for information. Parameters: {\"query\": search string}"
+        case .fetchURL: return "Fetch and extract text content from a URL. Parameters: {\"url\": string}"
+        case .openURL: return "Open a URL in the in-app browser. Parameters: {\"url\": string, \"title\": string (optional)}"
         }
     }
 
@@ -74,6 +80,12 @@ nonisolated enum DeviceToolName: String, CaseIterable, Sendable {
             return "{\"title\": \"string\", \"body\": \"string\", \"seconds\": \"number\"}"
         case .openMaps:
             return "{\"query\": \"string\"} or {\"latitude\": \"number\", \"longitude\": \"number\"}"
+        case .webSearch:
+            return "{\"query\": \"string\"}"
+        case .fetchURL:
+            return "{\"url\": \"string\"}"
+        case .openURL:
+            return "{\"url\": \"string\", \"title\": \"string (optional)\"}"
         }
     }
 }

@@ -49,6 +49,10 @@ struct ContentView: View {
                 }
             }
 
+            Tab("Browse", systemImage: "globe", value: .browse) {
+                WebSearchView()
+            }
+
             Tab("Map", systemImage: "map", value: .map) {
                 MapView()
             }
@@ -90,6 +94,11 @@ struct ContentView: View {
         }
         .onAppear {
             setupViewModels()
+        }
+        .sheet(isPresented: $toolExecutor.showInAppBrowser) {
+            if let url = toolExecutor.browserURL {
+                InAppBrowserView(url: url, title: toolExecutor.browserTitle)
+            }
         }
         .onChange(of: modelLoader.activeModelID) { _, _ in
             chatViewModel?.syncEngineFormat()
@@ -136,6 +145,7 @@ enum AppTab: String {
     case chat
     case history
     case memory
+    case browse
     case map
     case models
     case metrics

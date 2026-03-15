@@ -23,6 +23,10 @@ class ToolExecutor: NSObject {
     var showSMSComposer: Bool = false
     var showEmailComposer: Bool = false
     var shareItems: [Any] = []
+    var showInAppBrowser: Bool = false
+    var browserURL: URL?
+    var browserTitle: String = ""
+    private let webSearchService = WebSearchService()
 
     override init() {
         super.init()
@@ -74,6 +78,12 @@ class ToolExecutor: NSObject {
             return executeScreenshot()
         case .openMaps:
             return executeOpenMaps(call.parameters)
+        case .webSearch:
+            return await executeWebSearch(call.parameters)
+        case .fetchURL:
+            return await executeFetchURL(call.parameters)
+        case .openURL:
+            return executeOpenURL(call.parameters)
         }
     }
 
@@ -436,6 +446,53 @@ class ToolExecutor: NSObject {
             return ToolResult(toolName: "open_maps", success: true, data: "{\"opened\": true}", displayIcon: "map.fill")
         }
         return ToolResult(toolName: "open_maps", success: false, data: "Invalid maps URL", displayIcon: "map.fill")
+    }
+
+    private func executeWebSearch(_ params: [String: Any]) async -> ToolResult {
+        guard let query = params["query"] as? String else {
+            return ToolResult(toolName: "web_search", success: false, data: "Missing 'query' parameter", displayIcon: "magnifyingglass")
+        }
+
+        let results = await webSearchService.search(query: query)
+        guard !results.isEmpty else {
+            let errorMsg = webSearchService.lastError ?? "No results found"
+            return ToolResult(toolName: "web_search", success: false, data: errorMsg, displayIcon: "magnifyingglass")
+        }
+
+        let resultList = results.prefix(5).map { result -> [String: String] in
+            ["title": result.title, "url": result.url, "snippet": result.snippet]
+        }
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: resultList),
+              let jsonStr = String(data: jsonData, encoding: .utf8) else {
+            return ToolResult(toolName: "web_search", success: true, data: "[]", displayIcon: "magnifyingglass")
+        }
+        return ToolResult(toolName: "web_search", success: true, data: jsonStr, displayIcon: "globe")
+    }
+
+    private func executeFetchURL(_ params: [String: Any]) async -> ToolResult {
+        guard let urlString = params["url"] as? String else {
+            return ToolResult(toolName: "fetch_url", success: false, data: "Missing 'url' parameter", displayIcon: "doc.text")
+        }
+
+        let content = await webSearchService.fetchURL(urlString)
+        guard !content.isEmpty else {
+            let errorMsg = webSearchService.lastError ?? "Could not fetch content"
+            return ToolResult(toolName: "fetch_url", success: false, data: errorMsg, displayIcon: "doc.text")
+        }
+
+        return ToolResult(toolName: "fetch_url", success: true, data: content, displayIcon: "doc.text.fill")
+    }
+
+    private func executeOpenURL(_ params: [String: Any]) -> ToolResult {
+        guard let urlString = params["url"] as? String,
+              let url = URL(string: urlString) else {
+            return ToolResult(toolName: "open_url", success: false, data: "Missing or invalid 'url' parameter", displayIcon: "globe")
+        }
+        browserURL = url
+        browserTitle = params["title"] as? String ?? url.host ?? "Web Page"
+        showInAppBrowser = true
+        return ToolResult(toolName: "open_url", success: true, data: "{\"status\": \"browser_opened\", \"url\": \"\(urlString)\"}", displayIcon: "globe")
     }
 
     static func buildToolsPrompt() -> String {
