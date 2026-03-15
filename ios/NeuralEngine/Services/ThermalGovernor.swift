@@ -53,8 +53,9 @@ class ThermalGovernor {
 
     var tokenDelaySeconds: Double {
         switch thermalState {
-        case .nominal, .fair: return 0
-        case .serious: return 0.5
+        case .nominal: return 0
+        case .fair: return 0.02
+        case .serious: return 0.05
         case .critical: return 0
         @unknown default: return 0
         }
@@ -154,9 +155,9 @@ class ThermalGovernor {
         case .nominal:
             currentPenalty = 0.0
         case .fair:
-            currentPenalty = 0.0
-        case .serious:
             currentPenalty = 0.2
+        case .serious:
+            currentPenalty = 0.5
         case .critical:
             currentPenalty = 1.0
         @unknown default:
@@ -265,6 +266,73 @@ class ThermalGovernor {
         peakThermalState = thermalState
         totalThrottleEvents = 0
         lastEscalationDate = nil
+    }
+
+    private var recoveryBackoffAttempts: Int = 0
+    private var lastRecoveryProbeDate: Date?
+    private let recoveryBackoffBase: TimeInterval = 0.5
+    private let maxRecoveryAttempts: Int = 5
+    private(set) var isRecoveryInProgress: Bool = false
+
+    var waitDeltaMultiplier: Double {
+        switch thermalState {
+        case .nominal: return 1.0
+        case .fair: return 0.8
+        case .serious: return 0.5
+        case .critical: return 0.0
+        @unknown default: return 1.0
+        }
+    }
+
+    func shouldAttemptRecovery() -> Bool {
+        guard !isRecoveryInProgress else { return false }
+        guard memoryPressureLevel != .critical && thermalState != .critical else { return false }
+        guard recoveryBackoffAttempts < maxRecoveryAttempts else { return false }
+
+        if let lastProbe = lastRecoveryProbeDate {
+            let backoff = recoveryBackoffBase * pow(2.0, Double(min(recoveryBackoffAttempts, 5)))
+            guard Date().timeIntervalSince(lastProbe) >= backoff else { return false }
+        }
+
+        return true
+    }
+
+    func markRecoveryStarted() {
+        isRecoveryInProgress = true
+        lastRecoveryProbeDate = Date()
+        recoveryBackoffAttempts += 1
+        metricsLogger?.recordDiagnostic(DiagnosticEvent(
+            code: .recoveryStarted,
+            message: "Backoff recovery probe #\(recoveryBackoffAttempts)",
+            severity: .warning,
+            metadata: ["attempt": "\(recoveryBackoffAttempts)"]
+        ))
+    }
+
+    func markRecoveryCompleted(success: Bool) {
+        isRecoveryInProgress = false
+        if success {
+            recoveryBackoffAttempts = 0
+            lastDiagnosticCode = nil
+            metricsLogger?.recordDiagnostic(DiagnosticEvent(
+                code: .recoveryCompleted,
+                message: "Model recovered after backoff probe",
+                severity: .info
+            ))
+        } else {
+            metricsLogger?.recordDiagnostic(DiagnosticEvent(
+                code: .recoveryFailed,
+                message: "Backoff recovery probe failed (attempt \(recoveryBackoffAttempts)/\(maxRecoveryAttempts))",
+                severity: .critical,
+                metadata: ["attempt": "\(recoveryBackoffAttempts)"]
+            ))
+        }
+    }
+
+    func resetRecoveryState() {
+        recoveryBackoffAttempts = 0
+        lastRecoveryProbeDate = nil
+        isRecoveryInProgress = false
     }
 }
 

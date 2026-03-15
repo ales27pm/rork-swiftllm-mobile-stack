@@ -386,6 +386,38 @@ nonisolated final class FileSystemService: Sendable {
         }
     }
 
+    func verifyIntegrity(for manifest: ModelManifest, at url: URL) -> AssetIntegrityResult {
+        guard fm.fileExists(atPath: url.path) else {
+            return .missing
+        }
+
+        let structuralResult = verifyModelIntegrity(at: url, format: manifest.format.rawValue)
+        guard structuralResult.isValid else {
+            return structuralResult
+        }
+
+        guard !manifest.checksum.isEmpty else {
+            return .intact
+        }
+
+        let actual: String?
+        if isDirectory(at: url) {
+            actual = computeDirectorySHA256(at: url)
+        } else {
+            actual = computeStreamingSHA256(for: url)
+        }
+
+        guard let actual else {
+            return .corrupted("Unable to compute SHA-256 hash")
+        }
+
+        if actual != manifest.checksum {
+            return .checksumMismatch(expected: manifest.checksum, actual: actual)
+        }
+
+        return .intact
+    }
+
     func checksumPath(forModelID id: String) -> URL {
         modelMetadataDirectory.appendingPathComponent("checksum_\(id).txt")
     }
