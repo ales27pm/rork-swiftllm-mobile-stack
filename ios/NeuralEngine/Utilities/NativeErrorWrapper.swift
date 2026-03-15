@@ -147,6 +147,28 @@ enum NativeErrorWrapper {
         return "\(severityIcon) [\(error.domain.rawValue)] \(error.userMessage)"
     }
 
+    static func forensicSynthesize(_ error: Error, logger: MetricsLogger? = nil) -> WrappedError {
+        let (wrapped, forensicEvent) = ForensicValidator.synthesizeAndBridge(error)
+        if let event = forensicEvent, let logger {
+            Task { @MainActor in
+                logger.recordDiagnostic(event)
+            }
+        }
+        return wrapped
+    }
+
+    static func backoffStrategyLabel(for error: WrappedError) -> String {
+        switch error.recoveryAction {
+        case .switchToCPU: return "Degrading compute → CPU only"
+        case .reduceContext: return "Shrinking context window"
+        case .reloadModel: return "Scheduling model reload"
+        case .retry: return "Retrying with linear backoff"
+        case .restartSession: return "Restarting inference session"
+        case .clearCache: return "Clearing local cache"
+        case .none: return "No automatic recovery"
+        }
+    }
+
     private static func wrapCoreMLError(_ error: CoreMLRunnerError) -> WrappedError {
         switch error {
         case .modelNotLoaded:

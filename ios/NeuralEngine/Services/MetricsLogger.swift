@@ -38,6 +38,11 @@ nonisolated enum DiagnosticCode: String, Sendable {
     case assetRepairCompleted = "ASSET_REPAIR_COMPLETED"
     case assetRepairFailed = "ASSET_REPAIR_FAILED"
     case partialDownloadDetected = "PARTIAL_DOWNLOAD_DETECTED"
+    case speechServiceBusy = "SPEECH_SERVICE_BUSY"
+    case speechRecognizerReload = "SPEECH_RECOGNIZER_RELOAD"
+    case cpuFallbackTriggered = "CPU_FALLBACK_TRIGGERED"
+    case contextWindowReduced = "CONTEXT_WINDOW_REDUCED"
+    case forensicDiagnosticLogged = "FORENSIC_DIAGNOSTIC_LOGGED"
 }
 
 nonisolated enum DiagnosticSeverity: Int, Sendable, Comparable {
