@@ -9,8 +9,7 @@ class InferenceEngine {
     var sessionCache = SessionCache()
     var lastHealthStatus: HealthStatus?
 
-    private let kvCache = KVCacheArena()
-    private let prefixCache = PromptPrefixCache()
+    private let kvCacheManager: KVCacheManager
     private let streamingDecoder = StreamingDecoder()
     private var speculationPolicy = SpeculationPolicy()
     private let metricsLogger: MetricsLogger
@@ -35,11 +34,21 @@ class InferenceEngine {
     private var onRecoveryNeeded: (() -> Void)?
     private var forceStopObserver: NSObjectProtocol?
     private var thermalEscalationObserver: NSObjectProtocol?
+    private var memoryPressureObserver: NSObjectProtocol?
 
     init(metricsLogger: MetricsLogger, thermalGovernor: ThermalGovernor) {
         self.metricsLogger = metricsLogger
         self.thermalGovernor = thermalGovernor
+        self.kvCacheManager = KVCacheManager(
+            pageSize: 128,
+            layerCount: 32,
+            memoryBudgetMB: 256,
+            evictionPolicy: .lruWithPrefixProtection,
+            slidingWindowSize: 1536,
+            evictionThreshold: 1800
+        )
         registerForceStopObserver()
+        registerMemoryPressureObserver()
     }
 
     private func registerForceStopObserver() {
@@ -66,6 +75,28 @@ class InferenceEngine {
                    self.isGenerating {
                     self.metricsLogger.recordThermalState(self.thermalGovernor.thermalLevel)
                 }
+            }
+        }
+    }
+
+    private func registerMemoryPressureObserver() {
+        memoryPressureObserver = NotificationCenter.default.addObserver(
+            forName: .memoryPressureEscalated,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let response = await self.kvCacheManager.handleMemoryPressure()
+                self.metricsLogger.recordDiagnostic(DiagnosticEvent(
+                    code: .memoryPressure,
+                    message: "KV cache pressure relief: freed \(response.pagesFreed) pages (\(response.bytesReclaimed / 1024)KB)",
+                    severity: .warning,
+                    metadata: [
+                        "sequencesEvicted": "\(response.sequencesEvicted)",
+                        "pagesFreed": "\(response.pagesFreed)"
+                    ]
+                ))
             }
         }
     }
@@ -105,6 +136,12 @@ class InferenceEngine {
         switch activeFormat {
         case .coreML: return modelRunner?.isLoaded ?? false
         case .gguf: return llamaRunner?.isLoaded ?? false
+        }
+    }
+
+    var cacheStatistics: KVCacheStatistics {
+        get async {
+            await kvCacheManager.statistics()
         }
     }
 
@@ -194,11 +231,14 @@ class InferenceEngine {
                 prefix: systemTokens
             )
 
+            let sequenceID = await self.kvCacheManager.beginSequence(prefixHash: prefixKey.prefixHash)
+            self.sessionCache.sequenceID = sequenceID
+
             let prefillStart = Date()
             var tokensToProcess: [Int]
             var prefixHit = false
 
-            if let cached = await self.prefixCache.lookup(key: prefixKey) {
+            if let cached = await self.kvCacheManager.lookupPrefix(key: prefixKey) {
                 prefixHit = true
                 let newTokens = Array(promptTokens.dropFirst(cached.tokenizedPrefix.count))
                 tokensToProcess = newTokens
@@ -206,13 +246,19 @@ class InferenceEngine {
                 self.sessionCache.allTokens = cached.tokenizedPrefix
                 self.sessionCache.activeLength = cached.tokenizedPrefix.count
 
-                for i in 0..<cached.pageCount {
-                    let page = await self.kvCache.allocatePage(
-                        tokenStart: i * 128,
-                        tokenCount: min(128, cached.tokenizedPrefix.count - i * 128)
-                    )
-                    self.sessionCache.targetPages.append(page)
-                }
+                let prefixPages = await self.kvCacheManager.allocatePages(
+                    sequenceID: sequenceID,
+                    tokens: cached.tokenizedPrefix,
+                    startPosition: 0
+                )
+                self.sessionCache.targetPages.append(contentsOf: prefixPages)
+
+                self.metricsLogger.recordDiagnostic(DiagnosticEvent(
+                    code: .prefixCacheHit,
+                    message: "Prefix cache hit: skipped \(cached.tokenizedPrefix.count) tokens (\(prefixPages.count) pages)",
+                    severity: .info,
+                    metadata: ["prefixTokens": "\(cached.tokenizedPrefix.count)"]
+                ))
             } else {
                 tokensToProcess = promptTokens
                 runner.resetState()
@@ -235,35 +281,35 @@ class InferenceEngine {
                     } catch {
                         self.isGenerating = false
                         self.notifyRecoveryNeeded()
+                        await self.kvCacheManager.releaseSequence(sequenceID)
                         onComplete(self.failedMetrics(since: prefillStart))
                         return
                     }
                 } else {
                     self.isGenerating = false
                     self.notifyRecoveryNeeded()
+                    await self.kvCacheManager.releaseSequence(sequenceID)
                     onComplete(self.failedMetrics(since: prefillStart))
                     return
                 }
             } catch {
                 self.isGenerating = false
+                await self.kvCacheManager.releaseSequence(sequenceID)
                 onComplete(self.failedMetrics(since: prefillStart))
                 return
             }
 
-            let prefillPageCount = (tokensToProcess.count + 127) / 128
-            for i in 0..<prefillPageCount {
-                let pageTokenStart = self.sessionCache.activeLength + i * 128
-                let pageTokenCount = min(128, tokensToProcess.count - i * 128)
-                let page = await self.kvCache.allocatePage(
-                    tokenStart: pageTokenStart,
-                    tokenCount: pageTokenCount
-                )
-                self.sessionCache.targetPages.append(page)
-            }
+            let prefillPages = await self.kvCacheManager.allocatePages(
+                sequenceID: sequenceID,
+                tokens: tokensToProcess,
+                startPosition: self.sessionCache.activeLength
+            )
+            self.sessionCache.targetPages.append(contentsOf: prefillPages)
 
             let prefillDuration = Date().timeIntervalSince(prefillStart)
             self.metricsLogger.recordPrefill(tokens: tokensToProcess.count, duration: prefillDuration)
             self.sessionCache.accept(tokens: tokensToProcess)
+            self.sessionCache.prefillComplete = true
 
             if !prefixHit {
                 let cached = CachedPrefix(
@@ -273,7 +319,7 @@ class InferenceEngine {
                     sequencePosition: systemTokens.count,
                     timestamp: Date()
                 )
-                await self.prefixCache.store(prefix: cached)
+                await self.kvCacheManager.storePrefix(cached)
             }
 
             self.metricsLogger.recordFirstToken()
@@ -283,6 +329,7 @@ class InferenceEngine {
             var specAccepted = 0
             var specRejected = 0
             var lastToken = self.sessionCache.currentToken
+            var pageAccumulator = 0
 
             let useSpeculation = self.draftEngine.hasDraftModel && mode.speculativeEnabled
 
@@ -299,12 +346,23 @@ class InferenceEngine {
                 }
 
                 if self.sessionCache.activeLength > self.evictionThreshold {
-                    await self.evictSlidingWindow(systemTokenCount: systemTokens.count)
-                    runner.resetState()
-                    do {
-                        let _ = try runner.predictLogits(inputIDs: self.sessionCache.allTokens)
-                    } catch {
-                        break
+                    let result = await self.kvCacheManager.slidingWindowEvict(
+                        sequenceID: sequenceID,
+                        systemTokenCount: systemTokens.count,
+                        currentLength: self.sessionCache.activeLength
+                    )
+                    if result.evictedTokens > 0 {
+                        self.sessionCache.applySlidingWindow(
+                            keepPrefix: systemTokens.count,
+                            keepSuffix: self.slidingWindowSize
+                        )
+                        self.metricsLogger.recordContextEviction(evictedTokens: result.evictedTokens)
+                        runner.resetState()
+                        do {
+                            let _ = try runner.predictLogits(inputIDs: self.sessionCache.allTokens)
+                        } catch {
+                            break
+                        }
                     }
                 }
 
@@ -324,6 +382,7 @@ class InferenceEngine {
                         specAccepted += result.accepted
                         specRejected += result.rejected
                         lastToken = result.lastToken
+                        pageAccumulator += result.tokensGenerated
 
                         self.metricsLogger.recordSpeculative(accepted: result.accepted, rejected: result.rejected)
 
@@ -346,13 +405,16 @@ class InferenceEngine {
                     self.sessionCache.accept(tokens: [sampledToken])
                     self.metricsLogger.recordToken()
                     generatedCount += 1
+                    pageAccumulator += 1
 
-                    if generatedCount % 128 == 0 {
-                        let page = await self.kvCache.allocatePage(
-                            tokenStart: self.sessionCache.activeLength - 128,
-                            tokenCount: 128
+                    if pageAccumulator >= 128 {
+                        let newPages = await self.kvCacheManager.allocatePages(
+                            sequenceID: sequenceID,
+                            tokens: Array(self.sessionCache.allTokens.suffix(pageAccumulator)),
+                            startPosition: self.sessionCache.activeLength - pageAccumulator
                         )
-                        self.sessionCache.targetPages.append(page)
+                        self.sessionCache.targetPages.append(contentsOf: newPages)
+                        pageAccumulator = 0
                     }
 
                     if let text = self.streamingDecoder.append(sampledToken, tokenizer: tokenizer) {
@@ -361,10 +423,10 @@ class InferenceEngine {
                     }
 
                     self.metricsLogger.recordContextLength(self.sessionCache.activeLength)
-                    let kvPages = await self.kvCache.activePageCount
+                    let kvPages = await self.kvCacheManager.activePageCount()
                     self.metricsLogger.recordKVPages(kvPages)
                     self.metricsLogger.recordThermalState(self.thermalGovernor.thermalLevel)
-                    let estimatedMem = await self.kvCache.estimatedMemoryBytes
+                    let estimatedMem = await self.kvCacheManager.estimatedMemoryBytes()
                     self.metricsLogger.recordMemory(estimatedMem)
 
                 } catch let error as CoreMLRunnerError where error.isEviction {
@@ -388,12 +450,22 @@ class InferenceEngine {
                 }
             }
 
+            if pageAccumulator > 0 {
+                let finalPages = await self.kvCacheManager.allocatePages(
+                    sequenceID: sequenceID,
+                    tokens: Array(self.sessionCache.allTokens.suffix(pageAccumulator)),
+                    startPosition: self.sessionCache.activeLength - pageAccumulator
+                )
+                self.sessionCache.targetPages.append(contentsOf: finalPages)
+            }
+
             let remaining = self.streamingDecoder.flush(tokenizer: tokenizer)
             if !remaining.isEmpty {
                 self.currentText += remaining
                 onToken(remaining)
             }
 
+            await self.kvCacheManager.touchSequence(sequenceID)
             self.metricsLogger.endGeneration()
 
             let metrics = GenerationMetrics(
@@ -569,6 +641,7 @@ class InferenceEngine {
 
     func resetSession() {
         cancel()
+        let oldSequenceID = sessionCache.sequenceID
         sessionCache.reset()
         streamingDecoder.reset()
         speculationPolicy.reset()
@@ -577,8 +650,10 @@ class InferenceEngine {
         llamaRunner?.resetContext()
         draftEngine.resetDraftState()
         Task {
-            await kvCache.reset()
-            await prefixCache.clear()
+            if let seqID = oldSequenceID {
+                await kvCacheManager.releaseSequence(seqID)
+            }
+            await kvCacheManager.reset()
         }
     }
 
@@ -606,6 +681,10 @@ class InferenceEngine {
         if let observer = thermalEscalationObserver {
             NotificationCenter.default.removeObserver(observer)
             thermalEscalationObserver = nil
+        }
+        if let observer = memoryPressureObserver {
+            NotificationCenter.default.removeObserver(observer)
+            memoryPressureObserver = nil
         }
     }
 
@@ -701,41 +780,6 @@ class InferenceEngine {
         } catch {
             return nil
         }
-    }
-
-    private func evictSlidingWindow(systemTokenCount: Int) async {
-        let keepCount = slidingWindowSize
-        let totalTokens = sessionCache.allTokens.count
-
-        guard totalTokens > keepCount + systemTokenCount else { return }
-
-        let preservePrefix = systemTokenCount
-        let evictCount = totalTokens - keepCount - preservePrefix
-
-        guard evictCount > 0 else { return }
-
-        let prefixTokens = Array(sessionCache.allTokens.prefix(preservePrefix))
-        let recentTokens = Array(sessionCache.allTokens.suffix(keepCount))
-        sessionCache.allTokens = prefixTokens + recentTokens
-        sessionCache.activeLength = sessionCache.allTokens.count
-
-        let pagesToFree = evictCount / 128
-        for i in 0..<min(pagesToFree, sessionCache.targetPages.count) {
-            let pageIndex = preservePrefix / 128 + i
-            if pageIndex < sessionCache.targetPages.count {
-                await kvCache.freePage(at: pageIndex)
-            }
-        }
-
-        if pagesToFree > 0 {
-            let removeStart = preservePrefix / 128
-            let removeEnd = min(removeStart + pagesToFree, sessionCache.targetPages.count)
-            if removeStart < removeEnd {
-                sessionCache.targetPages.removeSubrange(removeStart..<removeEnd)
-            }
-        }
-
-        metricsLogger.recordContextEviction(evictedTokens: evictCount)
     }
 
     static func buildChatMLPrompt(messages: [[String: String]]) -> String {
