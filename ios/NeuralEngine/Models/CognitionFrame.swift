@@ -8,7 +8,23 @@ nonisolated struct CognitionFrame: Sendable {
     let intent: IntentClassification
     let injections: [ContextInjection]
     let reasoningTrace: ReasoningTrace
+    let contextSignature: ContextSignature
     let timestamp: Date
+}
+
+nonisolated struct ContextSignature: Sendable {
+    let intentVector: [Double]
+    let topicFingerprint: [String: Double]
+    let emotionalBaseline: Double
+    let complexityAnchor: Double
+    let signatureHash: String
+}
+
+nonisolated struct SemanticDriftResult: Sendable {
+    let driftMagnitude: Double
+    let driftedDimensions: [String]
+    let correctionPrompt: String?
+    let shouldInterrupt: Bool
 }
 
 nonisolated struct MetacognitionState: Sendable {
@@ -25,12 +41,48 @@ nonisolated struct MetacognitionState: Sendable {
     let ambiguityReasons: [String]
     let knowledgeLimitHit: Bool
     let selfCorrectionFlags: [SelfCorrectionFlag]
+    let entropyAnalysis: EntropyAnalysis
+    let ambiguityCluster: AmbiguityCluster
+    let probabilityMass: ProbabilityMassResult
 }
 
 nonisolated struct SelfCorrectionFlag: Sendable {
     let domain: String
     let issue: String
     let severity: Double
+}
+
+nonisolated struct EntropyAnalysis: Sendable {
+    let shannonEntropy: Double
+    let semanticDensity: Double
+    let tokenConceptRatio: Double
+    let shouldEscalate: Bool
+    let entropyPercentile: Double
+}
+
+nonisolated struct AmbiguityCluster: Sendable {
+    let primaryCluster: String
+    let primaryScore: Double
+    let secondaryCluster: String
+    let secondaryScore: Double
+    let clusterDelta: Double
+    let isAmbiguous: Bool
+    let competingInterpretations: [String]
+}
+
+nonisolated struct ProbabilityMassResult: Sendable {
+    let topCandidateMass: Double
+    let remainderMass: Double
+    let massRatio: Double
+    let needsVerification: Bool
+    let confidenceBand: ConfidenceBand
+}
+
+nonisolated enum ConfidenceBand: String, Sendable {
+    case high
+    case moderate
+    case low
+    case veryLow
 }
 
 nonisolated enum ComplexityLevel: String, Sendable {
@@ -54,6 +106,9 @@ nonisolated struct ThoughtTree: Sendable {
     let convergencePercent: Double
     let iterationCount: Int
     let synthesisStrategy: SynthesisStrategy
+    let maxDepthReached: Int
+    let dfsExpansions: Int
+    let terminalNodes: [ThoughtBranch]
 }
 
 nonisolated enum SynthesisStrategy: String, Sendable {
@@ -76,6 +131,9 @@ nonisolated struct ThoughtBranch: Sendable {
     let strategy: String
     let supportScore: Double
     let contradictionScore: Double
+    let depth: Int
+    let parentId: String?
+    let isTerminal: Bool
 }
 
 nonisolated struct CuriosityState: Sendable {
@@ -121,4 +179,12 @@ nonisolated struct ContextInjection: Sendable {
     let content: String
     let priority: Double
     let estimatedTokens: Int
+}
+
+nonisolated enum InjectionSubtype: String, Sendable {
+    case entropyEscalation
+    case ambiguityResolution
+    case driftCorrection
+    case verificationPrompt
+    case depthExpansion
 }

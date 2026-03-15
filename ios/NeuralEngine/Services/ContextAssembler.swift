@@ -129,14 +129,23 @@ struct ContextAssembler {
         parts.append("Uncertainty: \(Int(frame.metacognition.uncertaintyLevel * 100))%")
         parts.append("Cognitive load: \(frame.metacognition.cognitiveLoad.rawValue)")
         parts.append("Convergence: \(Int(frame.metacognition.convergenceScore * 100))%")
+        parts.append("Confidence band: \(frame.metacognition.probabilityMass.confidenceBand.rawValue)")
+
+        if frame.metacognition.entropyAnalysis.shouldEscalate {
+            parts.append("Entropy: HIGH (H=\(String(format: "%.2f", frame.metacognition.entropyAnalysis.shannonEntropy)), \(Int(frame.metacognition.entropyAnalysis.entropyPercentile * 100))th pctl)")
+        }
+
+        if frame.metacognition.ambiguityCluster.isAmbiguous {
+            parts.append("Cluster ambiguity: \(frame.metacognition.ambiguityCluster.primaryCluster)/\(frame.metacognition.ambiguityCluster.secondaryCluster)")
+        }
 
         if frame.metacognition.isTimeSensitive {
-            parts.append("⚡ Time-sensitive query")
+            parts.append("Time-sensitive query")
         }
 
         if !frame.metacognition.selfCorrectionFlags.isEmpty {
             let domains = frame.metacognition.selfCorrectionFlags.map(\.domain).joined(separator: ", ")
-            parts.append("⚠ Self-correction active: \(domains)")
+            parts.append("Self-correction active: \(domains)")
         }
 
         return parts.joined(separator: "\n")
@@ -160,14 +169,37 @@ struct ContextAssembler {
 
     private static func buildReasoningSection(frame: CognitionFrame) -> String {
         let trace = frame.reasoningTrace
-        guard trace.iterations.count > 1 || !trace.selfCorrections.isEmpty || trace.totalPruned > 0 else { return "" }
+        let tree = frame.thoughtTree
+        let entropy = frame.metacognition.entropyAnalysis
+        let hasDFS = tree.dfsExpansions > 0
+        let hasEntropy = entropy.shouldEscalate
+
+        guard trace.iterations.count > 1 || !trace.selfCorrections.isEmpty || trace.totalPruned > 0 || hasDFS || hasEntropy else { return "" }
 
         var parts: [String] = ["[Reasoning Trace]"]
         parts.append("Strategy: \(trace.dominantStrategy.rawValue)")
         parts.append("Convergence: \(Int(trace.finalConvergence * 100))% after \(trace.iterations.count) iteration(s)")
 
+        if hasEntropy {
+            parts.append("Entropy: H=\(String(format: "%.2f", entropy.shannonEntropy)), density=\(String(format: "%.2f", entropy.semanticDensity)) (\(Int(entropy.entropyPercentile * 100))th pctl) — high-compute reasoning active")
+        }
+
+        if hasDFS {
+            parts.append("DFS expansion: depth=\(tree.maxDepthReached)/4, nodes=\(tree.dfsExpansions), terminals=\(tree.terminalNodes.count)")
+        }
+
         if trace.totalPruned > 0 {
             parts.append("Pruned paths: \(trace.totalPruned)")
+        }
+
+        let mass = frame.metacognition.probabilityMass
+        if mass.needsVerification {
+            parts.append("Probability mass: top=\(Int(mass.topCandidateMass * 100))% (\(mass.confidenceBand.rawValue)) — verification required")
+        }
+
+        let cluster = frame.metacognition.ambiguityCluster
+        if cluster.isAmbiguous {
+            parts.append("Ambiguity: '\(cluster.primaryCluster)' vs '\(cluster.secondaryCluster)' (delta=\(String(format: "%.2f", cluster.clusterDelta)))")
         }
 
         if !trace.selfCorrections.isEmpty {
@@ -177,7 +209,6 @@ struct ContextAssembler {
             }
         }
 
-        let tree = frame.thoughtTree
         if tree.synthesisStrategy == .multiPerspective {
             parts.append("NOTE: Low convergence — present multiple perspectives before concluding.")
         } else if tree.synthesisStrategy == .hedgedResponse {
@@ -189,6 +220,8 @@ struct ContextAssembler {
         if frame.curiosity.valenceArousalCuriosity > 0.6 {
             parts.append("Curiosity V/A signal: \(Int(frame.curiosity.valenceArousalCuriosity * 100))% — user's emotional state indicates strong information-seeking drive.")
         }
+
+        parts.append("Signature: \(frame.contextSignature.signatureHash)")
 
         return parts.joined(separator: "\n")
     }

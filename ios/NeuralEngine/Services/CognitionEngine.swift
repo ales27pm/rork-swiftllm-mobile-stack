@@ -2,6 +2,8 @@ import Foundation
 
 @MainActor
 struct CognitionEngine {
+    private static var previousSignature: ContextSignature?
+
     static func process(
         userText: String,
         conversationHistory: [Message],
@@ -36,6 +38,13 @@ struct CognitionEngine {
             metacognition: metacognition
         )
 
+        let contextSignature = ContextSignatureTracker.computeSignature(
+            text: userText,
+            intent: intent,
+            emotion: emotion,
+            metacognition: metacognition
+        )
+
         var injections: [ContextInjection] = []
 
         let emotionInjection = EmotionAnalyzer.buildInjection(state: emotion)
@@ -43,6 +52,9 @@ struct CognitionEngine {
 
         let metaInjection = MetacognitionEngine.buildInjection(state: metacognition)
         if !metaInjection.content.isEmpty { injections.append(metaInjection) }
+
+        let entropyInjection = MetacognitionEngine.buildEntropyInjection(state: metacognition)
+        if !entropyInjection.content.isEmpty { injections.append(entropyInjection) }
 
         let thoughtInjection = ThoughtTreeBuilder.buildInjection(tree: thoughtTree)
         if !thoughtInjection.content.isEmpty { injections.append(thoughtInjection) }
@@ -58,6 +70,15 @@ struct CognitionEngine {
             if !correctionInjection.content.isEmpty { injections.append(correctionInjection) }
         }
 
+        if let prevSig = previousSignature {
+            let drift = ContextSignatureTracker.detectDrift(original: prevSig, current: contextSignature)
+            if drift.driftMagnitude > 0.3 {
+                let driftInjection = ContextSignatureTracker.buildDriftInjection(drift: drift)
+                if !driftInjection.content.isEmpty { injections.append(driftInjection) }
+            }
+        }
+        previousSignature = contextSignature
+
         let traceInjection = buildReasoningTraceInjection(trace: reasoningTrace)
         if !traceInjection.content.isEmpty { injections.append(traceInjection) }
 
@@ -71,8 +92,13 @@ struct CognitionEngine {
             intent: intent,
             injections: injections,
             reasoningTrace: reasoningTrace,
+            contextSignature: contextSignature,
             timestamp: Date()
         )
+    }
+
+    static func resetSignature() {
+        previousSignature = nil
     }
 
     private static func buildReasoningTrace(

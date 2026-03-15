@@ -273,6 +273,8 @@ class ChatViewModel {
         isGenerating = false
         currentConversationId = nil
         lastError = nil
+        lastCognitionFrame = nil
+        CognitionEngine.resetSignature()
         statusMessage = "Idle"
     }
 
@@ -282,6 +284,8 @@ class ChatViewModel {
         isGenerating = false
         currentConversationId = nil
         lastError = nil
+        lastCognitionFrame = nil
+        CognitionEngine.resetSignature()
         statusMessage = "Ready"
     }
 

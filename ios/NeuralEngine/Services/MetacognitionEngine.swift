@@ -13,26 +13,44 @@ struct MetacognitionEngine {
         let confidence = computeConfidence(uncertainty: uncertainty, memoryCount: memoryResults.count)
         let timeSensitive = detectTimeSensitivity(text: text)
         let knowledgeLimit = memoryResults.isEmpty && containsKnowledgeQuery(text)
+
+        let entropyAnalysis = computeShannonEntropy(text: text, history: conversationHistory)
+        let ambiguityCluster = computeAmbiguityCluster(text: text, history: conversationHistory)
+        let probabilityMass = computeProbabilityMass(
+            text: text,
+            uncertainty: uncertainty,
+            memoryResults: memoryResults,
+            entropyAnalysis: entropyAnalysis
+        )
+
+        var adjustedUncertainty = uncertainty
+        if probabilityMass.needsVerification {
+            adjustedUncertainty = min(1.0, uncertainty + 0.15)
+        }
+        if entropyAnalysis.shouldEscalate {
+            adjustedUncertainty = min(1.0, adjustedUncertainty + 0.1)
+        }
+
         let convergence = computeConvergenceScore(
             text: text,
             complexity: complexity,
-            uncertainty: uncertainty,
+            uncertainty: adjustedUncertainty,
             memoryCount: memoryResults.count,
             historyCount: conversationHistory.count
         )
         let selfCorrections = detectSelfCorrectionNeeds(
             text: text,
             history: conversationHistory,
-            uncertainty: uncertainty
+            uncertainty: adjustedUncertainty
         )
 
-        let shouldDecompose = complexity == .complex || complexity == .expert
-        let shouldClarify = ambiguity.detected && confidence < 0.5
-        let shouldSearch = knowledgeLimit || uncertainty > 0.6
+        let shouldDecompose = complexity == .complex || complexity == .expert || entropyAnalysis.shouldEscalate
+        let shouldClarify = (ambiguity.detected && confidence < 0.5) || ambiguityCluster.isAmbiguous
+        let shouldSearch = knowledgeLimit || adjustedUncertainty > 0.6
 
         return MetacognitionState(
             complexityLevel: complexity,
-            uncertaintyLevel: uncertainty,
+            uncertaintyLevel: adjustedUncertainty,
             cognitiveLoad: cognitiveLoad,
             confidenceCalibration: confidence,
             convergenceScore: convergence,
@@ -40,10 +58,13 @@ struct MetacognitionEngine {
             shouldSeekClarification: shouldClarify,
             shouldSearchWeb: shouldSearch,
             isTimeSensitive: timeSensitive,
-            ambiguityDetected: ambiguity.detected,
-            ambiguityReasons: ambiguity.reasons,
+            ambiguityDetected: ambiguity.detected || ambiguityCluster.isAmbiguous,
+            ambiguityReasons: ambiguity.reasons + ambiguityCluster.competingInterpretations,
             knowledgeLimitHit: knowledgeLimit,
-            selfCorrectionFlags: selfCorrections
+            selfCorrectionFlags: selfCorrections,
+            entropyAnalysis: entropyAnalysis,
+            ambiguityCluster: ambiguityCluster,
+            probabilityMass: probabilityMass
         )
     }
 
@@ -353,6 +374,177 @@ struct MetacognitionEngine {
             content: content,
             priority: min(0.95, maxSeverity),
             estimatedTokens: content.count / 4
+        )
+    }
+
+    static func buildEntropyInjection(state: MetacognitionState) -> ContextInjection {
+        let entropy = state.entropyAnalysis
+        let cluster = state.ambiguityCluster
+        let mass = state.probabilityMass
+
+        var parts: [String] = []
+
+        if entropy.shouldEscalate {
+            parts.append("[Entropy Escalation] Shannon entropy=\(String(format: "%.2f", entropy.shannonEntropy)), semantic density=\(String(format: "%.2f", entropy.semanticDensity)) (\(Int(entropy.entropyPercentile * 100))th percentile). High-compute reasoning iteration required — decompose systematically.")
+        }
+
+        if cluster.isAmbiguous {
+            let delta = String(format: "%.2f", cluster.clusterDelta)
+            parts.append("[Ambiguity Cluster] Competing: '\(cluster.primaryCluster)' (\(Int(cluster.primaryScore * 100))%) vs '\(cluster.secondaryCluster)' (\(Int(cluster.secondaryScore * 100))%), delta=\(delta). Ask a targeted clarifying question with both interpretations.")
+        }
+
+        if mass.needsVerification {
+            parts.append("[Verification Required] Top candidate mass=\(Int(mass.topCandidateMass * 100))%, band=\(mass.confidenceBand.rawValue). Verify knowledge before final decoding — inject constraint review.")
+        }
+
+        guard !parts.isEmpty else {
+            return ContextInjection(type: .metacognition, content: "", priority: 0, estimatedTokens: 0)
+        }
+
+        let content = parts.joined(separator: "\n")
+        let priority: Double = entropy.shouldEscalate ? 0.88 : (cluster.isAmbiguous ? 0.82 : 0.7)
+        return ContextInjection(
+            type: .metacognition,
+            content: content,
+            priority: priority,
+            estimatedTokens: content.count / 4
+        )
+    }
+
+    private static func computeShannonEntropy(text: String, history: [Message]) -> EntropyAnalysis {
+        let words = text.lowercased()
+            .replacingOccurrences(of: "[^a-z0-9\\s]", with: " ", options: .regularExpression)
+            .split(separator: " ")
+            .map(String.init)
+            .filter { $0.count > 1 }
+
+        let totalCount = Double(words.count)
+        guard totalCount > 0 else {
+            return EntropyAnalysis(shannonEntropy: 0, semanticDensity: 0, tokenConceptRatio: 0, shouldEscalate: false, entropyPercentile: 0)
+        }
+
+        var freq: [String: Int] = [:]
+        for w in words { freq[w, default: 0] += 1 }
+
+        var entropy: Double = 0
+        for (_, count) in freq {
+            let p = Double(count) / totalCount
+            if p > 0 { entropy -= p * log2(p) }
+        }
+
+        let uniqueCount = Double(freq.count)
+        let maxEntropy = totalCount > 1 ? log2(totalCount) : 1.0
+        let normalizedEntropy = maxEntropy > 0 ? entropy / maxEntropy : 0
+
+        let conceptMarkers = [
+            #"(?i)\b(because|therefore|however|although|since|while|despite|unless|whereas)\b"#,
+            #"(?i)\b(if|then|when|where|which|whose|whom)\b"#,
+            #"(?i)\b(analyze|evaluate|compare|contrast|synthesize|implement|design)\b"#,
+        ]
+
+        var conceptCount: Double = 0
+        for pattern in conceptMarkers {
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                conceptCount += Double(regex.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text)))
+            }
+        }
+
+        let tokenConceptRatio = totalCount > 0 ? conceptCount / totalCount : 0
+        let semanticDensity = (uniqueCount / totalCount) * (1.0 + tokenConceptRatio)
+
+        let entropyPercentile: Double
+        if normalizedEntropy > 0.85 { entropyPercentile = 0.95 }
+        else if normalizedEntropy > 0.7 { entropyPercentile = 0.8 }
+        else if normalizedEntropy > 0.5 { entropyPercentile = 0.6 }
+        else { entropyPercentile = 0.3 }
+
+        let shouldEscalate = normalizedEntropy > 0.7 || semanticDensity > 0.8
+
+        return EntropyAnalysis(
+            shannonEntropy: entropy,
+            semanticDensity: semanticDensity,
+            tokenConceptRatio: tokenConceptRatio,
+            shouldEscalate: shouldEscalate,
+            entropyPercentile: entropyPercentile
+        )
+    }
+
+    private static func computeAmbiguityCluster(text: String, history: [Message]) -> AmbiguityCluster {
+        let intentClusters: [(name: String, keywords: [String])] = [
+            ("factual", ["what", "who", "where", "when", "define", "meaning", "fact", "true", "false", "is it"]),
+            ("creative", ["write", "create", "imagine", "story", "poem", "design", "invent", "brainstorm", "idea"]),
+            ("instructional", ["how", "steps", "tutorial", "guide", "teach", "learn", "explain", "show me", "help me"]),
+            ("analytical", ["why", "analyze", "compare", "evaluate", "assess", "reason", "cause", "effect", "impact"]),
+            ("social", ["hello", "hi", "thanks", "sorry", "bye", "how are you", "good morning", "hey"]),
+            ("action", ["do", "make", "set", "send", "open", "calculate", "find", "search", "schedule", "remind"]),
+            ("reflective", ["think", "feel", "believe", "wonder", "ponder", "opinion", "perspective", "meaning of life"]),
+        ]
+
+        let lower = text.lowercased()
+        let words = Set(lower.split(separator: " ").map(String.init))
+
+        var scores: [(name: String, score: Double)] = []
+        for cluster in intentClusters {
+            var score: Double = 0
+            for keyword in cluster.keywords {
+                if keyword.contains(" ") {
+                    if lower.contains(keyword) { score += 1.2 }
+                } else if words.contains(keyword) {
+                    score += 1.0
+                }
+            }
+            let normalizedScore = cluster.keywords.isEmpty ? 0 : score / Double(cluster.keywords.count)
+            scores.append((cluster.name, normalizedScore))
+        }
+
+        scores.sort { $0.1 > $1.1 }
+
+        let primary = scores.first ?? ("unknown", 0)
+        let secondary = scores.count > 1 ? scores[1] : ("unknown", 0)
+        let delta = primary.1 - secondary.1
+        let isAmbiguous = delta < 0.15 && primary.1 > 0.05
+
+        var competing: [String] = []
+        if isAmbiguous {
+            competing.append("Query maps to both '\(primary.0)' and '\(secondary.0)' clusters with low separation (delta=\(String(format: "%.2f", delta)))")
+        }
+
+        return AmbiguityCluster(
+            primaryCluster: primary.0,
+            primaryScore: primary.1,
+            secondaryCluster: secondary.0,
+            secondaryScore: secondary.1,
+            clusterDelta: delta,
+            isAmbiguous: isAmbiguous,
+            competingInterpretations: competing
+        )
+    }
+
+    private static func computeProbabilityMass(
+        text: String,
+        uncertainty: Double,
+        memoryResults: [RetrievalResult],
+        entropyAnalysis: EntropyAnalysis
+    ) -> ProbabilityMassResult {
+        let memoryStrength = memoryResults.isEmpty ? 0.0 : memoryResults.map(\.score).reduce(0, +) / Double(memoryResults.count)
+        let topCandidateMass = (1.0 - uncertainty) * (0.5 + memoryStrength * 0.3) * (1.0 - entropyAnalysis.shannonEntropy * 0.1)
+        let clampedMass = max(0.05, min(0.95, topCandidateMass))
+        let remainderMass = 1.0 - clampedMass
+        let massRatio = clampedMass / max(0.01, remainderMass)
+        let needsVerification = clampedMass < 0.4
+
+        let band: ConfidenceBand
+        if clampedMass >= 0.7 { band = .high }
+        else if clampedMass >= 0.5 { band = .moderate }
+        else if clampedMass >= 0.3 { band = .low }
+        else { band = .veryLow }
+
+        return ProbabilityMassResult(
+            topCandidateMass: clampedMass,
+            remainderMass: remainderMass,
+            massRatio: massRatio,
+            needsVerification: needsVerification,
+            confidenceBand: band
         )
     }
 }
