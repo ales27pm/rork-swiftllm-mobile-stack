@@ -9,7 +9,7 @@ struct ContentView: View {
     let fileSystem: FileSystemService
     let database: DatabaseService
 
-    @State private var selectedTab: AppTab = .chat
+    @State private var selectedTab: AppTab = .agent
     @State private var inferenceEngine: InferenceEngine?
     @State private var chatViewModel: ChatViewModel?
     @State private var modelManagerViewModel: ModelManagerViewModel?
@@ -19,67 +19,34 @@ struct ContentView: View {
     @State private var memoryService: MemoryService?
     @State private var toolExecutor = ToolExecutor()
     @State private var speechViewModel = SpeechViewModel()
+    @State private var assistantAgent: AssistantAgent?
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            Tab("Chat", systemImage: "sparkles", value: .chat) {
-                if let chatVM = chatViewModel {
-                    ChatView(viewModel: chatVM, speechViewModel: speechViewModel)
+            Tab("Nexus", systemImage: "sparkles", value: .agent) {
+                if let chatVM = chatViewModel, let agent = assistantAgent {
+                    AgentHubView(
+                        chatViewModel: chatVM,
+                        speechViewModel: speechViewModel,
+                        agent: agent,
+                        historyViewModel: historyViewModel,
+                        memoryViewModel: memoryViewModel,
+                        metricsLogger: metricsLogger,
+                        thermalGovernor: thermalGovernor,
+                        inferenceEngine: inferenceEngine,
+                        onLoadConversation: { conversationId in
+                            chatVM.loadConversation(conversationId)
+                        }
+                    )
                 } else {
-                    ProgressView()
+                    ProgressView("Initializing Nexus...")
                 }
-            }
-
-            Tab("History", systemImage: "clock", value: .history) {
-                if let historyVM = historyViewModel {
-                    HistoryView(viewModel: historyVM) { conversationId in
-                        chatViewModel?.loadConversation(conversationId)
-                        selectedTab = .chat
-                    }
-                } else {
-                    ProgressView()
-                }
-            }
-
-            Tab("Memory", systemImage: "brain", value: .memory) {
-                if let memoryVM = memoryViewModel {
-                    MemoryView(viewModel: memoryVM)
-                } else {
-                    ProgressView()
-                }
-            }
-
-            Tab("Browse", systemImage: "globe", value: .browse) {
-                WebSearchView()
-            }
-
-            Tab("Map", systemImage: "map", value: .map) {
-                MapView()
-            }
-
-            Tab("Scan", systemImage: "doc.text.viewfinder", value: .scan) {
-                DocumentAnalysisView()
             }
 
             Tab("Models", systemImage: "square.stack.3d.up", value: .models) {
                 NavigationStack {
                     if let modelVM = modelManagerViewModel {
                         ModelManagerView(viewModel: modelVM)
-                    } else {
-                        ProgressView()
-                    }
-                }
-            }
-
-            Tab("Metrics", systemImage: "gauge.with.dots.needle.67percent", value: .metrics) {
-                NavigationStack {
-                    if let engine = inferenceEngine, let chatVM = chatViewModel {
-                        MetricsDashboardView(
-                            metricsLogger: metricsLogger,
-                            thermalGovernor: thermalGovernor,
-                            inferenceEngine: engine,
-                            chatViewModel: chatVM
-                        )
                     } else {
                         ProgressView()
                     }
@@ -123,7 +90,7 @@ struct ContentView: View {
         let memService = MemoryService(database: database)
         memoryService = memService
 
-        chatViewModel = ChatViewModel(
+        let chatVM = ChatViewModel(
             inferenceEngine: engine,
             metricsLogger: metricsLogger,
             thermalGovernor: thermalGovernor,
@@ -134,25 +101,31 @@ struct ContentView: View {
             memoryService: memService,
             toolExecutor: toolExecutor
         )
+        chatViewModel = chatVM
+
+        let agent = AssistantAgent(
+            inferenceEngine: engine,
+            metricsLogger: metricsLogger,
+            thermalGovernor: thermalGovernor,
+            modelLoader: modelLoader,
+            keyValueStore: keyValueStore,
+            database: database,
+            conversationService: convService,
+            memoryService: memService,
+            toolExecutor: toolExecutor
+        )
+        assistantAgent = agent
 
         modelManagerViewModel = ModelManagerViewModel(modelLoader: modelLoader)
         historyViewModel = HistoryViewModel(conversationService: convService)
         memoryViewModel = MemoryViewModel(memoryService: memService)
 
-        if let chatVM = chatViewModel {
-            speechViewModel.attach(to: chatVM)
-        }
+        speechViewModel.attach(to: chatVM)
     }
 }
 
 enum AppTab: String {
-    case chat
-    case history
-    case memory
-    case browse
-    case map
-    case scan
+    case agent
     case models
-    case metrics
     case settings
 }
