@@ -311,6 +311,60 @@ nonisolated final class CoreMLModelRunner: @unchecked Sendable {
         }
     }
 
+    func zeroTokenProbe() -> ZeroTokenProbeResult {
+        lock.lock()
+        guard let model, state == .ready || state == .recovering else {
+            let currentState = state
+            lock.unlock()
+            return ZeroTokenProbeResult(passed: false, state: currentState, latencyMS: 0)
+        }
+        let inName = inputName
+        let outName = outputName
+        let currentState = mlState
+        let currentUsesState = usesState
+        lock.unlock()
+
+        let probeStart = Date()
+
+        do {
+            let inputArray = try MLMultiArray(shape: [1, 1], dataType: .int32)
+            let ptr = inputArray.dataPointer.bindMemory(to: Int32.self, capacity: 1)
+            ptr[0] = 1
+
+            let featureDict: [String: Any] = [inName: MLFeatureValue(multiArray: inputArray)]
+            let input = try MLDictionaryFeatureProvider(dictionary: featureDict)
+
+            if currentUsesState, let st = currentState {
+                let _ = try model.prediction(from: input, using: st)
+            } else {
+                let _ = try model.prediction(from: input)
+            }
+
+            let latency = Date().timeIntervalSince(probeStart) * 1000
+
+            lock.lock()
+            lastSuccessfulPrediction = Date()
+            lock.unlock()
+
+            return ZeroTokenProbeResult(passed: true, state: .ready, latencyMS: latency)
+        } catch {
+            let latency = Date().timeIntervalSince(probeStart) * 1000
+
+            if isGhostModelError(error) {
+                lock.lock()
+                state = .evicted
+                consecutiveFailures += 1
+                lock.unlock()
+                return ZeroTokenProbeResult(passed: false, state: .evicted, latencyMS: latency)
+            }
+
+            lock.lock()
+            consecutiveFailures += 1
+            lock.unlock()
+            return ZeroTokenProbeResult(passed: false, state: .ready, latencyMS: latency)
+        }
+    }
+
     func healthCheck() -> HealthStatus {
         lock.lock()
         defer { lock.unlock() }
@@ -536,6 +590,12 @@ nonisolated enum CoreMLRunnerError: Error, Sendable, LocalizedError {
         case .loadTimeout(let seconds): return "Model load timed out after \(Int(seconds))s"
         }
     }
+}
+
+nonisolated struct ZeroTokenProbeResult: Sendable {
+    let passed: Bool
+    let state: RunnerState
+    let latencyMS: Double
 }
 
 nonisolated struct StateSerializationMetadata: Codable, Sendable {

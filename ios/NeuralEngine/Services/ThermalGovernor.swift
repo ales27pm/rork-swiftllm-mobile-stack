@@ -52,13 +52,29 @@ class ThermalGovernor {
     }
 
     var tokenDelaySeconds: Double {
-        switch currentPenalty {
-        case 0.0: return 0
-        case ..<0.5: return 0.02
-        case ..<1.0: return 0.05
-        default: return 0
+        switch thermalState {
+        case .nominal, .fair: return 0
+        case .serious: return 0.5
+        case .critical: return 0
+        @unknown default: return 0
         }
     }
+
+    var adaptiveTemperatureBoost: Float {
+        switch thermalState {
+        case .nominal: return 0.0
+        case .fair: return 0.05
+        case .serious: return 0.15
+        case .critical: return 0.0
+        @unknown default: return 0.0
+        }
+    }
+
+    var shouldRunZeroTokenProbe: Bool {
+        memoryPressureLevel != .normal || thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue || lastDiagnosticCode == .modelEvicted
+    }
+
+    private(set) var lastDiagnosticCode: DiagnosticCode?
 
     var shouldSuspendInference: Bool {
         currentPenalty >= 1.0 || thermalState == .critical || memoryPressureLevel == .critical
@@ -120,6 +136,16 @@ class ThermalGovernor {
             metricsLogger?.recordThrottleEvent(thermalState: "Serious", penalty: currentPenalty)
         } else if newState == .nominal || newState == .fair {
             inferenceThrottled = false
+        }
+    }
+
+    func recordDiagnosticCode(_ code: DiagnosticCode) {
+        lastDiagnosticCode = code
+    }
+
+    func clearEvictionFlag() {
+        if lastDiagnosticCode == .modelEvicted {
+            lastDiagnosticCode = nil
         }
     }
 

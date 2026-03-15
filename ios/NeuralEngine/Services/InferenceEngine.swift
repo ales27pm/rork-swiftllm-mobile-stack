@@ -140,8 +140,42 @@ class InferenceEngine {
         generationTask = Task { [weak self] in
             guard let self else { return }
 
+            if self.thermalGovernor.shouldRunZeroTokenProbe {
+                let probeResult = runner.zeroTokenProbe()
+                if !probeResult.passed {
+                    self.metricsLogger.recordDiagnostic(DiagnosticEvent(
+                        code: .modelEvicted,
+                        message: "Zero-Token Probe failed (Ghost Model detected). Latency: \(String(format: "%.1f", probeResult.latencyMS))ms",
+                        severity: .critical,
+                        metadata: ["probeState": probeResult.state.rawValue]
+                    ))
+                    self.thermalGovernor.recordDiagnosticCode(.modelEvicted)
+
+                    let recovered = await self.attemptInlineRecovery(runner: runner)
+                    self.metricsLogger.recordRecovery(success: recovered, newComputeUnits: recovered ? self.computeUnitsLabel(runner) : self.metricsLogger.activeComputeLabel)
+                    if !recovered {
+                        self.isGenerating = false
+                        self.notifyRecoveryNeeded()
+                        onComplete(self.failedMetrics(since: Date()))
+                        return
+                    }
+                    self.thermalGovernor.clearEvictionFlag()
+                }
+            }
+
             let mode = self.thermalGovernor.currentMode
-            let sampler = Sampler(config: samplingConfig)
+            var thermalAdjustedConfig = samplingConfig
+            let tempBoost = self.thermalGovernor.adaptiveTemperatureBoost
+            if tempBoost > 0 {
+                thermalAdjustedConfig.temperature = min(samplingConfig.temperature + tempBoost, 2.0)
+                self.metricsLogger.recordDiagnostic(DiagnosticEvent(
+                    code: .inferenceThrottled,
+                    message: "Adaptive temperature: \(String(format: "%.2f", samplingConfig.temperature)) → \(String(format: "%.2f", thermalAdjustedConfig.temperature))",
+                    severity: .info,
+                    metadata: ["boost": String(format: "%.2f", tempBoost)]
+                ))
+            }
+            let sampler = Sampler(config: thermalAdjustedConfig)
             let maxTokens = min(samplingConfig.maxTokens, mode.maxContextLength)
 
             let fullPrompt: String
