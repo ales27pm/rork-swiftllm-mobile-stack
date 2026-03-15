@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import CoreML
 
 nonisolated enum RunnerState: String, Sendable {
@@ -30,6 +31,14 @@ nonisolated final class CoreMLModelRunner: @unchecked Sendable {
     private let recoveryBackoffBase: TimeInterval = 0.5
     private let healthCheckInterval: TimeInterval = 30
 
+    private var stateSerializationURL: URL?
+    private var backgroundObserver: NSObjectProtocol?
+    private var foregroundObserver: NSObjectProtocol?
+    private var inactivityTimer: Timer?
+    private var inactivityTimeoutSeconds: TimeInterval = 120
+    private var isBackgrounded: Bool = false
+    private var backgroundTimestamp: Date?
+
     var isLoaded: Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -56,8 +65,12 @@ nonisolated final class CoreMLModelRunner: @unchecked Sendable {
 
     func loadModel(at url: URL, computeUnits: MLComputeUnits = .all) async throws {
         lock.lock()
-        guard state != .loading else {
+        guard state != .loading && state != .disposing else {
+            let currentState = state
             lock.unlock()
+            if currentState == .disposing {
+                throw CoreMLRunnerError.invalidState(.disposing)
+            }
             throw CoreMLRunnerError.modelNotLoaded
         }
         state = .loading
@@ -65,11 +78,40 @@ nonisolated final class CoreMLModelRunner: @unchecked Sendable {
 
         do {
             try await loadWithFallback(at: url, preferredUnits: computeUnits)
+            setupLifecycleObservers()
+            setupStateSerializationPath()
         } catch {
             lock.lock()
             state = .idle
             lock.unlock()
             throw error
+        }
+    }
+
+    func loadModelWithTimeout(at url: URL, computeUnits: MLComputeUnits = .all, timeoutSeconds: TimeInterval = 120) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await self.loadModel(at: url, computeUnits: computeUnits)
+            }
+
+            group.addTask {
+                var elapsed: TimeInterval = 0
+                let checkInterval: TimeInterval = 0.5
+                while elapsed < timeoutSeconds {
+                    try await Task.sleep(for: .seconds(checkInterval))
+                    if self.isBackgrounded {
+                        elapsed -= checkInterval
+                    }
+                    elapsed += checkInterval
+                }
+                throw CoreMLRunnerError.loadTimeout(timeoutSeconds)
+            }
+
+            if let result = try await group.next() {
+                group.cancelAll()
+                return result
+            }
+            group.cancelAll()
         }
     }
 
@@ -316,9 +358,51 @@ nonisolated final class CoreMLModelRunner: @unchecked Sendable {
         }
     }
 
+    func serializeStateToStorage() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let url = stateSerializationURL else { return }
+        guard state == .ready, usesState else { return }
+
+        let metadata = StateSerializationMetadata(
+            computeUnits: activeComputeUnits,
+            inputName: inputName,
+            outputName: outputName,
+            timestamp: Date()
+        )
+
+        if let data = try? JSONEncoder().encode(metadata) {
+            try? data.write(to: url)
+        }
+    }
+
+    func restoreStateFromStorage() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let url = stateSerializationURL else { return false }
+
+        guard let data = try? Data(contentsOf: url),
+              let metadata = try? JSONDecoder().decode(StateSerializationMetadata.self, from: data) else {
+            return false
+        }
+
+        let staleness = Date().timeIntervalSince(metadata.timestamp)
+        guard staleness < 300 else {
+            try? FileManager.default.removeItem(at: url)
+            return false
+        }
+
+        return true
+    }
+
     func unload() {
         lock.lock()
         state = .disposing
+        lock.unlock()
+
+        removeLifecycleObservers()
+
+        lock.lock()
         model = nil
         mlState = nil
         usesState = false
@@ -327,8 +411,73 @@ nonisolated final class CoreMLModelRunner: @unchecked Sendable {
         totalRecoveries = 0
         lastSuccessfulPrediction = nil
         lastRecoveryAttempt = nil
+        stateSerializationURL = nil
         state = .idle
         lock.unlock()
+    }
+
+    private func setupLifecycleObservers() {
+        removeLifecycleObservers()
+
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleEnterBackground()
+        }
+
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleEnterForeground()
+        }
+    }
+
+    private func removeLifecycleObservers() {
+        if let observer = backgroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+            backgroundObserver = nil
+        }
+        if let observer = foregroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+            foregroundObserver = nil
+        }
+    }
+
+    private func handleEnterBackground() {
+        lock.lock()
+        isBackgrounded = true
+        backgroundTimestamp = Date()
+        lock.unlock()
+
+        serializeStateToStorage()
+    }
+
+    private func handleEnterForeground() {
+        lock.lock()
+        isBackgrounded = false
+        let bgTime = backgroundTimestamp
+        backgroundTimestamp = nil
+        lock.unlock()
+
+        if let bgTime {
+            let duration = Date().timeIntervalSince(bgTime)
+            if duration > 60 {
+                lock.lock()
+                if state == .ready {
+                    state = .evicted
+                }
+                lock.unlock()
+            }
+        }
+    }
+
+    private func setupStateSerializationPath() {
+        let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        stateSerializationURL = supportDir?.appendingPathComponent("mlstate_metadata.json")
     }
 
     var vocabSizeEstimate: Int {
@@ -373,6 +522,7 @@ nonisolated enum CoreMLRunnerError: Error, Sendable, LocalizedError {
     case modelEvicted(underlyingError: Error)
     case invalidState(RunnerState)
     case recoveryFailed(String)
+    case loadTimeout(TimeInterval)
 
     var errorDescription: String? {
         switch self {
@@ -383,6 +533,25 @@ nonisolated enum CoreMLRunnerError: Error, Sendable, LocalizedError {
         case .modelEvicted: return "Model was evicted from hardware. Attempting recovery..."
         case .invalidState(let state): return "Runner in invalid state: \(state.rawValue)"
         case .recoveryFailed(let reason): return "Recovery failed: \(reason)"
+        case .loadTimeout(let seconds): return "Model load timed out after \(Int(seconds))s"
         }
+    }
+}
+
+nonisolated struct StateSerializationMetadata: Codable, Sendable {
+    let computeUnitsRaw: Int
+    let inputName: String
+    let outputName: String
+    let timestamp: Date
+
+    var computeUnits: MLComputeUnits {
+        MLComputeUnits(rawValue: computeUnitsRaw) ?? .all
+    }
+
+    init(computeUnits: MLComputeUnits, inputName: String, outputName: String, timestamp: Date) {
+        self.computeUnitsRaw = computeUnits.rawValue
+        self.inputName = inputName
+        self.outputName = outputName
+        self.timestamp = timestamp
     }
 }

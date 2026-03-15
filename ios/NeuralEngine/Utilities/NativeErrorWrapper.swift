@@ -155,6 +155,15 @@ enum NativeErrorWrapper {
                 recoveryAction: .restartSession,
                 underlyingError: error
             )
+        case .loadTimeout(let seconds):
+            return WrappedError(
+                domain: .coreML,
+                severity: .error,
+                userMessage: "Model loading timed out after \(Int(seconds))s. Try again.",
+                technicalDetail: "loadModelWithTimeout exceeded \(seconds)s",
+                recoveryAction: .retry,
+                underlyingError: error
+            )
         }
     }
 

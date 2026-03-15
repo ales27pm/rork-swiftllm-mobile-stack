@@ -1,12 +1,12 @@
 import Foundation
 
-nonisolated struct PrefillResult: Sendable {
+nonisolated struct PrefillPhaseResult: Sendable {
     let processedTokens: Int
     let durationSeconds: Double
     let pages: [KVPage]
 }
 
-nonisolated struct DecodeResult: Sendable {
+nonisolated struct DecodePhaseResult: Sendable {
     let token: Int
     let logits: [Float]
     let durationSeconds: Double
@@ -18,15 +18,15 @@ nonisolated struct VerificationResult: Sendable {
     let correctedToken: Int
 }
 
-protocol PrefillEngine: Sendable {
-    func prefill(inputIDs: [Int], cache: SessionCache) async throws -> (PrefillResult, SessionCache)
+protocol PrefillEngineProtocol: Sendable {
+    func prefill(inputIDs: [Int], cache: SessionCache) async throws -> (PrefillPhaseResult, SessionCache)
 }
 
-protocol DecodeEngine: Sendable {
-    func decodeNext(token: Int, cache: SessionCache) async throws -> (DecodeResult, SessionCache)
+protocol DecodeEngineProtocol: Sendable {
+    func decodeNext(token: Int, cache: SessionCache) async throws -> (DecodePhaseResult, SessionCache)
 }
 
-protocol DraftEngine: Sendable {
+protocol DraftEngineProtocol: Sendable {
     func propose(from token: Int, cache: SessionCache, count: Int) async throws -> ([Int], SessionCache)
 }
 

@@ -16,6 +16,10 @@ class InferenceEngine {
     private let metricsLogger: MetricsLogger
     private let thermalGovernor: ThermalGovernor
 
+    private let prefillEngine = PrefillEngine()
+    private let decodeEngine = DecodeEngine()
+    private let draftEngine = DraftEngine()
+
     private var generationTask: Task<Void, Never>?
     private var healthMonitorTask: Task<Void, Never>?
     private var modelRunner: CoreMLModelRunner?
@@ -72,6 +76,21 @@ class InferenceEngine {
         self.tokenizer = tokenizer
         self.activeFormat = format
         startHealthMonitor()
+    }
+
+    func attachDraftRunner(_ runner: CoreMLModelRunner) {
+        draftEngine.attachRunner(runner)
+    }
+
+    func detachDraftRunner() {
+        draftEngine.detachRunner()
+    }
+
+    var speculativeStats: (accepted: Int, rejected: Int, rate: Double, speedup: Double) {
+        (speculationPolicy.totalAcceptedTokens,
+         speculationPolicy.totalRejectedTokens,
+         speculationPolicy.lifetimeAcceptanceRate,
+         speculationPolicy.effectiveSpeedup)
     }
 
     func updateFormat(_ format: ModelFormat) {
@@ -231,6 +250,8 @@ class InferenceEngine {
             var specRejected = 0
             var lastToken = self.sessionCache.currentToken
 
+            let useSpeculation = self.draftEngine.hasDraftModel && mode.speculativeEnabled
+
             while generatedCount < maxTokens {
                 guard !Task.isCancelled else { break }
 
@@ -250,6 +271,30 @@ class InferenceEngine {
                         let _ = try runner.predictLogits(inputIDs: self.sessionCache.allTokens)
                     } catch {
                         break
+                    }
+                }
+
+                if useSpeculation && self.speculationPolicy.shouldUseSpeculation {
+                    let specResult = self.executeSpeculativeDecode(
+                        lastToken: lastToken,
+                        runner: runner,
+                        sampler: sampler,
+                        eosTokens: eosTokens,
+                        tokenizer: tokenizer,
+                        maxRemaining: maxTokens - generatedCount,
+                        onToken: onToken
+                    )
+
+                    if let result = specResult {
+                        generatedCount += result.tokensGenerated
+                        specAccepted += result.accepted
+                        specRejected += result.rejected
+                        lastToken = result.lastToken
+
+                        self.metricsLogger.recordSpeculative(accepted: result.accepted, rejected: result.rejected)
+
+                        if result.hitEOS { break }
+                        continue
                     }
                 }
 
@@ -483,6 +528,8 @@ class InferenceEngine {
     func cancel() {
         generationTask?.cancel()
         generationTask = nil
+        decodeEngine.stop()
+        prefillEngine.cancel()
         isGenerating = false
     }
 
@@ -494,6 +541,7 @@ class InferenceEngine {
         currentText = ""
         modelRunner?.resetState()
         llamaRunner?.resetContext()
+        draftEngine.resetDraftState()
         Task {
             await kvCache.reset()
             await prefixCache.clear()
@@ -524,6 +572,100 @@ class InferenceEngine {
         if let observer = thermalEscalationObserver {
             NotificationCenter.default.removeObserver(observer)
             thermalEscalationObserver = nil
+        }
+    }
+
+    private struct SpeculativeResult {
+        let tokensGenerated: Int
+        let accepted: Int
+        let rejected: Int
+        let lastToken: Int
+        let hitEOS: Bool
+    }
+
+    private func executeSpeculativeDecode(
+        lastToken: Int,
+        runner: CoreMLModelRunner,
+        sampler: Sampler,
+        eosTokens: Set<Int>,
+        tokenizer: TokenizerService,
+        maxRemaining: Int,
+        onToken: @escaping (String) -> Void
+    ) -> SpeculativeResult? {
+        let draftK = min(speculationPolicy.k, maxRemaining)
+        guard draftK > 0 else { return nil }
+
+        do {
+            let draftSequence = try draftEngine.generateDraftBurst(
+                seedToken: lastToken,
+                count: draftK,
+                sampler: sampler,
+                recentTokens: Array(sessionCache.allTokens.suffix(64))
+            )
+
+            guard !draftSequence.tokens.isEmpty else { return nil }
+
+            let verification = try decodeEngine.verifySpeculativeTokens(
+                draftTokens: draftSequence.tokens,
+                runner: runner,
+                sampler: sampler,
+                recentTokens: Array(sessionCache.allTokens.suffix(64))
+            )
+
+            speculationPolicy.recordVerification(
+                draftCount: draftSequence.tokens.count,
+                acceptedCount: verification.accepted.count,
+                rejectedCount: verification.rejected.count,
+                draftLatencyMS: draftSequence.draftLatencyMS,
+                verifyLatencyMS: verification.verificationLatencyMS
+            )
+
+            var tokensGenerated = 0
+            var hitEOS = false
+            var currentLast = lastToken
+
+            for token in verification.accepted {
+                if eosTokens.contains(token) {
+                    hitEOS = true
+                    break
+                }
+
+                sessionCache.accept(tokens: [token])
+                metricsLogger.recordToken()
+                tokensGenerated += 1
+                currentLast = token
+
+                if let text = streamingDecoder.append(token, tokenizer: tokenizer) {
+                    currentText += text
+                    onToken(text)
+                }
+            }
+
+            if !hitEOS, let correction = verification.correctionToken {
+                if eosTokens.contains(correction) {
+                    hitEOS = true
+                } else {
+                    sessionCache.accept(tokens: [correction])
+                    metricsLogger.recordToken()
+                    tokensGenerated += 1
+                    currentLast = correction
+
+                    if let text = streamingDecoder.append(correction, tokenizer: tokenizer) {
+                        currentText += text
+                        onToken(text)
+                    }
+                }
+            }
+
+            return SpeculativeResult(
+                tokensGenerated: tokensGenerated,
+                accepted: verification.accepted.count,
+                rejected: verification.rejected.count,
+                lastToken: currentLast,
+                hitEOS: hitEOS
+            )
+        } catch {
+            return nil
         }
     }
 

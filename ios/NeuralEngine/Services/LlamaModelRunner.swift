@@ -1,10 +1,19 @@
 import Foundation
+import UIKit
 import LlamaSwift
 
 nonisolated final class LlamaModelRunner: @unchecked Sendable {
     private var model: OpaquePointer?
     private var context: OpaquePointer?
     private let lock = NSLock()
+    private var isBackgrounded: Bool = false
+    private var backgroundObserver: NSObjectProtocol?
+    private var foregroundObserver: NSObjectProtocol?
+    private var lastContextPath: String?
+    private var lastNCtx: Int32 = 2048
+    private var lastNGPULayers: Int32 = 99
+    private var backgroundTimestamp: Date?
+    private var sessionTokenCount: Int = 0
 
     var isLoaded: Bool {
         lock.lock()
@@ -43,6 +52,12 @@ nonisolated final class LlamaModelRunner: @unchecked Sendable {
         model = loadedModel
         context = ctx
         nBatch = batchSize
+        lastContextPath = path
+        lastNCtx = nCtx
+        lastNGPULayers = nGPULayers
+        sessionTokenCount = 0
+
+        setupLifecycleObservers()
     }
 
     func generate(
@@ -157,12 +172,44 @@ nonisolated final class LlamaModelRunner: @unchecked Sendable {
             let mem = llama_get_memory(context)
             llama_memory_clear(mem, true)
         }
+        sessionTokenCount = 0
+    }
+
+    func saveState() -> LlamaSessionSnapshot? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard context != nil, model != nil else { return nil }
+
+        return LlamaSessionSnapshot(
+            modelPath: lastContextPath ?? "",
+            nCtx: lastNCtx,
+            nGPULayers: lastNGPULayers,
+            sessionTokenCount: sessionTokenCount,
+            timestamp: Date()
+        )
+    }
+
+    func restoreFromSnapshot(_ snapshot: LlamaSessionSnapshot) throws {
+        guard snapshot.isValid else {
+            throw LlamaRunnerError.snapshotExpired
+        }
+
+        lock.lock()
+        let currentPath = lastContextPath
+        lock.unlock()
+
+        if currentPath == snapshot.modelPath && isLoaded {
+            return
+        }
+
+        try loadModel(at: snapshot.modelPath, nCtx: snapshot.nCtx, nGPULayers: snapshot.nGPULayers)
     }
 
     func unload() {
         lock.lock()
-        defer { lock.unlock() }
+        removeLifecycleObserversInternal()
         unloadInternal()
+        lock.unlock()
     }
 
     private func unloadInternal() {
@@ -174,6 +221,60 @@ nonisolated final class LlamaModelRunner: @unchecked Sendable {
         }
         context = nil
         model = nil
+        sessionTokenCount = 0
+    }
+
+    private func setupLifecycleObservers() {
+        removeLifecycleObserversInternal()
+
+        backgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleEnterBackground()
+        }
+
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleEnterForeground()
+        }
+    }
+
+    private func removeLifecycleObserversInternal() {
+        if let observer = backgroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+            backgroundObserver = nil
+        }
+        if let observer = foregroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+            foregroundObserver = nil
+        }
+    }
+
+    private func handleEnterBackground() {
+        lock.lock()
+        isBackgrounded = true
+        backgroundTimestamp = Date()
+        lock.unlock()
+    }
+
+    private func handleEnterForeground() {
+        lock.lock()
+        isBackgrounded = false
+        let bgTime = backgroundTimestamp
+        backgroundTimestamp = nil
+        lock.unlock()
+
+        if let bgTime {
+            let duration = Date().timeIntervalSince(bgTime)
+            if duration > 120 {
+                resetContext()
+            }
+        }
     }
 
     private func tokenize(vocab: OpaquePointer, text: String, addBOS: Bool) -> [llama_token] {
@@ -225,6 +326,12 @@ nonisolated final class LlamaModelRunner: @unchecked Sendable {
     }
 
     deinit {
+        if let observer = backgroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = foregroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
         unloadInternal()
     }
 }
@@ -238,12 +345,25 @@ nonisolated struct LlamaGenerationResult: Sendable {
     let totalDuration: Double
 }
 
+nonisolated struct LlamaSessionSnapshot: Sendable {
+    let modelPath: String
+    let nCtx: Int32
+    let nGPULayers: Int32
+    let sessionTokenCount: Int
+    let timestamp: Date
+
+    var isValid: Bool {
+        Date().timeIntervalSince(timestamp) < 300
+    }
+}
+
 nonisolated enum LlamaRunnerError: Error, Sendable, LocalizedError {
     case modelNotLoaded
     case modelLoadFailed
     case contextCreationFailed
     case tokenizationFailed
     case decodeFailed
+    case snapshotExpired
 
     var errorDescription: String? {
         switch self {
@@ -252,6 +372,7 @@ nonisolated enum LlamaRunnerError: Error, Sendable, LocalizedError {
         case .contextCreationFailed: return "Failed to create llama context"
         case .tokenizationFailed: return "Failed to tokenize input"
         case .decodeFailed: return "Decode step failed"
+        case .snapshotExpired: return "Session snapshot has expired"
         }
     }
 }
