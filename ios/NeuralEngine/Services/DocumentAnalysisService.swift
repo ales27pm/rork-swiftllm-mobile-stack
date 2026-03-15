@@ -2,6 +2,7 @@ import Foundation
 import Vision
 import UIKit
 import PDFKit
+import NaturalLanguage
 
 @Observable
 @MainActor
