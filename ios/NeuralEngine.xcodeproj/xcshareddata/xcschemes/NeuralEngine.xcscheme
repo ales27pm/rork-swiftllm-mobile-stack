@@ -17,7 +17,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "105FC5792E9EAD3100EA8BCF"
                BuildableName = "NeuralEngine.app"
-               BlueprintName = "OnDEVICE"
+               BlueprintName = "NeuralEngine"
                ReferencedContainer = "container:NeuralEngine.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -37,7 +37,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "105FC5882E9EAD3200EA8BCF"
                BuildableName = "NeuralEngineTests.xctest"
-               BlueprintName = "OnDEVICE"
+               BlueprintName = "NeuralEngineTests"
                ReferencedContainer = "container:NeuralEngine.xcodeproj">
             </BuildableReference>
          </TestableReference>
@@ -48,7 +48,7 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "105FC5922E9EAD3200EA8BCF"
                BuildableName = "NeuralEngineUITests.xctest"
-               BlueprintName = "OnDEVICE"
+               BlueprintName = "NeuralEngineUITests"
                ReferencedContainer = "container:NeuralEngine.xcodeproj">
             </BuildableReference>
          </TestableReference>
@@ -70,7 +70,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "105FC5792E9EAD3100EA8BCF"
             BuildableName = "NeuralEngine.app"
-            BlueprintName = "OnDEVICE"
+            BlueprintName = "NeuralEngine"
             ReferencedContainer = "container:NeuralEngine.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -87,7 +87,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "105FC5792E9EAD3100EA8BCF"
             BuildableName = "NeuralEngine.app"
-            BlueprintName = "OnDEVICE"
+            BlueprintName = "NeuralEngine"
             ReferencedContainer = "container:NeuralEngine.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
