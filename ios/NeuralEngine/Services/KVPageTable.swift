@@ -1,12 +1,23 @@
 import Foundation
 
+nonisolated enum KVPageOrigin: Sendable, Equatable {
+    case sharedPrefix
+    case materialized
+}
+
 actor KVPageTable {
     private var sequences: [UUID: SequenceEntry] = [:]
     private var sharedPrefixMap: [String: [UUID]] = [:]
 
+    struct PageMapping: Sendable {
+        let pageID: UUID
+        let tokenEnd: Int
+        let origin: KVPageOrigin
+    }
+
     struct SequenceEntry: Sendable {
         let sequenceID: UUID
-        var pageIDs: [UUID]
+        var pageMappings: [PageMapping]
         var tokenRange: Range<Int>
         var prefixHash: String?
         var createdAt: Date
@@ -15,12 +26,16 @@ actor KVPageTable {
 
         init(sequenceID: UUID, prefixHash: String? = nil) {
             self.sequenceID = sequenceID
-            self.pageIDs = []
+            self.pageMappings = []
             self.tokenRange = 0..<0
             self.prefixHash = prefixHash
             self.createdAt = Date()
             self.lastAccessed = Date()
             self.isActive = true
+        }
+
+        var pageIDs: [UUID] {
+            pageMappings.map(\.pageID)
         }
     }
 
@@ -37,9 +52,9 @@ actor KVPageTable {
         return id
     }
 
-    func appendPage(_ pageID: UUID, to sequenceID: UUID, tokenEnd: Int) {
+    func appendPage(_ pageID: UUID, to sequenceID: UUID, tokenEnd: Int, origin: KVPageOrigin = .materialized) {
         guard var entry = sequences[sequenceID] else { return }
-        entry.pageIDs.append(pageID)
+        entry.pageMappings.append(PageMapping(pageID: pageID, tokenEnd: tokenEnd, origin: origin))
         entry.tokenRange = entry.tokenRange.lowerBound..<tokenEnd
         entry.lastAccessed = Date()
         sequences[sequenceID] = entry
@@ -47,6 +62,10 @@ actor KVPageTable {
 
     func pageIDs(for sequenceID: UUID) -> [UUID] {
         sequences[sequenceID]?.pageIDs ?? []
+    }
+
+    func pageMappings(for sequenceID: UUID) -> [PageMapping] {
+        sequences[sequenceID]?.pageMappings ?? []
     }
 
     func sequencesSharing(prefixHash: String) -> [UUID] {
@@ -57,7 +76,7 @@ actor KVPageTable {
         guard let source = sequences[sourceID] else { return nil }
         let newID = UUID()
         var forked = SequenceEntry(sequenceID: newID, prefixHash: source.prefixHash)
-        forked.pageIDs = source.pageIDs
+        forked.pageMappings = source.pageMappings
         forked.tokenRange = source.tokenRange
         sequences[newID] = forked
 
@@ -70,10 +89,10 @@ actor KVPageTable {
 
     func truncateSequence(_ sequenceID: UUID, keepPages: Int) -> [UUID] {
         guard var entry = sequences[sequenceID] else { return [] }
-        guard entry.pageIDs.count > keepPages else { return [] }
+        guard entry.pageMappings.count > keepPages else { return [] }
 
-        let removed = Array(entry.pageIDs[keepPages...])
-        entry.pageIDs = Array(entry.pageIDs.prefix(keepPages))
+        let removed = Array(entry.pageMappings[keepPages...].map(\.pageID))
+        entry.pageMappings = Array(entry.pageMappings.prefix(keepPages))
         entry.lastAccessed = Date()
         sequences[sequenceID] = entry
         return removed
@@ -117,7 +136,7 @@ actor KVPageTable {
     }
 
     var totalPageCount: Int {
-        sequences.values.reduce(0) { $0 + $1.pageIDs.count }
+        sequences.values.reduce(0) { $0 + $1.pageMappings.count }
     }
 
     func sequenceInfo(_ sequenceID: UUID) -> SequenceEntry? {

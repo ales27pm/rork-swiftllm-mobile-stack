@@ -37,19 +37,39 @@ actor KVCacheManager {
         tokens: [Int],
         startPosition: Int
     ) async -> [KVPage] {
-        let pageSize = 128
+        let pageSize = await arena.configuredPageSize
         var allocated: [KVPage] = []
         var offset = 0
+        var rollingState = blockHashSeed(for: sequenceID)
 
         while offset < tokens.count {
             let chunkSize = min(pageSize, tokens.count - offset)
-            let page = await arena.allocatePage(
-                tokenStart: startPosition + offset,
-                tokenCount: chunkSize,
-                sequenceID: sequenceID
-            )
-            await pageTable.appendPage(page.id, to: sequenceID, tokenEnd: startPosition + offset + chunkSize)
-            allocated.append(page)
+            let chunk = Array(tokens[offset..<(offset + chunkSize)])
+            let tokenStart = startPosition + offset
+            let tokenEnd = tokenStart + chunkSize
+            let blockHash = blockKey(for: chunk, priorState: rollingState)
+            let prefixSlice = Array(tokens.prefix(offset + chunkSize))
+            let prefixKey = PromptPrefixKey(modelID: "kv-cache", tokenizerID: "native", prefix: prefixSlice)
+            _ = await prefixCache.lookup(key: prefixKey)
+
+            if let cachedPageID = await arena.pageID(forBlockHash: blockHash),
+               let cachedPage = await arena.getPage(cachedPageID)
+            {
+                await arena.retainPage(cachedPageID)
+                await pageTable.appendPage(cachedPageID, to: sequenceID, tokenEnd: tokenEnd, origin: .sharedPrefix)
+                allocated.append(cachedPage)
+            } else {
+                let page = await arena.allocatePage(
+                    tokenStart: tokenStart,
+                    tokenCount: chunkSize,
+                    sequenceID: sequenceID
+                )
+                await arena.register(blockHash: blockHash, pageID: page.id)
+                await pageTable.appendPage(page.id, to: sequenceID, tokenEnd: tokenEnd, origin: .materialized)
+                allocated.append(page)
+            }
+
+            rollingState = blockHash
             offset += chunkSize
         }
 
@@ -84,10 +104,11 @@ actor KVCacheManager {
 
         let keepCount = slidingWindowSize
         let preservePrefix = systemTokenCount
-        let prefixPages = (preservePrefix + 127) / 128
+        let pageSize = await arena.configuredPageSize
+        let prefixPages = (preservePrefix + pageSize - 1) / pageSize
         let totalPages = await pageTable.pageIDs(for: sequenceID).count
 
-        let keepPages = prefixPages + (keepCount + 127) / 128
+        let keepPages = prefixPages + (keepCount + pageSize - 1) / pageSize
         guard totalPages > keepPages else {
             return SlidingWindowResult(evictedTokens: 0, pagesFreed: 0, newLength: currentLength)
         }
@@ -97,7 +118,7 @@ actor KVCacheManager {
             await arena.releasePage(id)
         }
 
-        let evictedTokens = removedIDs.count * 128
+        let evictedTokens = removedIDs.count * pageSize
         let newLength = currentLength - evictedTokens
 
         return SlidingWindowResult(
@@ -176,7 +197,7 @@ actor KVCacheManager {
         return MemoryPressureResponse(
             sequencesEvicted: staleSequences.count,
             pagesFreed: pagesFreed + defragResult.pagesReclaimed,
-            bytesReclaimed: Int64(pagesFreed * 128 * 32 * 2 * MemoryLayout<Float>.size) + defragResult.bytesReclaimed
+            bytesReclaimed: Int64(pagesFreed * (await arena.configuredPageSize) * 32 * 2 * MemoryLayout<Float>.size) + defragResult.bytesReclaimed
         )
     }
 
@@ -190,6 +211,27 @@ actor KVCacheManager {
 
     func estimatedMemoryBytes() async -> Int64 {
         await arena.estimatedMemoryBytes
+    }
+
+    func debugReferenceCount(pageID: UUID) async -> Int? {
+        await arena.referenceCount(for: pageID)
+    }
+
+    func debugPageMappings(sequenceID: UUID) async -> [KVPageTable.PageMapping] {
+        await pageTable.pageMappings(for: sequenceID)
+    }
+
+    private func blockHashSeed(for sequenceID: UUID) -> String {
+        sequenceID.uuidString
+    }
+
+    private func blockKey(for tokens: [Int], priorState: String) -> String {
+        var hasher = Hasher()
+        hasher.combine(priorState)
+        for token in tokens {
+            hasher.combine(token)
+        }
+        return String(hasher.finalize())
     }
 
     func reset() async {

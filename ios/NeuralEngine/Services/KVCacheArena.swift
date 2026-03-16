@@ -8,6 +8,8 @@ actor KVCacheArena {
     private let layerCount: Int
     private let memoryBudgetBytes: Int64
     private var peakMemoryBytes: Int64 = 0
+    private var blockHashIndex: [String: UUID] = [:]
+    private var pageHashReverseIndex: [UUID: Set<String>] = [:]
 
     nonisolated let evictionPolicy: EvictionPolicy
 
@@ -29,6 +31,7 @@ actor KVCacheArena {
         sequenceID: UUID? = nil
     ) -> KVPage {
         if let freeID = freePageIDs.popLast(), var recycled = pages[freeID] {
+            removeHashMappings(for: freeID)
             recycled = KVPage(
                 id: recycled.id,
                 tokenStart: tokenStart,
@@ -84,6 +87,7 @@ actor KVCacheArena {
             pages[pageID] = page
             freePageIDs.append(pageID)
             evictionOrder.removeAll { $0 == pageID }
+            removeHashMappings(for: pageID)
         } else {
             pages[pageID] = page
         }
@@ -96,6 +100,7 @@ actor KVCacheArena {
         pages[pageID] = page
         freePageIDs.append(pageID)
         evictionOrder.removeAll { $0 == pageID }
+        removeHashMappings(for: pageID)
     }
 
     func freePages(_ pageIDs: [UUID]) {
@@ -170,6 +175,7 @@ actor KVCacheArena {
         let deadIDs = pages.filter { !$0.value.isActive }.map(\.key)
 
         for id in deadIDs {
+            removeHashMappings(for: id)
             pages.removeValue(forKey: id)
         }
         freePageIDs.removeAll()
@@ -195,6 +201,8 @@ actor KVCacheArena {
         freePageIDs.removeAll(keepingCapacity: true)
         evictionOrder.removeAll(keepingCapacity: true)
         peakMemoryBytes = 0
+        blockHashIndex.removeAll(keepingCapacity: true)
+        pageHashReverseIndex.removeAll(keepingCapacity: true)
     }
 
     var activePageCount: Int {
@@ -244,6 +252,34 @@ actor KVCacheArena {
             averageReferenceCount: avgRefCount,
             evictionPolicy: evictionPolicy
         )
+    }
+
+    var configuredPageSize: Int {
+        pageSize
+    }
+
+    func pageID(forBlockHash blockHash: String) -> UUID? {
+        guard let pageID = blockHashIndex[blockHash], let page = pages[pageID], page.isActive else {
+            blockHashIndex.removeValue(forKey: blockHash)
+            return nil
+        }
+        return pageID
+    }
+
+    func register(blockHash: String, pageID: UUID) {
+        blockHashIndex[blockHash] = pageID
+        pageHashReverseIndex[pageID, default: []].insert(blockHash)
+    }
+
+    func referenceCount(for pageID: UUID) -> Int? {
+        pages[pageID]?.referenceCount
+    }
+
+    private func removeHashMappings(for pageID: UUID) {
+        guard let hashes = pageHashReverseIndex.removeValue(forKey: pageID) else { return }
+        for hash in hashes where blockHashIndex[hash] == pageID {
+            blockHashIndex.removeValue(forKey: hash)
+        }
     }
 }
 
