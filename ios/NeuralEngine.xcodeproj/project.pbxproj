@@ -104,9 +104,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		105FC5792E9EAD3100EA8BCF /* OnDEVICE */ = {
+		105FC5792E9EAD3100EA8BCF /* NeuralEngine */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 105FC59D2E9EAD3200EA8BCF /* Build configuration list for PBXNativeTarget "OnDEVICE" */;
+			buildConfigurationList = 105FC59D2E9EAD3200EA8BCF /* Build configuration list for PBXNativeTarget "NeuralEngine" */;
 			buildPhases = (
 				105FC5762E9EAD3100EA8BCF /* Sources */,
 				105FC5772E9EAD3100EA8BCF /* Frameworks */,
@@ -119,19 +119,19 @@
 			fileSystemSynchronizedGroups = (
 				105FC57C2E9EAD3100EA8BCF /* NeuralEngine */,
 			);
-			name = OnDEVICE;
+			name = NeuralEngine;
 			packageProductDependencies = (
 				XX7A74E47E6F0D2D7EFF66XX /* Tokenizers */,
 				XXD7A7C404F3B47D237958XX /* Hub */,
 				XX880297366DF2ABAA7DFEXX /* LlamaSwift */,
 			);
-			productName = OnDEVICE;
+			productName = NeuralEngine;
 			productReference = 105FC57A2E9EAD3100EA8BCF /* NeuralEngine.app */;
 			productType = "com.apple.product-type.application";
 		};
-		105FC5882E9EAD3200EA8BCF /* OnDEVICE */ = {
+		105FC5882E9EAD3200EA8BCF /* NeuralEngineTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 105FC5A02E9EAD3200EA8BCF /* Build configuration list for PBXNativeTarget "OnDEVICE" */;
+			buildConfigurationList = 105FC5A02E9EAD3200EA8BCF /* Build configuration list for PBXNativeTarget "NeuralEngineTests" */;
 			buildPhases = (
 				105FC5852E9EAD3200EA8BCF /* Sources */,
 				105FC5862E9EAD3200EA8BCF /* Frameworks */,
@@ -145,16 +145,16 @@
 			fileSystemSynchronizedGroups = (
 				105FC58C2E9EAD3200EA8BCF /* NeuralEngineTests */,
 			);
-			name = OnDEVICE;
+			name = NeuralEngineTests;
 			packageProductDependencies = (
 			);
-			productName = OnDEVICE;
+			productName = NeuralEngineTests;
 			productReference = 105FC5892E9EAD3200EA8BCF /* NeuralEngineTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		105FC5922E9EAD3200EA8BCF /* OnDEVICE */ = {
+		105FC5922E9EAD3200EA8BCF /* NeuralEngineUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 105FC5A32E9EAD3200EA8BCF /* Build configuration list for PBXNativeTarget "OnDEVICE" */;
+			buildConfigurationList = 105FC5A32E9EAD3200EA8BCF /* Build configuration list for PBXNativeTarget "NeuralEngineUITests" */;
 			buildPhases = (
 				105FC58F2E9EAD3200EA8BCF /* Sources */,
 				105FC5902E9EAD3200EA8BCF /* Frameworks */,
@@ -168,10 +168,10 @@
 			fileSystemSynchronizedGroups = (
 				105FC5962E9EAD3200EA8BCF /* NeuralEngineUITests */,
 			);
-			name = OnDEVICE;
+			name = NeuralEngineUITests;
 			packageProductDependencies = (
 			);
-			productName = OnDEVICE;
+			productName = NeuralEngineUITests;
 			productReference = 105FC5932E9EAD3200EA8BCF /* NeuralEngineUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
@@ -198,7 +198,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 105FC5752E9EAD3100EA8BCF /* Build configuration list for PBXProject "OnDEVICE" */;
+			buildConfigurationList = 105FC5752E9EAD3100EA8BCF /* Build configuration list for PBXProject "NeuralEngine" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -212,9 +212,9 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				105FC5792E9EAD3100EA8BCF /* OnDEVICE */,
-				105FC5882E9EAD3200EA8BCF /* OnDEVICE */,
-				105FC5922E9EAD3200EA8BCF /* OnDEVICE */,
+				105FC5792E9EAD3100EA8BCF /* NeuralEngine */,
+				105FC5882E9EAD3200EA8BCF /* NeuralEngineTests */,
+				105FC5922E9EAD3200EA8BCF /* NeuralEngineUITests */,
 			);
 			packageReferences = (
 				XX57EFF747DC525E46C5F2XX /* XCRemoteSwiftPackageReference "swift-transformers" */,
@@ -274,12 +274,12 @@
 /* Begin PBXTargetDependency section */
 		105FC58B2E9EAD3200EA8BCF /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 105FC5792E9EAD3100EA8BCF /* OnDEVICE */;
+			target = 105FC5792E9EAD3100EA8BCF /* NeuralEngine */;
 			targetProxy = 105FC58A2E9EAD3200EA8BCF /* PBXContainerItemProxy */;
 		};
 		105FC5952E9EAD3200EA8BCF /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 105FC5792E9EAD3100EA8BCF /* OnDEVICE */;
+			target = 105FC5792E9EAD3100EA8BCF /* NeuralEngine */;
 			targetProxy = 105FC5942E9EAD3200EA8BCF /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -579,7 +579,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		105FC5752E9EAD3100EA8BCF /* Build configuration list for PBXProject "OnDEVICE" */ = {
+		105FC5752E9EAD3100EA8BCF /* Build configuration list for PBXProject "NeuralEngine" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				105FC59B2E9EAD3200EA8BCF /* Debug */,
@@ -588,7 +588,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		105FC59D2E9EAD3200EA8BCF /* Build configuration list for PBXNativeTarget "OnDEVICE" */ = {
+		105FC59D2E9EAD3200EA8BCF /* Build configuration list for PBXNativeTarget "NeuralEngine" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				105FC59E2E9EAD3200EA8BCF /* Debug */,
@@ -597,7 +597,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		105FC5A02E9EAD3200EA8BCF /* Build configuration list for PBXNativeTarget "OnDEVICE" */ = {
+		105FC5A02E9EAD3200EA8BCF /* Build configuration list for PBXNativeTarget "NeuralEngineTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				105FC5A12E9EAD3200EA8BCF /* Debug */,
@@ -606,7 +606,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		105FC5A32E9EAD3200EA8BCF /* Build configuration list for PBXNativeTarget "OnDEVICE" */ = {
+		105FC5A32E9EAD3200EA8BCF /* Build configuration list for PBXNativeTarget "NeuralEngineUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				105FC5A42E9EAD3200EA8BCF /* Debug */,
