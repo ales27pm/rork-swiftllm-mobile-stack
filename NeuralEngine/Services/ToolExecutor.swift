@@ -509,12 +509,34 @@ class ToolExecutor: NSObject {
     }
 
     static func buildToolsPrompt() -> String {
-        var prompt = "\n\nYou have access to the following device tools. To use a tool, include a tool call in your response using this format:\n<tool_call>{\"name\": \"tool_name\", \"parameters\": {}}</tool_call>\n\nYou can call multiple tools in one response. After tool execution, you'll receive the results and should incorporate them into your response naturally.\n\nAvailable tools:\n"
-        for tool in DeviceToolName.allCases {
-            prompt += "- \(tool.rawValue): \(tool.description) Parameters: \(tool.parametersSchema)\n"
-        }
-        prompt += "\nOnly call tools when the user's request requires device capabilities. Respond normally for general conversation."
-        return prompt
+        let toolLines = DeviceToolName.allCases.map {
+            "- \($0.rawValue): \($0.description) Parameters: \($0.parametersSchema)"
+        }.joined(separator: "\n")
+
+        return """
+
+        [Tool Calling Contract]
+        You have access to device tools.
+
+        Only emit a tool call when the user explicitly needs device capabilities or external retrieval.
+        If no tool is needed, respond normally in plain text.
+
+        Valid tool call formats:
+        1) Single call:
+        <tool_call>{"name":"tool_name","parameters":{}}</tool_call>
+
+        2) Multiple calls in one turn:
+        <tool_calls>[{"name":"tool_a","parameters":{}},{"name":"tool_b","parameters":{}}]</tool_calls>
+
+        Rules:
+        - Use ONLY tool names from the list below.
+        - Use a JSON object for `parameters` (or `arguments` as an alias if needed).
+        - Do not include markdown code fences around tool calls.
+        - After receiving tool results, synthesize a concise user-facing answer.
+
+        Available tools:
+        \(toolLines)
+        """
     }
 }
 

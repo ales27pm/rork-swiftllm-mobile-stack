@@ -92,7 +92,8 @@ struct ContextAssembler {
         3. Calculations → Always use calculator tool for mathematical operations
         4. Device queries (location, battery, time, etc.) → Use appropriate device tool
         5. Action requests (SMS, email, calendar, notifications) → Use appropriate action tool
-        6. When uncertain → Acknowledge uncertainty → Provide best available answer with caveats
+        6. If using tools, emit ONLY valid tool XML tags (`<tool_call>` or `<tool_calls>`) with JSON payloads and no code fences
+        7. When uncertain → Acknowledge uncertainty → Provide best available answer with caveats
 
         Confidence signaling:
         - >80%: State directly without hedging

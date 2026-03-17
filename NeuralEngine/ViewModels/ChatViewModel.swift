@@ -16,6 +16,7 @@ class ChatViewModel {
     var loadingProgress: Double = 0.0
     var statusMessage: String = "Idle"
     var isModelLoading: Bool = false
+    private let maxToolExecutionRounds: Int = 3
 
     var reasoningReplayLog: [ReasoningReplayEntry] = []
     var activeReasoningDepth: Int = 0
@@ -170,7 +171,7 @@ class ChatViewModel {
         }
 
         statusMessage = statusForIntent(intent)
-        generateResponse(userText: text)
+        generateResponse(userText: text, toolIteration: 0)
     }
 
     func sendMessage() {
@@ -186,7 +187,7 @@ class ChatViewModel {
         }
     }
 
-    private func generateResponse(userText: String, toolContext: [[String: String]] = []) {
+    private func generateResponse(userText: String, toolContext: [[String: String]] = [], toolIteration: Int) {
         let assistantMessage = Message(role: .assistant, content: "", isStreaming: true)
         messages.append(assistantMessage)
         isGenerating = true
@@ -255,7 +256,7 @@ class ChatViewModel {
 
                 if self.toolsEnabled && ToolCallParser.containsToolCall(fullContent) {
                     self.statusMessage = "Executing tools..."
-                    self.handleToolCalls(assistantIndex: assistantIndex, userText: userText)
+                    self.handleToolCalls(assistantIndex: assistantIndex, userText: userText, toolIteration: toolIteration)
                 } else {
                     self.finalizeResponse(assistantIndex: assistantIndex, userText: userText)
                 }
@@ -263,13 +264,19 @@ class ChatViewModel {
         )
     }
 
-    private func handleToolCalls(assistantIndex: Int, userText: String) {
+    private func handleToolCalls(assistantIndex: Int, userText: String, toolIteration: Int) {
         let fullContent = messages[assistantIndex].content
         let toolCalls = ToolCallParser.parse(from: fullContent)
         let cleanedContent = ToolCallParser.stripToolCalls(from: fullContent)
         messages[assistantIndex].content = cleanedContent
 
         guard !toolCalls.isEmpty else {
+            finalizeResponse(assistantIndex: assistantIndex, userText: userText)
+            return
+        }
+
+        guard toolIteration < maxToolExecutionRounds else {
+            messages[assistantIndex].content += "\n\n(I stopped tool execution after \(maxToolExecutionRounds) rounds to avoid a loop.)"
             finalizeResponse(assistantIndex: assistantIndex, userText: userText)
             return
         }
@@ -288,16 +295,30 @@ class ChatViewModel {
             }
 
             messages[toolMsgIndex].toolResults = results
-            messages[toolMsgIndex].content = results.map { "[\($0.toolName)] \($0.data)" }.joined(separator: "\n")
+            messages[toolMsgIndex].content = Self.renderToolExecutionSummary(calls: toolCalls, results: results)
             isExecutingTools = false
 
-            var toolContextMessages: [[String: String]] = []
-            for result in results {
-                toolContextMessages.append(["role": "tool", "content": "Tool result for \(result.toolName): \(result.data)"])
+            let toolContextMessages = results.map {
+                ["role": "tool", "content": "Tool result for \($0.toolName): \($0.data)"]
             }
 
-            generateResponse(userText: userText, toolContext: toolContextMessages)
+            generateResponse(userText: userText, toolContext: toolContextMessages, toolIteration: toolIteration + 1)
         }
+    }
+
+    private static func renderToolExecutionSummary(calls: [ToolCall], results: [ToolResult]) -> String {
+        var lines: [String] = ["[Tool Execution Summary]"]
+
+        for (index, call) in calls.enumerated() {
+            let result = index < results.count ? results[index] : nil
+            let status = (result?.success ?? false) ? "success" : "failure"
+            lines.append("- \(call.name) (\(status))")
+            if let result {
+                lines.append("  \(result.data)")
+            }
+        }
+
+        return lines.joined(separator: "\n")
     }
 
     private func finalizeResponse(assistantIndex: Int, userText: String) {
