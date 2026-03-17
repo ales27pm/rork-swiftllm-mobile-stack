@@ -160,15 +160,15 @@ class SpeechSynthesisService: NSObject {
     }
 
     func setLanguagePreferred(_ languageCode: String?) {
-        selectedVoiceIdentifier = nil
-        userDefaults.removeObject(forKey: StorageKey.selectedVoiceIdentifier)
-
         guard let languageCode else {
             preferredLanguageCode = nil
             userDefaults.removeObject(forKey: StorageKey.preferredLanguageCode)
             prepareVoice(availableVoices: loadAvailableVoices(forceRefresh: true))
             return
         }
+
+        selectedVoiceIdentifier = nil
+        userDefaults.removeObject(forKey: StorageKey.selectedVoiceIdentifier)
 
         preferredLanguageCode = languageCode
         userDefaults.set(languageCode, forKey: StorageKey.preferredLanguageCode)
@@ -189,20 +189,26 @@ class SpeechSynthesisService: NSObject {
     }
 
     private func bestVoice(in voices: [AVSpeechSynthesisVoice], forLanguageCode languageCode: String) -> AVSpeechSynthesisVoice? {
-        let normalizedTarget = normalizedLanguageCode(languageCode)
-        let normalizedVoices = voices.map { voice in
-            (voice: voice, normalizedLanguage: normalizedLanguageCode(voice.language))
+        let normalizedTargetLocale = normalizedLocaleIdentifier(languageCode)
+        let normalizedTargetLanguage = normalizedLanguageCode(languageCode)
+
+        let exactLocaleMatches = voices.filter {
+            normalizedLocaleIdentifier($0.language) == normalizedTargetLocale
         }
 
-        let languageMatches = normalizedVoices
-            .filter { $0.normalizedLanguage == normalizedTarget }
-            .map(\.voice)
-
-        if languageMatches.isEmpty {
-            return nil
+        if let exactMatch = bestVoiceFromCandidates(exactLocaleMatches) {
+            return exactMatch
         }
 
-        return languageMatches.sorted {
+        let languageMatches = voices.filter {
+            normalizedLanguageCode($0.language) == normalizedTargetLanguage
+        }
+
+        return bestVoiceFromCandidates(languageMatches)
+    }
+
+    private func bestVoiceFromCandidates(_ voices: [AVSpeechSynthesisVoice]) -> AVSpeechSynthesisVoice? {
+        voices.sorted {
             if $0.quality == $1.quality {
                 return $0.name < $1.name
             }
@@ -210,8 +216,12 @@ class SpeechSynthesisService: NSObject {
         }.first
     }
 
+    private func normalizedLocaleIdentifier(_ identifier: String) -> String {
+        identifier.replacingOccurrences(of: "_", with: "-").lowercased()
+    }
+
     private func normalizedLanguageCode(_ identifier: String) -> String {
-        let normalizedIdentifier = identifier.replacingOccurrences(of: "_", with: "-")
+        let normalizedIdentifier = normalizedLocaleIdentifier(identifier)
         return normalizedIdentifier.split(separator: "-").first.map { String($0).lowercased() } ?? normalizedIdentifier.lowercased()
     }
 

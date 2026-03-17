@@ -14,20 +14,8 @@ struct SettingsView: View {
     @State private var hfToken: String = ""
     @State private var isTokenVisible: Bool = false
     @State private var tokenSaved: Bool = false
-    @State private var selectedSpeechLanguageCode: String = SpeechSelection.systemDefaultTag
-    @State private var selectedSpeechVoiceIdentifier: String = SpeechSelection.systemDefaultTag
-
-
-    private enum SpeechSelection {
-        static let systemDefaultTag = "system-default"
-    }
-
-    private struct SpeechLanguageOption: Identifiable {
-        let code: String
-        let label: String
-
-        var id: String { code }
-    }
+    @State private var selectedSpeechLanguageCode: String?
+    @State private var selectedSpeechVoiceIdentifier: String?
 
     private let secureStore = SecureStore()
     private let hfTokenKey = "hf_api_token"
@@ -54,8 +42,8 @@ struct SettingsView: View {
         repetitionPenalty = Double(chatViewModel.samplingConfig.repetitionPenalty)
         maxTokens = Double(chatViewModel.samplingConfig.maxTokens)
         hfToken = secureStore.getString(hfTokenKey) ?? ""
-        selectedSpeechLanguageCode = speechViewModel.selectedSpeechLanguageCode ?? SpeechSelection.systemDefaultTag
-        selectedSpeechVoiceIdentifier = speechViewModel.selectedSpeechVoiceIdentifier ?? SpeechSelection.systemDefaultTag
+        selectedSpeechLanguageCode = speechViewModel.selectedSpeechLanguageCode
+        selectedSpeechVoiceIdentifier = speechViewModel.selectedSpeechVoiceIdentifier
     }
 
     private func syncConfig() {
@@ -242,29 +230,25 @@ struct SettingsView: View {
         Section {
             Picker("Speech Language", selection: $selectedSpeechLanguageCode) {
                 Text("System Default")
-                    .tag(SpeechSelection.systemDefaultTag)
+                    .tag(Optional<String>.none)
 
-                ForEach(availableSpeechLanguages) { option in
+                ForEach(speechViewModel.speechLanguageOptions()) { option in
                     Text(option.label)
-                        .tag(option.code)
+                        .tag(Optional(option.code))
                 }
             }
             .onChange(of: selectedSpeechLanguageCode) { _, newValue in
-                let languageCode = newValue == SpeechSelection.systemDefaultTag ? nil : newValue
-                speechViewModel.updateSpeechLanguage(code: languageCode)
+                speechViewModel.updateSpeechLanguage(code: newValue)
 
-                if let currentVoice = selectedSpeechVoiceIdentifierOrNil,
-                   !filteredSpeechVoices.contains(where: { $0.identifier == currentVoice }) {
-                    selectedSpeechVoiceIdentifier = SpeechSelection.systemDefaultTag
-                    speechViewModel.updateSpeechVoice(identifier: nil)
-                }
+                selectedSpeechVoiceIdentifier = nil
+                speechViewModel.updateSpeechVoice(identifier: nil)
             }
 
             Picker("Speech Voice", selection: $selectedSpeechVoiceIdentifier) {
                 Text("System Default")
-                    .tag(SpeechSelection.systemDefaultTag)
+                    .tag(Optional<String>.none)
 
-                ForEach(filteredSpeechVoices, id: \.identifier) { voice in
+                ForEach(speechViewModel.speechVoices(for: selectedSpeechLanguageCode), id: \.identifier) { voice in
                     HStack {
                         Text(voice.displayName)
                         Spacer()
@@ -274,52 +258,17 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    .tag(voice.identifier)
+                    .tag(Optional(voice.identifier))
                 }
             }
             .onChange(of: selectedSpeechVoiceIdentifier) { _, newValue in
-                speechViewModel.updateSpeechVoice(
-                    identifier: newValue == SpeechSelection.systemDefaultTag ? nil : newValue
-                )
+                speechViewModel.updateSpeechVoice(identifier: newValue)
             }
         } header: {
             Label("Speech", systemImage: "waveform")
         } footer: {
             Text("Language and voice changes apply to the next spoken response.")
         }
-    }
-
-    private var availableSpeechLanguages: [SpeechLanguageOption] {
-        let grouped = Dictionary(grouping: speechViewModel.speechVoiceOptions(), by: \.language)
-        return grouped.keys.sorted().map { code in
-            let localeName = Locale.current.localizedString(forIdentifier: code) ?? code
-            return SpeechLanguageOption(code: code, label: localeName)
-        }
-    }
-
-    private var filteredSpeechVoices: [SpeechSynthesisService.VoiceOption] {
-        let allVoices = speechViewModel.speechVoiceOptions()
-        guard selectedSpeechLanguageCode != SpeechSelection.systemDefaultTag else {
-            return allVoices.sorted { lhs, rhs in
-                if lhs.language == rhs.language {
-                    return lhs.displayName < rhs.displayName
-                }
-                return lhs.language < rhs.language
-            }
-        }
-
-        return allVoices
-            .filter { $0.language == selectedSpeechLanguageCode }
-            .sorted { lhs, rhs in
-                if lhs.quality == rhs.quality {
-                    return lhs.displayName < rhs.displayName
-                }
-                return lhs.quality.rawValue > rhs.quality.rawValue
-            }
-    }
-
-    private var selectedSpeechVoiceIdentifierOrNil: String? {
-        selectedSpeechVoiceIdentifier == SpeechSelection.systemDefaultTag ? nil : selectedSpeechVoiceIdentifier
     }
 
     private func qualityLabel(for quality: AVSpeechSynthesisVoiceQuality) -> String? {
