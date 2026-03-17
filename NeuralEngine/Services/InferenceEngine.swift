@@ -183,12 +183,14 @@ class InferenceEngine {
         isGenerating = true
         currentText = ""
         streamingDecoder.reset()
+        lastProbeLatencyMS = 0
         metricsLogger.beginGeneration()
+        metricsLogger.currentMetrics.zeroTokenProbeLatencyMS = 0
 
         generationTask = Task { [weak self] in
             guard let self else { return }
 
-            let shouldProbe = !self.hasValidatedCurrentSession || self.thermalGovernor.shouldRunZeroTokenProbe
+            let shouldProbe = !self.hasValidatedCurrentSession || self.thermalGovernor.shouldRunZeroTokenProbe || runner.currentState == .evicted
             if shouldProbe {
                 let probeResult = runner.runZeroTokenProbe()
                 self.lastProbeLatencyMS = probeResult.latencyMS
@@ -222,7 +224,7 @@ class InferenceEngine {
                     self.metricsLogger.recordRecovery(success: recovered, newComputeUnits: recovered ? self.computeUnitsLabel(runner) : self.metricsLogger.activeComputeLabel)
                     if !recovered {
                         self.isGenerating = false
-                        self.notifyRecoverableWarning("Neural Engine recovery limit reached; switched to CPU-only mode for this session.")
+                        self.notifyRecoverableWarning("Neural Engine recovery failed, including CPU fallback. Please reload the model.")
                         self.notifyRecoveryNeeded()
                         onComplete(self.failedMetrics(since: Date()))
                         return

@@ -586,6 +586,7 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
             try await loadWithFallback(at: url, preferredUnits: .cpuOnly)
             lock.lock()
             consecutiveFailures = 0
+            totalRecoveries += 1
             lock.unlock()
         } catch {
             lock.lock()
