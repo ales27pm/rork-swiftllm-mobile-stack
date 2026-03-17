@@ -56,6 +56,17 @@ class ChatViewModel {
         self.memoryService = memoryService
         self.toolExecutor = toolExecutor
         inferenceEngine.attachRunner(modelLoader.modelRunner, llamaRunner: modelLoader.llamaRunner, tokenizer: modelLoader.tokenizer, format: modelLoader.activeFormat)
+        inferenceEngine.setRecoverableWarningHandler { [weak self] warning in
+            guard let self else { return }
+            self.statusMessage = warning
+            self.lastError = WrappedError(
+                domain: .inference,
+                severity: .warning,
+                userMessage: warning,
+                technicalDetail: "InferenceEngine entered recoverable CPU fallback mode",
+                recoveryAction: .none
+            )
+        }
         restoreSettings()
     }
 

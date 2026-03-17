@@ -28,10 +28,15 @@ class InferenceEngine {
 
     private let slidingWindowSize: Int = 1536
     private let evictionThreshold: Int = 1800
-    private let maxRecoveryAttempts = 3
+    private let zeroTokenProbeLatencyThresholdMS: Double = 350
 
     private var recoveryInProgress: Bool = false
+    private var hasValidatedCurrentSession: Bool = false
+    private var lastProbeLatencyMS: Double = 0
+    private var lastRecoveryRetryCount: Int = 0
+    private var activeFallbackMode: String = "none"
     private var onRecoveryNeeded: (() -> Void)?
+    private var onRecoverableWarning: ((String) -> Void)?
     private var forceStopObserver: NSObjectProtocol?
     private var thermalEscalationObserver: NSObjectProtocol?
     private var memoryPressureObserver: NSObjectProtocol?
@@ -106,6 +111,8 @@ class InferenceEngine {
         self.llamaRunner = llamaRunner
         self.tokenizer = tokenizer
         self.activeFormat = format
+        hasValidatedCurrentSession = false
+        activeFallbackMode = "none"
         startHealthMonitor()
     }
 
@@ -130,6 +137,10 @@ class InferenceEngine {
 
     func setRecoveryHandler(_ handler: @escaping () -> Void) {
         self.onRecoveryNeeded = handler
+    }
+
+    func setRecoverableWarningHandler(_ handler: @escaping (String) -> Void) {
+        self.onRecoverableWarning = handler
     }
 
     var hasModel: Bool {
@@ -177,26 +188,53 @@ class InferenceEngine {
         generationTask = Task { [weak self] in
             guard let self else { return }
 
-            if self.thermalGovernor.shouldRunZeroTokenProbe {
-                let probeResult = runner.zeroTokenProbe()
-                if !probeResult.passed {
-                    self.metricsLogger.recordDiagnostic(DiagnosticEvent(
-                        code: .modelEvicted,
-                        message: "Zero-Token Probe failed (Ghost Model detected). Latency: \(String(format: "%.1f", probeResult.latencyMS))ms",
-                        severity: .critical,
-                        metadata: ["probeState": probeResult.state.rawValue]
-                    ))
-                    self.thermalGovernor.recordDiagnosticCode(.modelEvicted)
+            let shouldProbe = !self.hasValidatedCurrentSession || self.thermalGovernor.shouldRunZeroTokenProbe
+            if shouldProbe {
+                let probeResult = runner.runZeroTokenProbe()
+                self.lastProbeLatencyMS = probeResult.latencyMS
+                self.metricsLogger.currentMetrics.zeroTokenProbeLatencyMS = probeResult.latencyMS
 
-                    let recovered = await self.attemptInlineRecovery(runner: runner)
+                let exceededLatency = probeResult.latencyMS > self.zeroTokenProbeLatencyThresholdMS
+                let evictedState = probeResult.state == .evicted
+
+                if !probeResult.passed || exceededLatency || evictedState {
+                    let forensicCode: ForensicDiagnosticCode = evictedState ? .coreMLEviction : .coreMLPlanFailure
+                    let forensic = ForensicDiagnostic(
+                        code: forensicCode,
+                        domain: "CoreML",
+                        phenomenon: exceededLatency ? "Zero-token probe exceeded latency threshold" : "Zero-token probe indicates model eviction",
+                        recoveryAction: .reloadModel
+                    )
+                    let forensicEvent = ForensicValidator.bridgeToDiagnosticEvent(forensic)
+                    self.metricsLogger.recordDiagnostic(DiagnosticEvent(
+                        code: forensicEvent.code,
+                        message: forensicEvent.message,
+                        severity: forensicEvent.severity,
+                        metadata: forensicEvent.metadata.merging([
+                            "probeLatencyMS": String(format: "%.1f", probeResult.latencyMS),
+                            "latencyThresholdMS": String(format: "%.1f", self.zeroTokenProbeLatencyThresholdMS),
+                            "probeState": probeResult.state.rawValue
+                        ]) { _, new in new }
+                    ))
+                    self.thermalGovernor.recordDiagnosticCode(forensicEvent.code)
+
+                    let recovered = await self.attemptInlineRecovery(runner: runner, policy: BackoffPolicy.exponential)
                     self.metricsLogger.recordRecovery(success: recovered, newComputeUnits: recovered ? self.computeUnitsLabel(runner) : self.metricsLogger.activeComputeLabel)
                     if !recovered {
                         self.isGenerating = false
+                        self.notifyRecoverableWarning("Neural Engine recovery limit reached; switched to CPU-only mode for this session.")
                         self.notifyRecoveryNeeded()
                         onComplete(self.failedMetrics(since: Date()))
                         return
                     }
+                } else {
+                    self.hasValidatedCurrentSession = true
+                    self.lastRecoveryRetryCount = 0
+                    self.activeFallbackMode = "none"
+                    self.metricsLogger.currentMetrics.recoveryRetryCount = 0
+                    self.metricsLogger.currentMetrics.fallbackMode = "none"
                     self.thermalGovernor.clearEvictionFlag()
+                    self.thermalGovernor.resetRecoveryState()
                 }
             }
 
@@ -270,7 +308,7 @@ class InferenceEngine {
                 }
             } catch let error as CoreMLRunnerError where error.isEviction {
                 self.metricsLogger.recordModelEviction(reason: error.localizedDescription, computeUnits: self.metricsLogger.activeComputeLabel)
-                let recovered = await self.attemptInlineRecovery(runner: runner)
+                let recovered = await self.attemptInlineRecovery(runner: runner, policy: BackoffPolicy.exponential)
                 self.metricsLogger.recordRecovery(success: recovered, newComputeUnits: recovered ? self.computeUnitsLabel(runner) : self.metricsLogger.activeComputeLabel)
                 if recovered {
                     runner.resetState()
@@ -431,7 +469,7 @@ class InferenceEngine {
 
                 } catch let error as CoreMLRunnerError where error.isEviction {
                     self.metricsLogger.recordModelEviction(reason: error.localizedDescription, computeUnits: self.metricsLogger.activeComputeLabel)
-                    let recovered = await self.attemptInlineRecovery(runner: runner)
+                    let recovered = await self.attemptInlineRecovery(runner: runner, policy: BackoffPolicy.exponential)
                     self.metricsLogger.recordRecovery(success: recovered, newComputeUnits: recovered ? self.computeUnitsLabel(runner) : self.metricsLogger.activeComputeLabel)
                     if recovered {
                         runner.resetState()
@@ -475,7 +513,10 @@ class InferenceEngine {
                 totalTokens: generatedCount,
                 totalDuration: Date().timeIntervalSince(prefillStart),
                 acceptedSpeculativeTokens: specAccepted,
-                rejectedSpeculativeTokens: specRejected
+                rejectedSpeculativeTokens: specRejected,
+                zeroTokenProbeLatencyMS: self.lastProbeLatencyMS,
+                recoveryRetryCount: self.lastRecoveryRetryCount,
+                fallbackMode: self.activeFallbackMode
             )
 
             onComplete(metrics)
@@ -483,28 +524,63 @@ class InferenceEngine {
         }
     }
 
-    private func attemptInlineRecovery(runner: CoreMLModelRunner) async -> Bool {
+    private func attemptInlineRecovery(runner: CoreMLModelRunner, policy: BackoffPolicy) async -> Bool {
         guard !recoveryInProgress else { return false }
         recoveryInProgress = true
         defer { recoveryInProgress = false }
 
-        for attempt in 0..<maxRecoveryAttempts {
-            let backoff = 0.5 * pow(2.0, Double(attempt))
+        for attempt in 0..<policy.maxRetries {
+            let backoff = policy.delay(forAttempt: attempt)
             try? await Task.sleep(for: .seconds(backoff))
+            thermalGovernor.markRecoveryStarted()
 
             do {
                 try await runner.attemptRecovery()
+                hasValidatedCurrentSession = true
+                lastRecoveryRetryCount = attempt + 1
+                activeFallbackMode = "none"
+                metricsLogger.currentMetrics.recoveryRetryCount = lastRecoveryRetryCount
+                metricsLogger.currentMetrics.fallbackMode = activeFallbackMode
+                thermalGovernor.markRecoveryCompleted(success: true)
+                thermalGovernor.clearEvictionFlag()
+                thermalGovernor.resetRecoveryState()
                 return true
             } catch {
+                thermalGovernor.markRecoveryCompleted(success: false)
                 continue
             }
         }
 
-        return false
+        do {
+            try await runner.switchToCPUOnly()
+            hasValidatedCurrentSession = true
+            lastRecoveryRetryCount = policy.maxRetries
+            activeFallbackMode = "cpuOnly"
+            metricsLogger.currentMetrics.recoveryRetryCount = lastRecoveryRetryCount
+            metricsLogger.currentMetrics.fallbackMode = activeFallbackMode
+            metricsLogger.recordDiagnostic(DiagnosticEvent(
+                code: .cpuFallbackTriggered,
+                message: "Recovery exhausted. Using CPU-only fallback path.",
+                severity: .warning,
+                metadata: ["retryCount": "\(policy.maxRetries)", "fallbackMode": activeFallbackMode]
+            ))
+            notifyRecoverableWarning("Neural Engine retries exhausted. Running on CPU-only fallback; generation may be slower.")
+            thermalGovernor.recordDiagnosticCode(.cpuFallbackTriggered)
+            thermalGovernor.resetRecoveryState()
+            return true
+        } catch {
+            lastRecoveryRetryCount = policy.maxRetries
+            metricsLogger.currentMetrics.recoveryRetryCount = lastRecoveryRetryCount
+            return false
+        }
     }
 
     private func notifyRecoveryNeeded() {
         onRecoveryNeeded?()
+    }
+
+    private func notifyRecoverableWarning(_ message: String) {
+        onRecoverableWarning?(message)
     }
 
     private func failedMetrics(since start: Date) -> GenerationMetrics {
@@ -512,7 +588,10 @@ class InferenceEngine {
             timeToFirstToken: 0, prefillTokensPerSecond: 0,
             decodeTokensPerSecond: 0, totalTokens: 0,
             totalDuration: Date().timeIntervalSince(start),
-            acceptedSpeculativeTokens: 0, rejectedSpeculativeTokens: 0
+            acceptedSpeculativeTokens: 0, rejectedSpeculativeTokens: 0,
+            zeroTokenProbeLatencyMS: lastProbeLatencyMS,
+            recoveryRetryCount: lastRecoveryRetryCount,
+            fallbackMode: activeFallbackMode
         )
     }
 
@@ -533,7 +612,7 @@ class InferenceEngine {
                         message: "Health check: \(status.diagnosticSummary)",
                         severity: .warning
                     ))
-                    let _ = await self.attemptInlineRecovery(runner: runner)
+                    let _ = await self.attemptInlineRecovery(runner: runner, policy: BackoffPolicy.exponential)
                 }
             }
         }
