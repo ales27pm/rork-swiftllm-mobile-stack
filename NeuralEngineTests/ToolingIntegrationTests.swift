@@ -115,6 +115,35 @@ struct ToolingIntegrationTests {
         #expect(prompt.contains("46.006164"))
         #expect(prompt.contains("-73.1645294"))
     }
+
+    @Test func assembleSystemPrompt_includesLocationSafetyRequirements() {
+        let prompt = ContextAssembler.assembleSystemPrompt(
+            frame: Self.stubFrame(),
+            memoryResults: [],
+            conversationHistory: [Message(role: .user, content: "Where am I right now?")],
+            toolsEnabled: true,
+            isVoiceMode: false
+        )
+
+        #expect(prompt.contains("Location response safety:"))
+        #expect(prompt.contains("call get_location before answering"))
+        #expect(prompt.contains("Never invent coordinates, timestamps, addresses"))
+        #expect(prompt.contains("latitude, longitude, collectedAt, source"))
+    }
+
+    @Test func assembleSystemPrompt_includesUtilityConcisenessGuidance() {
+        let prompt = ContextAssembler.assembleSystemPrompt(
+            frame: Self.stubFrame(),
+            memoryResults: [],
+            conversationHistory: [Message(role: .user, content: "What's my battery level?")],
+            toolsEnabled: true,
+            isVoiceMode: false
+        )
+
+        #expect(prompt.contains("Utility response style guide:"))
+        #expect(prompt.contains("keep responses concise (1-3 short sentences)"))
+        #expect(prompt.contains("Avoid speculative internal narratives"))
+    }
 }
 
 private extension ToolingIntegrationTests {

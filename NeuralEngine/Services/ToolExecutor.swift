@@ -119,8 +119,14 @@ class ToolExecutor: NSObject {
             address = parts.joined(separator: ", ")
         }
 
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let collectedAt = formatter.string(from: location.timestamp)
+        let permissionStatus = locationManager.authorizationStatus
+        let source = "CoreLocation.requestLocation"
+
         let data = """
-        {"latitude": \(location.coordinate.latitude), "longitude": \(location.coordinate.longitude), "altitude": \(location.altitude), "accuracy": \(location.horizontalAccuracy), "address": "\(address)"}
+        {"latitude": \(location.coordinate.latitude), "longitude": \(location.coordinate.longitude), "altitude": \(location.altitude), "accuracy": \(location.horizontalAccuracy), "address": "\(address)", "collectedAt": "\(collectedAt)", "source": "\(source)", "permissionStatus": "\(permissionStatus)"}
         """
         return ToolResult(toolName: "get_location", success: true, data: data, displayIcon: "location.fill")
     }

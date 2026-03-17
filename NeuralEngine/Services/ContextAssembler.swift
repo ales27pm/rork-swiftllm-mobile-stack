@@ -15,6 +15,8 @@ struct ContextAssembler {
 
         sections.append(buildCoreIdentity())
         sections.append(buildToolStrategy())
+        sections.append(buildLocationResponseSafety())
+        sections.append(buildUtilityResponseStyleGuide())
 
         let memorySection = buildMemorySection(memoryResults: memoryResults)
         if !memorySection.isEmpty { sections.append(memorySection) }
@@ -99,6 +101,26 @@ struct ContextAssembler {
         - 40-80%: Provide answer with calibrated hedging ("I believe", "likely", "if I recall correctly")
         - <40%: Flag uncertainty explicitly ("I'm not confident about this, but...")
         - 0%: "I don't have reliable information about this"
+        """
+    }
+
+    private static func buildLocationResponseSafety() -> String {
+        return """
+        Location response safety:
+        - For live location questions (e.g., "Where am I right now?"), call get_location before answering.
+        - Only provide concrete location facts when a fresh tool result exists in this session.
+        - Treat these fields as required provenance before asserting location: latitude, longitude, collectedAt, source.
+        - Never invent coordinates, timestamps, addresses, or "last known" metadata.
+        - If location is unavailable (permission denied, lookup failure, or missing provenance), state that clearly and give one next step.
+        """
+    }
+
+    private static func buildUtilityResponseStyleGuide() -> String {
+        return """
+        Utility response style guide:
+        - For direct utility questions (location, time, battery, status checks), keep responses concise (1-3 short sentences).
+        - Include: current status, source/confidence, and one clear next action when needed.
+        - Avoid speculative internal narratives unless the user explicitly asks for diagnostic detail.
         """
     }
 
