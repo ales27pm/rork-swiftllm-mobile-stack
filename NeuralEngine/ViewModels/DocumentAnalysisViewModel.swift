@@ -23,8 +23,8 @@ class DocumentAnalysisViewModel {
     private var analysisTask: Task<Void, Never>?
     private var activeTaskID: UUID?
 
-    init(service: DocumentAnalysisServicing = DocumentAnalysisService()) {
-        self.service = service
+init(service: DocumentAnalysisServicing? = nil) {
+        self.service = service ?? DocumentAnalysisService()
     }
 
     func analyzeImage(_ image: UIImage) {
