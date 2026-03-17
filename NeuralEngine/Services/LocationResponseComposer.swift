@@ -75,7 +75,7 @@ struct LocationResponseComposer {
         if let address = signal.address, !address.isEmpty {
             response += " Nearby address: \(address)."
         }
-        response += "\n\nProvenance: source=\(signal.provenance.source), timestamp=\(ts), confidence=\(String(format: \"%.2f\", signal.provenance.confidence))."
+        response += "\n\nProvenance: source=\(signal.provenance.source), timestamp=\(ts), confidence=\(String(format: "%.2f", signal.provenance.confidence))."
         return response
     }
 
