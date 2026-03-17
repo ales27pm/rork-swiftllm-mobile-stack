@@ -1,7 +1,13 @@
 import Foundation
 import CryptoKit
 
-nonisolated final class FileSystemService: Sendable {
+// Rork: Mark this nonisolated class as `@unchecked Sendable` because it holds a
+// non-Sendable FileManager instance. Swift 6 treats non-Sendable stored
+// properties in Sendable types as an error. Using `@unchecked Sendable`
+// indicates we've manually audited thread-safety and are opting out of the
+// compiler's Sendable checking for this type.
+
+nonisolated final class FileSystemService: @unchecked Sendable {
     private let fm = FileManager.default
 
     var documentsDirectory: URL {
