@@ -108,12 +108,12 @@ struct LocationResponseComposer {
 }
 
 private extension LocationResponseComposer {
-  enum FallbackReason: String, Error {
+    enum FallbackReason: String, Error {
         case missingPermission
         case staleData
         case missingCoordinates
         case noSignal
-}
+    }
 
     struct LocationPayload: Codable {
         let latitude: Double?
@@ -124,7 +124,5 @@ private extension LocationResponseComposer {
         
         let source: String?
         let confidence: Double?
-  }
-        }
-
+    }
 }
