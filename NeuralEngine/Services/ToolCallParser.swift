@@ -3,7 +3,7 @@ import Foundation
 struct ToolCallParser {
     static let toolCallPattern = #"<tool_call>\s*(\{.*?\})\s*</tool_call>"#
     static let functionCallPattern = #"\[TOOL_CALL\]\s*(\{.*?\})\s*\[/TOOL_CALL\]"#
-    static let batchedToolCallsPattern = #"<tool_calls>\s*(\[.*?\])\s*</tool_calls>"#
+    static let batchedToolCallsPattern = #"<tool_calls>\s*(.*?)\s*</tool_calls>"#
     static let jsonCallPattern = #"\{"name"\s*:\s*"([^"]+)"\s*,\s*"parameters"\s*:\s*(\{.*?\})\}"#
 
     static func parse(from text: String) -> [ToolCall] {
@@ -34,7 +34,7 @@ struct ToolCallParser {
         let patterns = [
             #"<tool_call>\s*\{.*?\}\s*</tool_call>"#,
             #"\[TOOL_CALL\]\s*\{.*?\}\s*\[/TOOL_CALL\]"#,
-            #"<tool_calls>\s*\[.*?\]\s*</tool_calls>"#
+            #"<tool_calls>\s*.*?\s*</tool_calls>"#
         ]
         for pattern in patterns {
             guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { continue }
@@ -85,11 +85,8 @@ struct ToolCallParser {
         let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
         for match in matches {
             guard let jsonRange = Range(match.range(at: 1), in: text) else { continue }
-            let jsonStr = String(text[jsonRange])
-            guard let data = jsonStr.data(using: .utf8),
-                  let payload = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-                continue
-            }
+            let rawPayload = String(text[jsonRange])
+            guard let payload = parseBatchedPayload(rawPayload) else { continue }
 
             for entry in payload {
                 guard let name = entry["name"] as? String,
@@ -99,6 +96,31 @@ struct ToolCallParser {
             }
         }
         return calls
+    }
+
+
+    private static func parseBatchedPayload(_ rawPayload: String) -> [[String: Any]]? {
+        if let direct = parseJSONArray(rawPayload) {
+            return direct
+        }
+
+        // Be tolerant if the payload contains extra text around the JSON array.
+        guard let start = rawPayload.firstIndex(of: "["),
+              let end = rawPayload.lastIndex(of: "]"),
+              start <= end else {
+            return nil
+        }
+
+        let candidate = String(rawPayload[start...end])
+        return parseJSONArray(candidate)
+    }
+
+    private static func parseJSONArray(_ text: String) -> [[String: Any]]? {
+        guard let data = text.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return nil
+        }
+        return payload
     }
 
     private static func deduplicated(_ calls: [ToolCall]) -> [ToolCall] {
@@ -116,12 +138,18 @@ struct ToolCallParser {
     }
 
     private static func serializedParams(_ params: [String: Any]) -> String {
-        guard JSONSerialization.isValidJSONObject(params),
-              let data = try? JSONSerialization.data(withJSONObject: params, options: [.sortedKeys]),
-              let json = String(data: data, encoding: .utf8) else {
-            return "{}"
+        if JSONSerialization.isValidJSONObject(params),
+           let data = try? JSONSerialization.data(withJSONObject: params, options: [.sortedKeys]),
+           let json = String(data: data, encoding: .utf8) {
+            return json
         }
-        return json
+
+        // Fallback keeps malformed/non-JSON values distinct for deduping.
+        let pairs = params.keys.sorted().map { key in
+            let valueDescription = String(describing: params[key] ?? NSNull())
+            return "\(key)=\(valueDescription)"
+        }
+        return pairs.joined(separator: "|")
     }
 
     private static func parseParams(_ str: String) -> [String: Any] {

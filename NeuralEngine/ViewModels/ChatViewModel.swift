@@ -309,12 +309,37 @@ class ChatViewModel {
     private static func renderToolExecutionSummary(calls: [ToolCall], results: [ToolResult]) -> String {
         var lines: [String] = ["[Tool Execution Summary]"]
 
-        for (index, call) in calls.enumerated() {
-            let result = index < results.count ? results[index] : nil
-            let status = (result?.success ?? false) ? "success" : "failure"
+        var resultsByToolName: [String: [ToolResult]] = [:]
+        for result in results {
+            resultsByToolName[result.toolName, default: []].append(result)
+        }
+
+        var unmatchedResults: [ToolResult] = []
+
+        for call in calls {
+            var callResult: ToolResult?
+            if var bucket = resultsByToolName[call.name], !bucket.isEmpty {
+                callResult = bucket.removeFirst()
+                resultsByToolName[call.name] = bucket
+            }
+
+            let status = (callResult?.success ?? false) ? "success" : "failure"
             lines.append("- \(call.name) (\(status))")
-            if let result {
-                lines.append("  \(result.data)")
+            if let callResult {
+                lines.append("  \(callResult.data)")
+            } else {
+                lines.append("  No matching tool result returned.")
+            }
+        }
+
+        for bucket in resultsByToolName.values where !bucket.isEmpty {
+            unmatchedResults.append(contentsOf: bucket)
+        }
+
+        if !unmatchedResults.isEmpty {
+            lines.append("[Unmatched Tool Results]")
+            for result in unmatchedResults {
+                lines.append("- \(result.toolName): \(result.data)")
             }
         }
 

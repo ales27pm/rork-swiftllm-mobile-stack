@@ -49,6 +49,16 @@ struct ToolingIntegrationTests {
         #expect((calls[1].parameters["query"] as? String) == "coffee")
     }
 
+    @Test func parser_acceptsBatchedToolCalls_withNestedArrayParameters() {
+        let payload = #"<tool_calls>[{"name":"open_maps","parameters":{"query":"cafes","weights":[1,2,3]}},{"name":"get_current_time","parameters":{}}]</tool_calls>"#
+        let calls = ToolCallParser.parse(from: payload)
+
+        #expect(calls.count == 2)
+        #expect(calls[0].name == DeviceToolName.openMaps.rawValue)
+        #expect((calls[0].parameters["weights"] as? [Int]) == [1, 2, 3])
+        #expect(calls[1].name == DeviceToolName.getCurrentTime.rawValue)
+    }
+
     @Test func parser_deduplicatesRepeatedToolCalls() {
         let payload = #"<tool_call>{"name":"get_current_time","parameters":{}}</tool_call>
 <tool_call>{"name":"get_current_time","parameters":{}}</tool_call>"#
@@ -56,6 +66,13 @@ struct ToolingIntegrationTests {
 
         #expect(calls.count == 1)
         #expect(calls[0].name == DeviceToolName.getCurrentTime.rawValue)
+    }
+
+    @Test func stripToolCalls_removesBatchedTagPayload_withNestedArrayParameters() {
+        let text = #"Before <tool_calls>[{"name":"open_maps","parameters":{"weights":[1,2,3],"query":"test"}}]</tool_calls> After"#
+        let stripped = ToolCallParser.stripToolCalls(from: text)
+
+        #expect(stripped == "Before  After")
     }
 
     @Test func stripToolCalls_removesBatchedTagPayload() {
