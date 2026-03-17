@@ -11,8 +11,13 @@ actor KVPageTable {
 
     struct PageMapping: Sendable {
         let pageID: UUID
+        let tokenStart: Int
         let tokenEnd: Int
         let origin: KVPageOrigin
+
+        var tokenCount: Int {
+            max(0, tokenEnd - tokenStart)
+        }
     }
 
     struct SequenceEntry: Sendable {
@@ -52,10 +57,21 @@ actor KVPageTable {
         return id
     }
 
-    func appendPage(_ pageID: UUID, to sequenceID: UUID, tokenEnd: Int, origin: KVPageOrigin = .materialized) {
+    func appendPage(
+        _ pageID: UUID,
+        to sequenceID: UUID,
+        tokenStart: Int,
+        tokenEnd: Int,
+        origin: KVPageOrigin = .materialized
+    ) {
         guard var entry = sequences[sequenceID] else { return }
-        entry.pageMappings.append(PageMapping(pageID: pageID, tokenEnd: tokenEnd, origin: origin))
-        entry.tokenRange = entry.tokenRange.lowerBound..<tokenEnd
+        entry.pageMappings.append(PageMapping(pageID: pageID, tokenStart: tokenStart, tokenEnd: tokenEnd, origin: origin))
+
+        if let first = entry.pageMappings.first {
+            entry.tokenRange = first.tokenStart..<tokenEnd
+        } else {
+            entry.tokenRange = tokenStart..<tokenEnd
+        }
         entry.lastAccessed = Date()
         sequences[sequenceID] = entry
     }
@@ -95,6 +111,39 @@ actor KVPageTable {
         entry.pageMappings = Array(entry.pageMappings.prefix(keepPages))
         entry.lastAccessed = Date()
         sequences[sequenceID] = entry
+        return removed
+    }
+
+    func truncateMiddlePages(
+        _ sequenceID: UUID,
+        prefixPages: Int,
+        tailPages: Int
+    ) -> [PageMapping] {
+        guard var entry = sequences[sequenceID] else { return [] }
+
+        let totalPages = entry.pageMappings.count
+        let safePrefix = max(0, prefixPages)
+        let safeTail = max(0, tailPages)
+        guard totalPages > safePrefix + safeTail else { return [] }
+
+        let removeStart = min(safePrefix, totalPages)
+        let keepTailStart = max(removeStart, totalPages - safeTail)
+        guard removeStart < keepTailStart else { return [] }
+
+        let removed = Array(entry.pageMappings[removeStart..<keepTailStart])
+        let keptPrefix = entry.pageMappings.prefix(removeStart)
+        let keptTail = entry.pageMappings.suffix(totalPages - keepTailStart)
+        entry.pageMappings = Array(keptPrefix + keptTail)
+
+        if let first = entry.pageMappings.first, let last = entry.pageMappings.last {
+            entry.tokenRange = first.tokenStart..<last.tokenEnd
+        } else {
+            entry.tokenRange = 0..<0
+        }
+
+        entry.lastAccessed = Date()
+        sequences[sequenceID] = entry
+
         return removed
     }
 

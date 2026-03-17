@@ -64,4 +64,58 @@ struct NeuralEngineTests {
             #expect(await manager.debugReferenceCount(pageID: page.id) == 1)
         }
     }
+
+
+    @Test func slidingWindowEvict_noEvictionWhenTotalPagesWithinKeepBudget() async throws {
+        let manager = KVCacheManager(pageSize: 4, layerCount: 2, memoryBudgetMB: 8, slidingWindowSize: 8, evictionThreshold: 7)
+        let sequenceID = await manager.beginSequence()
+        let allocated = await manager.allocatePages(sequenceID: sequenceID, tokens: Array(1...12), startPosition: 0)
+
+        let result = await manager.slidingWindowEvict(sequenceID: sequenceID, systemTokenCount: 4, currentLength: 12)
+
+        #expect(result.evictedTokens == 0)
+        #expect(result.pagesFreed == 0)
+        #expect(result.newLength == 12)
+
+        let remainingMappings = await manager.debugPageMappings(sequenceID: sequenceID)
+        #expect(remainingMappings.count == 3)
+        #expect(remainingMappings.map(\.pageID) == allocated.map(\.id))
+    }
+
+    @Test func slidingWindowEvict_exactThresholdCrossingEvictsUsingExactTokenSpans() async throws {
+        let manager = KVCacheManager(pageSize: 4, layerCount: 2, memoryBudgetMB: 8, slidingWindowSize: 0, evictionThreshold: 11)
+        let sequenceID = await manager.beginSequence()
+        _ = await manager.allocatePages(sequenceID: sequenceID, tokens: Array(1...13), startPosition: 0)
+
+        let atThreshold = await manager.slidingWindowEvict(sequenceID: sequenceID, systemTokenCount: 0, currentLength: 11)
+        #expect(atThreshold.evictedTokens == 0)
+        #expect(atThreshold.pagesFreed == 0)
+
+        let afterCrossing = await manager.slidingWindowEvict(sequenceID: sequenceID, systemTokenCount: 0, currentLength: 13)
+        #expect(afterCrossing.pagesFreed == 3)
+        #expect(afterCrossing.evictedTokens == 9)
+        #expect(afterCrossing.newLength == 4)
+
+        let remainingMappings = await manager.debugPageMappings(sequenceID: sequenceID)
+        #expect(remainingMappings.count == 1)
+        #expect(remainingMappings[0].tokenStart == 0)
+        #expect(remainingMappings[0].tokenEnd == 4)
+    }
+
+    @Test func slidingWindowEvict_largePrefixWithSmallTailRemovesMiddleOnly() async throws {
+        let manager = KVCacheManager(pageSize: 4, layerCount: 2, memoryBudgetMB: 8, slidingWindowSize: 4, evictionThreshold: 20)
+        let sequenceID = await manager.beginSequence()
+        let allocated = await manager.allocatePages(sequenceID: sequenceID, tokens: Array(1...24), startPosition: 0)
+
+        let result = await manager.slidingWindowEvict(sequenceID: sequenceID, systemTokenCount: 12, currentLength: 24)
+
+        #expect(result.pagesFreed == 2)
+        #expect(result.evictedTokens == 8)
+        #expect(result.newLength == 16)
+
+        let remainingMappings = await manager.debugPageMappings(sequenceID: sequenceID)
+        #expect(remainingMappings.count == 4)
+        #expect(remainingMappings.map(\.pageID) == [allocated[0].id, allocated[1].id, allocated[2].id, allocated[5].id])
+    }
+
 }
