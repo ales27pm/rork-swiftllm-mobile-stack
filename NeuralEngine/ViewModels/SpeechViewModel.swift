@@ -23,6 +23,13 @@ nonisolated struct VoiceTranscriptEntry: Identifiable, Sendable {
     }
 }
 
+nonisolated struct SpeechLanguageOption: Identifiable, Hashable, Sendable {
+    let code: String
+    let label: String
+
+    var id: String { code }
+}
+
 @Observable
 class SpeechViewModel {
     var state: SpeechModeState = .idle
@@ -369,6 +376,49 @@ class SpeechViewModel {
 
     func updateAudioLevel() {
         audioLevel = recognitionService.audioLevel
+    }
+
+
+    var selectedSpeechLanguageCode: String? {
+        synthesisService.currentPreferredLanguageCode()
+    }
+
+    var selectedSpeechVoiceIdentifier: String? {
+        synthesisService.currentVoiceIdentifier()
+    }
+
+    func speechLanguageOptions() -> [SpeechLanguageOption] {
+        let languages = Set(synthesisService.availableVoices().map(\.language))
+        return languages.sorted().map { code in
+            let localeName = Locale.current.localizedString(forIdentifier: code) ?? code
+            return SpeechLanguageOption(code: code, label: localeName)
+        }
+    }
+
+    func speechVoices(for languageCode: String?) -> [SpeechSynthesisService.VoiceOption] {
+        let voices = synthesisService.availableVoices()
+        let filteredVoices: [SpeechSynthesisService.VoiceOption]
+
+        if let languageCode {
+            filteredVoices = voices.filter { $0.language == languageCode }
+        } else {
+            filteredVoices = voices
+        }
+
+        return filteredVoices.sorted { lhs, rhs in
+            if lhs.quality == rhs.quality {
+                return lhs.displayName < rhs.displayName
+            }
+            return lhs.quality.rawValue > rhs.quality.rawValue
+        }
+    }
+
+    func updateSpeechLanguage(code: String?) {
+        synthesisService.setLanguagePreferred(code)
+    }
+
+    func updateSpeechVoice(identifier: String?) {
+        synthesisService.setVoice(identifier: identifier)
     }
 
     func clearTranscript() {

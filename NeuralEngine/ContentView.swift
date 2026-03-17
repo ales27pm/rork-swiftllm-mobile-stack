@@ -56,7 +56,7 @@ struct ContentView: View {
             Tab("Settings", systemImage: "gearshape", value: .settings) {
                 NavigationStack {
                     if let chatVM = chatViewModel {
-                        SettingsView(chatViewModel: chatVM, thermalGovernor: thermalGovernor)
+                        SettingsView(chatViewModel: chatVM, speechViewModel: speechViewModel, thermalGovernor: thermalGovernor)
                     } else {
                         ProgressView()
                     }
