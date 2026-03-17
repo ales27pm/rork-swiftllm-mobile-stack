@@ -90,7 +90,10 @@ nonisolated enum DeviceToolName: String, CaseIterable, Sendable {
     }
 }
 
-nonisolated struct ToolCall: Sendable {
+// Use @unchecked Sendable to silence Swift 6 warnings about the non-Sendable Any type.
+// The ToolCall struct acts purely as a data container and is never mutated across actor boundaries,
+// so it is safe to treat as Sendable.
+nonisolated struct ToolCall: @unchecked Sendable {
     let name: String
     let parameters: [String: Any]
 
