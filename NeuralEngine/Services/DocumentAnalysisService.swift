@@ -166,6 +166,8 @@ class DocumentAnalysisService {
     }
 }
 
+extension DocumentAnalysisService: DocumentAnalysisServicing {}
+
 nonisolated struct DocumentAnalysisResult: Sendable {
     let fullText: String
     let blocks: [TextBlock]
