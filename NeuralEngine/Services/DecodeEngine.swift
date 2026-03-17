@@ -105,52 +105,68 @@ nonisolated final class DecodeEngine: @unchecked Sendable {
     }
 
     func verifySpeculativeTokens(
-        draftTokens: [Int],
-        runner: CoreMLModelRunner,
+        draftSequence: DraftEngine.DraftSequence,
+        runner: LogitsPredicting,
         sampler: Sampler,
         recentTokens: [Int]
     ) throws -> SpeculativeVerification {
         let startTime = Date()
-        let logits = try runner.predictLogits(inputIDs: draftTokens)
+        let draftTokens = draftSequence.tokens
 
-        var accepted: [Int] = []
-        var rejected: [Int] = []
-        var correctionToken: Int?
-
-        let vocabSize = logits.count
-        guard vocabSize > 0 else {
+        guard !draftTokens.isEmpty else {
             return SpeculativeVerification(
-                accepted: [], rejected: draftTokens, correctionToken: nil,
+                accepted: [],
+                rejected: [],
+                correctionToken: nil,
+                correctionSampled: false,
                 verificationLatencyMS: Date().timeIntervalSince(startTime) * 1000
             )
         }
 
-        let verifiedToken = sampler.sample(logits: logits, recentTokens: recentTokens)
+        let targetLogitsSpan = try runner.predictLogitsSpan(inputIDs: draftTokens)
+        let spanCount = min(draftTokens.count, targetLogitsSpan.count)
 
-        if let lastDraft = draftTokens.last, lastDraft == verifiedToken {
-            accepted = draftTokens
-        } else {
-            for (i, draft) in draftTokens.enumerated() {
-                let singleLogits = try runner.predictLogits(inputIDs: [draft])
-                let verified = sampler.sample(logits: singleLogits, recentTokens: recentTokens + accepted)
+        var accepted: [Int] = []
+        var rejected: [Int] = []
+        var correctionToken: Int?
+        var rejectionIndex: Int?
+        var contextWindow = recentTokens
 
-                if verified == draft || (i < draftTokens.count - 1 && draftTokens[i + 1] == verified) {
-                    accepted.append(draft)
-                } else {
-                    rejected = Array(draftTokens[i...])
-                    correctionToken = verified
-                    break
-                }
+        for i in 0..<spanCount {
+            let token = draftTokens[i]
+            let targetDist = sampler.probabilityDistribution(logits: targetLogitsSpan[i], recentTokens: Array(contextWindow.suffix(64)))
+            let targetProb = token < targetDist.count ? targetDist[token] : 0
+            let draftProb = i < draftSequence.draftTokenProbabilities.count ? draftSequence.draftTokenProbabilities[i] : 0
+            let acceptance = draftProb > 0 ? min(1.0, targetProb / draftProb) : (targetProb > 0 ? 1.0 : 0)
+
+            if sampler.uniformSample() <= acceptance {
+                accepted.append(token)
+                contextWindow.append(token)
+                continue
             }
+
+            rejectionIndex = i
+            rejected = Array(draftTokens[i...])
+
+            if i < draftSequence.logitSnapshots.count {
+                let draftDist = sampler.probabilityDistribution(logits: draftSequence.logitSnapshots[i], recentTokens: Array(contextWindow.suffix(64)))
+                correctionToken = sampler.sampleResidual(target: targetDist, draft: draftDist)
+            } else {
+                correctionToken = sampler.sample(logits: targetLogitsSpan[i], recentTokens: Array(contextWindow.suffix(64)))
+            }
+            break
         }
 
-        let latency = Date().timeIntervalSince(startTime) * 1000
+        if rejectionIndex == nil && draftTokens.count > spanCount {
+            rejected = Array(draftTokens[spanCount...])
+        }
 
         return SpeculativeVerification(
             accepted: accepted,
             rejected: rejected,
             correctionToken: correctionToken,
-            verificationLatencyMS: latency
+            correctionSampled: correctionToken != nil,
+            verificationLatencyMS: Date().timeIntervalSince(startTime) * 1000
         )
     }
 
@@ -177,6 +193,7 @@ nonisolated struct SpeculativeVerification: Sendable {
     let accepted: [Int]
     let rejected: [Int]
     let correctionToken: Int?
+    let correctionSampled: Bool
     let verificationLatencyMS: Double
 
     var acceptanceRate: Double {

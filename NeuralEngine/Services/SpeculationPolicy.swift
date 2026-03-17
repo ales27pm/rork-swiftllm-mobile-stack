@@ -13,6 +13,7 @@ struct SpeculationPolicy: Sendable {
     var totalAcceptedTokens: Int = 0
     var totalRejectedTokens: Int = 0
     var totalVerifications: Int = 0
+    var totalCorrections: Int = 0
 
     mutating func update(acceptanceRate: Double) {
         acceptanceHistory.append(acceptanceRate)
@@ -48,12 +49,14 @@ struct SpeculationPolicy: Sendable {
         draftCount: Int,
         acceptedCount: Int,
         rejectedCount: Int,
+        correctionCount: Int,
         draftLatencyMS: Double,
         verifyLatencyMS: Double
     ) {
         totalDraftTokens += draftCount
         totalAcceptedTokens += acceptedCount
         totalRejectedTokens += rejectedCount
+        totalCorrections += correctionCount
         totalVerifications += 1
 
         latencyHistory.append(draftLatencyMS)
@@ -121,5 +124,6 @@ struct SpeculationPolicy: Sendable {
         totalAcceptedTokens = 0
         totalRejectedTokens = 0
         totalVerifications = 0
+        totalCorrections = 0
     }
 }

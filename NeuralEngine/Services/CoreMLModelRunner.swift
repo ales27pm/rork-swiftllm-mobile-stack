@@ -11,7 +11,12 @@ nonisolated enum RunnerState: String, Sendable {
     case evicted
 }
 
-nonisolated final class CoreMLModelRunner: @unchecked Sendable {
+nonisolated protocol LogitsPredicting: Sendable {
+    func predictLogits(inputIDs: [Int]) throws -> [Float]
+    func predictLogitsSpan(inputIDs: [Int]) throws -> [[Float]]
+}
+
+nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable {
     private var model: MLModel?
     private var modelURL: URL?
     private var activeComputeUnits: MLComputeUnits = .all
@@ -263,6 +268,75 @@ nonisolated final class CoreMLModelRunner: @unchecked Sendable {
 
             throw error
         }
+    }
+
+
+    func predictLogitsSpan(inputIDs: [Int]) throws -> [[Float]] {
+        lock.lock()
+        guard let model else {
+            lock.unlock()
+            throw CoreMLRunnerError.modelNotLoaded
+        }
+        guard state == .ready || state == .recovering else {
+            let currentState = state
+            lock.unlock()
+            throw CoreMLRunnerError.invalidState(currentState)
+        }
+        let currentState = mlState
+        let currentUsesState = usesState
+        let inName = inputName
+        let outName = outputName
+        lock.unlock()
+
+        let seqLen = inputIDs.count
+        guard seqLen > 0 else { throw CoreMLRunnerError.emptyInput }
+
+        let inputArray = try MLMultiArray(shape: [1, NSNumber(value: seqLen)], dataType: .int32)
+        let ptr = inputArray.dataPointer.bindMemory(to: Int32.self, capacity: seqLen)
+        for i in 0..<seqLen {
+            ptr[i] = Int32(inputIDs[i])
+        }
+
+        let featureDict: [String: Any] = [inName: MLFeatureValue(multiArray: inputArray)]
+        let input = try MLDictionaryFeatureProvider(dictionary: featureDict)
+
+        let output: MLFeatureProvider
+        if currentUsesState, let st = currentState {
+            output = try model.prediction(from: input, using: st)
+        } else {
+            output = try model.prediction(from: input)
+        }
+
+        guard let logitsArray = output.featureValue(for: outName)?.multiArrayValue else {
+            let availableKeys = output.featureNames.joined(separator: ", ")
+            throw CoreMLRunnerError.invalidOutput(availableKeys: availableKeys)
+        }
+
+        let shape = logitsArray.shape.map { $0.intValue }
+        let floatPtr = logitsArray.dataPointer.bindMemory(to: Float.self, capacity: logitsArray.count)
+
+        if shape.count == 3 {
+            let outputSeqLen = shape[1]
+            let vocabSize = shape[2]
+            guard vocabSize > 0, outputSeqLen > 0 else {
+                throw CoreMLRunnerError.invalidOutput(availableKeys: "invalid 3D logits shape")
+            }
+
+            var result = [[Float]]()
+            result.reserveCapacity(min(seqLen, outputSeqLen))
+            for position in 0..<min(seqLen, outputSeqLen) {
+                let offset = position * vocabSize
+                var row = [Float](repeating: 0, count: vocabSize)
+                for i in 0..<vocabSize {
+                    row[i] = floatPtr[offset + i]
+                }
+                result.append(row)
+            }
+            return result
+        }
+
+        let single = try predictLogits(inputIDs: inputIDs)
+        return Array(repeating: single, count: seqLen)
     }
 
     func attemptRecovery() async throws {

@@ -719,7 +719,7 @@ class InferenceEngine {
             guard !draftSequence.tokens.isEmpty else { return nil }
 
             let verification = try decodeEngine.verifySpeculativeTokens(
-                draftTokens: draftSequence.tokens,
+                draftSequence: draftSequence,
                 runner: runner,
                 sampler: sampler,
                 recentTokens: Array(sessionCache.allTokens.suffix(64))
@@ -729,6 +729,7 @@ class InferenceEngine {
                 draftCount: draftSequence.tokens.count,
                 acceptedCount: verification.accepted.count,
                 rejectedCount: verification.rejected.count,
+                correctionCount: verification.correctionSampled ? 1 : 0,
                 draftLatencyMS: draftSequence.draftLatencyMS,
                 verifyLatencyMS: verification.verificationLatencyMS
             )
