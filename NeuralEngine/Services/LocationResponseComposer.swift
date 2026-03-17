@@ -113,7 +113,7 @@ private extension LocationResponseComposer {
         case staleData
         case missingCoordinates
         case noSignal
-r
+}
 
     struct LocationPayload: Codable {
         let latitude: Double?
@@ -124,4 +124,6 @@ r
         let source: String?
         let confidence: Double?
     }
+        }
+
 }
