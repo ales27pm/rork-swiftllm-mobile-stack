@@ -61,17 +61,14 @@ struct CameraCaptureView: UIViewControllerRepresentable {
             self.onCapture = onCapture
         }
 
-        nonisolated func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
             picker.dismiss(animated: true)
-            let onCapture = self.onCapture
             if let image = info[.originalImage] as? UIImage {
-                Task { @MainActor in
-                    onCapture(image)
-                }
+                onCapture(image)
             }
         }
 
-        nonisolated func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             picker.dismiss(animated: true)
         }
     }

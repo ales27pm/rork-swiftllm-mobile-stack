@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFAudio
 
 nonisolated enum SpeechModeState: Sendable {
     case idle
