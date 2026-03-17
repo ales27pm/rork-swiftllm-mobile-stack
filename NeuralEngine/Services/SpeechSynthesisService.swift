@@ -1,8 +1,23 @@
 import Foundation
 import AVFoundation
+import os.log
 
 @Observable
 class SpeechSynthesisService: NSObject {
+    struct VoiceOption: Identifiable, Hashable {
+        let identifier: String
+        let language: String
+        let quality: AVSpeechSynthesisVoiceQuality
+        let displayName: String
+
+        var id: String { identifier }
+    }
+
+    private enum StorageKey {
+        static let selectedVoiceIdentifier = "SpeechSynthesisService.selectedVoiceIdentifier"
+        static let preferredLanguageCode = "SpeechSynthesisService.preferredLanguageCode"
+    }
+
     var isSpeaking: Bool = false
     var progress: Double = 0
     var currentWord: String = ""
@@ -10,43 +25,169 @@ class SpeechSynthesisService: NSObject {
     var spokenText: String = ""
 
     private let synthesizer = AVSpeechSynthesizer()
+    private let userDefaults: UserDefaults
     private var totalLength: Int = 0
     private var completion: (() -> Void)?
     private var sentences: [String] = []
     private var currentSentence: Int = 0
     private var accumulatedLength: Int = 0
+    private var cachedVoices: [AVSpeechSynthesisVoice] = []
 
     private var selectedVoice: AVSpeechSynthesisVoice?
+    private var selectedVoiceIdentifier: String?
+    private var preferredLanguageCode: String?
+    private var autoSelectedVoiceIdentifier: String?
     private var bargeInDetection: (() -> Bool)?
+    private let logger: Logger
 
     override init() {
+        userDefaults = .standard
+        let subsystem = Bundle.main.bundleIdentifier ?? "SpeechSynthesisService"
+        logger = Logger(subsystem: subsystem, category: "SpeechSynthesisService")
+        selectedVoiceIdentifier = userDefaults.string(forKey: StorageKey.selectedVoiceIdentifier)
+        preferredLanguageCode = userDefaults.string(forKey: StorageKey.preferredLanguageCode)
         super.init()
         synthesizer.delegate = self
-        prepareVoice()
+        prepareVoice(availableVoices: loadAvailableVoices())
     }
 
-    private func prepareVoice() {
-        let preferredVoices = [
-            "com.apple.voice.premium.en-US.Ava",
-            "com.apple.voice.premium.en-US.Zoe",
-            "com.apple.voice.premium.en-US.Tom",
-            "com.apple.voice.enhanced.en-US.Ava",
-            "com.apple.voice.enhanced.en-US.Samantha",
-        ]
+    init(userDefaults: UserDefaults) {
+        self.userDefaults = userDefaults
+        let subsystem = Bundle.main.bundleIdentifier ?? "SpeechSynthesisService"
+        logger = Logger(subsystem: subsystem, category: "SpeechSynthesisService")
+        selectedVoiceIdentifier = userDefaults.string(forKey: StorageKey.selectedVoiceIdentifier)
+        preferredLanguageCode = userDefaults.string(forKey: StorageKey.preferredLanguageCode)
+        super.init()
+        synthesizer.delegate = self
+        prepareVoice(availableVoices: loadAvailableVoices())
+    }
 
-        for voiceId in preferredVoices {
-            if let voice = AVSpeechSynthesisVoice(identifier: voiceId) {
-                selectedVoice = voice
+    private func loadAvailableVoices(forceRefresh: Bool = false) -> [AVSpeechSynthesisVoice] {
+        if forceRefresh || cachedVoices.isEmpty {
+            cachedVoices = AVSpeechSynthesisVoice.speechVoices()
+        }
+        return cachedVoices
+    }
+
+    private func prepareVoice(
+        availableVoices: [AVSpeechSynthesisVoice],
+        preferredVoice: AVSpeechSynthesisVoice? = nil,
+        skipPreferredLanguageLookup: Bool = false
+    ) {
+        let currentLocale = Locale.current
+        let targetLanguageCode = preferredLanguageCode ?? currentLocale.language.languageCode?.identifier
+
+        if let selectedVoiceIdentifier {
+            if let selected = availableVoices.first(where: { $0.identifier == selectedVoiceIdentifier }) {
+                selectedVoice = selected
+                autoSelectedVoiceIdentifier = selected.identifier
                 return
             }
+
+            self.selectedVoiceIdentifier = nil
+            userDefaults.removeObject(forKey: StorageKey.selectedVoiceIdentifier)
         }
 
-        let availableVoices = AVSpeechSynthesisVoice.speechVoices()
-        let premiumUS = availableVoices.first { $0.language == "en-US" && $0.quality == .premium }
-        let enhancedUS = availableVoices.first { $0.language == "en-US" && $0.quality == .enhanced }
-        let defaultUS = availableVoices.first { $0.language == "en-US" }
+        if let preferredVoice {
+            selectedVoice = preferredVoice
+            autoSelectedVoiceIdentifier = preferredVoice.identifier
+            return
+        }
 
-        selectedVoice = premiumUS ?? enhancedUS ?? defaultUS ?? AVSpeechSynthesisVoice(language: "en-US")
+        if
+            !skipPreferredLanguageLookup,
+            let targetLanguageCode,
+            let localeMatched = bestVoice(in: availableVoices, forLanguageCode: targetLanguageCode)
+        {
+            selectedVoice = localeMatched
+            autoSelectedVoiceIdentifier = localeMatched.identifier
+            return
+        }
+
+        if let localeIdentifierVoice = AVSpeechSynthesisVoice(language: currentLocale.identifier) {
+            selectedVoice = localeIdentifierVoice
+            autoSelectedVoiceIdentifier = localeIdentifierVoice.identifier
+            return
+        }
+
+        if let firstVoice = availableVoices.first {
+            selectedVoice = firstVoice
+            autoSelectedVoiceIdentifier = firstVoice.identifier
+            return
+        }
+
+        let compatibilityVoice = AVSpeechSynthesisVoice(language: "en-US")
+        selectedVoice = compatibilityVoice
+        autoSelectedVoiceIdentifier = compatibilityVoice?.identifier
+    }
+
+    func availableVoices() -> [VoiceOption] {
+        loadAvailableVoices(forceRefresh: true).map {
+            VoiceOption(identifier: $0.identifier, language: $0.language, quality: $0.quality, displayName: $0.name)
+        }
+    }
+
+    func setVoice(identifier: String) {
+        var availableVoices = loadAvailableVoices()
+        if !availableVoices.contains(where: { $0.identifier == identifier }) {
+            availableVoices = loadAvailableVoices(forceRefresh: true)
+        }
+
+        guard let voice = availableVoices.first(where: { $0.identifier == identifier }) else {
+            logger.error("Requested voice identifier not found: \(identifier, privacy: .public)")
+            return
+        }
+
+        selectedVoice = voice
+        selectedVoiceIdentifier = voice.identifier
+        autoSelectedVoiceIdentifier = voice.identifier
+        userDefaults.set(voice.identifier, forKey: StorageKey.selectedVoiceIdentifier)
+    }
+
+    func setLanguagePreferred(_ languageCode: String) {
+        preferredLanguageCode = languageCode
+        userDefaults.set(languageCode, forKey: StorageKey.preferredLanguageCode)
+
+        let availableVoices = loadAvailableVoices(forceRefresh: true)
+        let preferredVoice = bestVoice(in: availableVoices, forLanguageCode: languageCode)
+
+        if let preferredVoice {
+            selectedVoice = preferredVoice
+            autoSelectedVoiceIdentifier = preferredVoice.identifier
+            return
+        }
+
+        logger.error("No voices available for preferred language: \(languageCode, privacy: .public)")
+        selectedVoice = nil
+        autoSelectedVoiceIdentifier = nil
+        prepareVoice(availableVoices: availableVoices, preferredVoice: nil, skipPreferredLanguageLookup: true)
+    }
+
+    private func bestVoice(in voices: [AVSpeechSynthesisVoice], forLanguageCode languageCode: String) -> AVSpeechSynthesisVoice? {
+        let normalizedTarget = normalizedLanguageCode(languageCode)
+        let normalizedVoices = voices.map { voice in
+            (voice: voice, normalizedLanguage: normalizedLanguageCode(voice.language))
+        }
+
+        let languageMatches = normalizedVoices
+            .filter { $0.normalizedLanguage == normalizedTarget }
+            .map(\.voice)
+
+        if languageMatches.isEmpty {
+            return nil
+        }
+
+        return languageMatches.sorted {
+            if $0.quality == $1.quality {
+                return $0.name < $1.name
+            }
+            return $0.quality.rawValue > $1.quality.rawValue
+        }.first
+    }
+
+    private func normalizedLanguageCode(_ identifier: String) -> String {
+        let normalizedIdentifier = identifier.replacingOccurrences(of: "_", with: "-")
+        return normalizedIdentifier.split(separator: "-").first.map { String($0).lowercased() } ?? normalizedIdentifier.lowercased()
     }
 
     func speak(_ text: String, bargeInCheck: (() -> Bool)? = nil, onComplete: (() -> Void)? = nil) {
