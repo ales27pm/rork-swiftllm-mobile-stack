@@ -124,7 +124,7 @@ private extension LocationResponseComposer {
         
         let source: String?
         let confidence: Double?
-    }
+  }
         }
 
 }
