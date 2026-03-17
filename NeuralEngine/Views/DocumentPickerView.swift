@@ -32,13 +32,9 @@ struct DocumentPickerView: UIViewControllerRepresentable {
 
         nonisolated func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             guard let url = urls.first else { return }
-            let accessing = url.startAccessingSecurityScopedResource()
             let onPick = self.onPick
             Task { @MainActor in
                 onPick(url)
-                if accessing {
-                    url.stopAccessingSecurityScopedResource()
-                }
             }
         }
     }

@@ -21,6 +21,7 @@ class DocumentAnalysisViewModel {
 
     private let service: DocumentAnalysisServicing
     private var analysisTask: Task<Void, Never>?
+    private var activeTaskID: UUID?
 
     init(service: DocumentAnalysisServicing = DocumentAnalysisService()) {
         self.service = service
@@ -40,9 +41,9 @@ class DocumentAnalysisViewModel {
         statusMessage = "Recognizing text..."
         progress = 0.1
 
+        let taskID = registerTask()
         analysisTask = Task {
             do {
-                try Task.checkCancellation()
                 progress = 0.3
                 async let textResult = service.recognizeText(in: image)
                 async let barcodes = service.detectBarcodes(in: image)
@@ -50,7 +51,6 @@ class DocumentAnalysisViewModel {
                 progress = 0.6
                 let text = try await textResult
                 let codes = try await barcodes
-                try Task.checkCancellation()
 
                 progress = 0.9
                 analysisResult = text
@@ -59,19 +59,11 @@ class DocumentAnalysisViewModel {
                 progress = 1.0
 
                 try? await Task.sleep(for: .milliseconds(500))
-                isProcessing = false
-                analysisTask = nil
+                finishSuccess(taskID)
             } catch is CancellationError {
-                if Task.isCancelled {
-                    statusMessage = ""
-                    isProcessing = false
-                }
-                analysisTask = nil
+                finishCancelled(taskID)
             } catch {
-                errorMessage = error.localizedDescription
-                statusMessage = "Analysis failed"
-                isProcessing = false
-                analysisTask = nil
+                finishFailure(taskID, errorMessage: error.localizedDescription, status: "Analysis failed")
             }
         }
     }
@@ -84,66 +76,69 @@ class DocumentAnalysisViewModel {
         documentName = url.lastPathComponent
 
         let ext = url.pathExtension.lowercased()
+        let shouldStopSecurityScope = url.startAccessingSecurityScopedResource()
 
         if ext == "pdf" {
             isProcessing = true
             statusMessage = "Processing PDF..."
             progress = 0.1
 
+            let taskID = registerTask()
             analysisTask = Task {
+                defer {
+                    if shouldStopSecurityScope {
+                        url.stopAccessingSecurityScopedResource()
+                    }
+                }
                 do {
-                    try Task.checkCancellation()
                     progress = 0.4
                     let result = try await service.recognizeTextFromPDF(at: url)
-                    try Task.checkCancellation()
                     progress = 0.9
                     analysisResult = result
                     statusMessage = "PDF analysis complete (\(result.pageCount) pages)"
                     progress = 1.0
 
                     try? await Task.sleep(for: .milliseconds(500))
-                    isProcessing = false
-                    analysisTask = nil
+                    finishSuccess(taskID)
                 } catch is CancellationError {
-                    if Task.isCancelled {
-                        statusMessage = ""
-                        isProcessing = false
-                    }
-                    analysisTask = nil
+                    finishCancelled(taskID)
                 } catch {
-                    errorMessage = error.localizedDescription
-                    statusMessage = "PDF analysis failed"
-                    isProcessing = false
-                    analysisTask = nil
+                    finishFailure(taskID, errorMessage: error.localizedDescription, status: "PDF analysis failed")
                 }
             }
         } else if ["png", "jpg", "jpeg", "heic", "tiff", "bmp", "gif", "webp"].contains(ext) {
             isProcessing = true
             statusMessage = "Loading image..."
             progress = 0.1
+            let taskID = registerTask()
             analysisTask = Task {
+                defer {
+                    if shouldStopSecurityScope {
+                        url.stopAccessingSecurityScopedResource()
+                    }
+                }
                 do {
                     let image = try await Self.loadImageFromDisk(at: url)
-                    try Task.checkCancellation()
                     beginImageAnalysis(image)
                 } catch is CancellationError {
-                    self.isProcessing = false
-                    self.statusMessage = ""
-                    self.analysisTask = nil
+                    finishCancelled(taskID)
                 } catch {
-                    self.errorMessage = "Could not load image from file"
-                    self.isProcessing = false
-                    self.analysisTask = nil
+                    finishFailure(taskID, errorMessage: "Could not load image from file")
                 }
             }
         } else if ["txt", "rtf", "md"].contains(ext) {
             isProcessing = true
             statusMessage = "Loading text file..."
             progress = 0.1
+            let taskID = registerTask()
             analysisTask = Task {
+                defer {
+                    if shouldStopSecurityScope {
+                        url.stopAccessingSecurityScopedResource()
+                    }
+                }
                 do {
                     let text = try await Self.loadTextFromDisk(at: url)
-                    try Task.checkCancellation()
 
                     analysisResult = DocumentAnalysisResult(
                         fullText: text,
@@ -153,22 +148,18 @@ class DocumentAnalysisViewModel {
                     )
                     statusMessage = "Text file loaded"
                     progress = 1.0
-                    isProcessing = false
-                    analysisTask = nil
+                    finishSuccess(taskID)
                 } catch is CancellationError {
-                    if Task.isCancelled {
-                        statusMessage = ""
-                        isProcessing = false
-                    }
-                    analysisTask = nil
+                    finishCancelled(taskID)
                 } catch {
-                    errorMessage = "Could not read text file"
-                    isProcessing = false
-                    analysisTask = nil
+                    finishFailure(taskID, errorMessage: "Could not read text file")
                 }
             }
         } else {
             errorMessage = "Unsupported file format: .\(ext)"
+            if shouldStopSecurityScope {
+                url.stopAccessingSecurityScopedResource()
+            }
         }
     }
 
@@ -206,6 +197,37 @@ class DocumentAnalysisViewModel {
     private func cancelAnalysisTask() {
         analysisTask?.cancel()
         analysisTask = nil
+        activeTaskID = nil
+    }
+
+    private func registerTask() -> UUID {
+        let taskID = UUID()
+        activeTaskID = taskID
+        return taskID
+    }
+
+    private func finishSuccess(_ taskID: UUID) {
+        guard activeTaskID == taskID else { return }
+        isProcessing = false
+        analysisTask = nil
+        activeTaskID = nil
+    }
+
+    private func finishCancelled(_ taskID: UUID) {
+        guard activeTaskID == taskID else { return }
+        statusMessage = ""
+        isProcessing = false
+        analysisTask = nil
+        activeTaskID = nil
+    }
+
+    private func finishFailure(_ taskID: UUID, errorMessage: String, status: String = "") {
+        guard activeTaskID == taskID else { return }
+        self.errorMessage = errorMessage
+        statusMessage = status
+        isProcessing = false
+        analysisTask = nil
+        activeTaskID = nil
     }
 
     nonisolated private static func loadTextFromDisk(at url: URL) async throws -> String {
