@@ -119,3 +119,136 @@ struct NeuralEngineTests {
     }
 
 }
+
+private struct MockLogitsRunner: LogitsPredicting {
+    let spanLogits: [[Float]]
+
+    func predictLogits(inputIDs: [Int]) throws -> [Float] {
+        spanLogits.last ?? []
+    }
+
+    func predictLogitsSpan(inputIDs: [Int]) throws -> [[Float]] {
+        Array(spanLogits.prefix(inputIDs.count))
+    }
+}
+
+extension NeuralEngineTests {
+    @Test func verifySpeculativeTokens_rejectsAtBoundaryAndSamplesCorrectionFromResidual() throws {
+        let decodeEngine = DecodeEngine()
+        let sampler = Sampler(config: SamplingConfig(
+            temperature: 1.0,
+            topK: 16,
+            topP: 1.0,
+            repetitionPenalty: 1.0,
+            maxTokens: 16,
+            stopSequences: [],
+            samplerSeed: 7
+        ))
+
+        let draft = DraftEngine.DraftSequence(
+            tokens: [1, 2, 3],
+            logitSnapshots: [
+                [0, 4, -4, -4],
+                [0, -4, 4, -4],
+                [0, -4, -4, 4]
+            ],
+            confidenceScores: [0.9, 0.9, 0.9],
+            draftTokenProbabilities: [0.5, 0.9, 0.9],
+            draftLatencyMS: 1
+        )
+
+        let runner = MockLogitsRunner(spanLogits: [
+            [-4, 5, -4, -4],
+            [5, -4, -10, -10],
+            [-4, -4, -4, 5]
+        ])
+
+        let verification = try decodeEngine.verifySpeculativeTokens(
+            draftSequence: draft,
+            runner: runner,
+            sampler: sampler,
+            recentTokens: []
+        )
+
+        #expect(verification.accepted == [1])
+        #expect(verification.rejected == [2, 3])
+        #expect(verification.correctionToken == 0)
+        #expect(verification.correctionSampled)
+    }
+
+    @Test func verifySpeculativeTokens_acceptsEntirePrefixWhenAllAccepted() throws {
+        let decodeEngine = DecodeEngine()
+        let sampler = Sampler(config: SamplingConfig(
+            temperature: 1.0,
+            topK: 16,
+            topP: 1.0,
+            repetitionPenalty: 1.0,
+            maxTokens: 16,
+            stopSequences: [],
+            samplerSeed: 9
+        ))
+
+        let draft = DraftEngine.DraftSequence(
+            tokens: [1, 2],
+            logitSnapshots: [
+                [0, 4, -4],
+                [0, -4, 4]
+            ],
+            confidenceScores: [0.8, 0.8],
+            draftTokenProbabilities: [0.4, 0.3],
+            draftLatencyMS: 1
+        )
+
+        let runner = MockLogitsRunner(spanLogits: [
+            [0, 5, -5],
+            [0, -5, 5]
+        ])
+
+        let verification = try decodeEngine.verifySpeculativeTokens(
+            draftSequence: draft,
+            runner: runner,
+            sampler: sampler,
+            recentTokens: []
+        )
+
+        #expect(verification.accepted == [1, 2])
+        #expect(verification.rejected.isEmpty)
+        #expect(verification.correctionToken == nil)
+        #expect(!verification.correctionSampled)
+    }
+
+    @Test func verifySpeculativeTokens_rejectsWhenDraftProbabilityIsZero() throws {
+        let decodeEngine = DecodeEngine()
+        let sampler = Sampler(config: SamplingConfig(
+            temperature: 1.0,
+            topK: 16,
+            topP: 1.0,
+            repetitionPenalty: 1.0,
+            maxTokens: 16,
+            stopSequences: [],
+            samplerSeed: 42
+        ))
+
+        let draft = DraftEngine.DraftSequence(
+            tokens: [1],
+            logitSnapshots: [[0, 5, -5]],
+            confidenceScores: [0.9],
+            draftTokenProbabilities: [0],
+            draftLatencyMS: 1
+        )
+
+        let runner = MockLogitsRunner(spanLogits: [[0, 5, -5]])
+
+        let verification = try decodeEngine.verifySpeculativeTokens(
+            draftSequence: draft,
+            runner: runner,
+            sampler: sampler,
+            recentTokens: []
+        )
+
+        #expect(verification.accepted.isEmpty)
+        #expect(verification.rejected == [1])
+        #expect(verification.correctionSampled)
+    }
+
+}

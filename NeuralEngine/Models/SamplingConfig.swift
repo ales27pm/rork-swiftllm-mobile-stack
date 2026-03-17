@@ -7,4 +7,5 @@ struct SamplingConfig: Sendable {
     var repetitionPenalty: Float = 1.1
     var maxTokens: Int = 2048
     var stopSequences: [String] = []
+    var samplerSeed: UInt64? = nil
 }

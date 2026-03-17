@@ -11,7 +11,12 @@ nonisolated enum RunnerState: String, Sendable {
     case evicted
 }
 
-nonisolated final class CoreMLModelRunner: @unchecked Sendable {
+nonisolated protocol LogitsPredicting: Sendable {
+    func predictLogits(inputIDs: [Int]) throws -> [Float]
+    func predictLogitsSpan(inputIDs: [Int]) throws -> [[Float]]
+}
+
+nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable {
     private var model: MLModel?
     private var modelURL: URL?
     private var activeComputeUnits: MLComputeUnits = .all
@@ -198,20 +203,16 @@ nonisolated final class CoreMLModelRunner: @unchecked Sendable {
         guard seqLen > 0 else { throw CoreMLRunnerError.emptyInput }
 
         do {
-            let inputArray = try MLMultiArray(shape: [1, NSNumber(value: seqLen)], dataType: .int32)
-            let ptr = inputArray.dataPointer.bindMemory(to: Int32.self, capacity: seqLen)
-            for i in 0..<seqLen {
-                ptr[i] = Int32(inputIDs[i])
-            }
-
-            let featureDict: [String: Any] = [inName: MLFeatureValue(multiArray: inputArray)]
-            let input = try MLDictionaryFeatureProvider(dictionary: featureDict)
+            let input = try makeInputProvider(inputIDs: inputIDs, inputName: inName)
 
             let output: MLFeatureProvider
+            let updatedState: MLState?
             if currentUsesState, let st = currentState {
                 output = try model.prediction(from: input, using: st)
+                updatedState = st
             } else {
                 output = try model.prediction(from: input)
+                updatedState = nil
             }
 
             guard let logitsArray = output.featureValue(for: outName)?.multiArrayValue else {
@@ -219,50 +220,169 @@ nonisolated final class CoreMLModelRunner: @unchecked Sendable {
                 throw CoreMLRunnerError.invalidOutput(availableKeys: availableKeys)
             }
 
-            let shape = logitsArray.shape.map { $0.intValue }
-            let vocabSize: Int
-            let lastTokenOffset: Int
-
-            if shape.count == 3 {
-                vocabSize = shape[2]
-                lastTokenOffset = (seqLen - 1) * vocabSize
-            } else if shape.count == 2 {
-                vocabSize = shape[1]
-                lastTokenOffset = 0
-            } else {
-                vocabSize = shape.last ?? 0
-                lastTokenOffset = 0
-            }
-
-            guard vocabSize > 0 else { throw CoreMLRunnerError.invalidOutput(availableKeys: "vocabSize=0") }
-
-            var logits = [Float](repeating: 0, count: vocabSize)
-            let floatPtr = logitsArray.dataPointer.bindMemory(to: Float.self, capacity: logitsArray.count)
-            for i in 0..<vocabSize {
-                logits[i] = floatPtr[lastTokenOffset + i]
-            }
-
-            lock.lock()
-            consecutiveFailures = 0
-            lastSuccessfulPrediction = Date()
-            lock.unlock()
-
+            let logits = try extractLastTokenLogits(from: logitsArray, requestedSeqLen: seqLen)
+            recordPredictionSuccess(updatedState: updatedState)
             return logits
         } catch {
-            lock.lock()
-            consecutiveFailures += 1
-            let failures = consecutiveFailures
-            lock.unlock()
+            try recordPredictionFailure(error)
+        }
+    }
 
-            if isGhostModelError(error) || failures >= maxConsecutiveFailures {
-                lock.lock()
-                state = .evicted
-                lock.unlock()
-                throw CoreMLRunnerError.modelEvicted(underlyingError: error)
+    func predictLogitsSpan(inputIDs: [Int]) throws -> [[Float]] {
+        lock.lock()
+        guard let model else {
+            lock.unlock()
+            throw CoreMLRunnerError.modelNotLoaded
+        }
+        guard state == .ready || state == .recovering else {
+            let currentState = state
+            lock.unlock()
+            throw CoreMLRunnerError.invalidState(currentState)
+        }
+        let currentState = mlState
+        let currentUsesState = usesState
+        let inName = inputName
+        let outName = outputName
+        lock.unlock()
+
+        let seqLen = inputIDs.count
+        guard seqLen > 0 else { throw CoreMLRunnerError.emptyInput }
+
+        do {
+            let input = try makeInputProvider(inputIDs: inputIDs, inputName: inName)
+
+            let output: MLFeatureProvider
+            let updatedState: MLState?
+            if currentUsesState, let st = currentState {
+                output = try model.prediction(from: input, using: st)
+                updatedState = st
+            } else {
+                output = try model.prediction(from: input)
+                updatedState = nil
             }
 
-            throw error
+            guard let logitsArray = output.featureValue(for: outName)?.multiArrayValue else {
+                let availableKeys = output.featureNames.joined(separator: ", ")
+                throw CoreMLRunnerError.invalidOutput(availableKeys: availableKeys)
+            }
+
+            let spanLogits = try extractSpanLogits(from: logitsArray, requestedSeqLen: seqLen)
+            recordPredictionSuccess(updatedState: updatedState)
+            return spanLogits
+        } catch {
+            try recordPredictionFailure(error)
         }
+    }
+
+    private func makeInputProvider(inputIDs: [Int], inputName: String) throws -> MLFeatureProvider {
+        let seqLen = inputIDs.count
+        let inputArray = try MLMultiArray(shape: [1, NSNumber(value: seqLen)], dataType: .int32)
+        let ptr = inputArray.dataPointer.bindMemory(to: Int32.self, capacity: seqLen)
+        for i in 0..<seqLen {
+            ptr[i] = Int32(inputIDs[i])
+        }
+
+        let featureDict: [String: Any] = [inputName: MLFeatureValue(multiArray: inputArray)]
+        return try MLDictionaryFeatureProvider(dictionary: featureDict)
+    }
+
+    private func extractLastTokenLogits(from logitsArray: MLMultiArray, requestedSeqLen: Int) throws -> [Float] {
+        let shape = logitsArray.shape.map { $0.intValue }
+        let strides = logitsArray.strides.map { $0.intValue }
+        let floatPtr = logitsArray.dataPointer.bindMemory(to: Float.self, capacity: logitsArray.count)
+
+        switch shape.count {
+        case 3:
+            guard shape[0] > 0, shape[1] > 0, shape[2] > 0 else {
+                throw CoreMLRunnerError.invalidOutput(availableKeys: "invalid 3D logits shape")
+            }
+            let targetPosition = min(max(requestedSeqLen - 1, 0), shape[1] - 1)
+            let vocabSize = shape[2]
+            var logits = [Float](repeating: 0, count: vocabSize)
+            for vocabIndex in 0..<vocabSize {
+                let offset = 0 * strides[0] + targetPosition * strides[1] + vocabIndex * strides[2]
+                logits[vocabIndex] = floatPtr[offset]
+            }
+            return logits
+        case 2:
+            guard shape[0] > 0, shape[1] > 0 else {
+                throw CoreMLRunnerError.invalidOutput(availableKeys: "invalid 2D logits shape")
+            }
+            let vocabSize = shape[1]
+            var logits = [Float](repeating: 0, count: vocabSize)
+            for vocabIndex in 0..<vocabSize {
+                let offset = 0 * strides[0] + vocabIndex * strides[1]
+                logits[vocabIndex] = floatPtr[offset]
+            }
+            return logits
+        case 1:
+            guard shape[0] > 0 else {
+                throw CoreMLRunnerError.invalidOutput(availableKeys: "invalid 1D logits shape")
+            }
+            var logits = [Float](repeating: 0, count: shape[0])
+            for vocabIndex in 0..<shape[0] {
+                logits[vocabIndex] = floatPtr[vocabIndex * strides[0]]
+            }
+            return logits
+        default:
+            throw CoreMLRunnerError.invalidOutput(availableKeys: "unsupported logits shape: \(shape)")
+        }
+    }
+
+    private func extractSpanLogits(from logitsArray: MLMultiArray, requestedSeqLen: Int) throws -> [[Float]] {
+        let shape = logitsArray.shape.map { $0.intValue }
+        let strides = logitsArray.strides.map { $0.intValue }
+        let floatPtr = logitsArray.dataPointer.bindMemory(to: Float.self, capacity: logitsArray.count)
+
+        switch shape.count {
+        case 3:
+            guard shape[0] > 0, shape[1] > 0, shape[2] > 0 else {
+                throw CoreMLRunnerError.invalidOutput(availableKeys: "invalid 3D logits shape")
+            }
+            let outputSeqLen = min(requestedSeqLen, shape[1])
+            let vocabSize = shape[2]
+            var result: [[Float]] = []
+            result.reserveCapacity(outputSeqLen)
+
+            for position in 0..<outputSeqLen {
+                var row = [Float](repeating: 0, count: vocabSize)
+                for vocabIndex in 0..<vocabSize {
+                    let offset = 0 * strides[0] + position * strides[1] + vocabIndex * strides[2]
+                    row[vocabIndex] = floatPtr[offset]
+                }
+                result.append(row)
+            }
+            return result
+        default:
+            let single = try extractLastTokenLogits(from: logitsArray, requestedSeqLen: requestedSeqLen)
+            return Array(repeating: single, count: requestedSeqLen)
+        }
+    }
+
+    private func recordPredictionSuccess(updatedState: MLState?) {
+        lock.lock()
+        consecutiveFailures = 0
+        lastSuccessfulPrediction = Date()
+        if let updatedState {
+            mlState = updatedState
+        }
+        lock.unlock()
+    }
+
+    private func recordPredictionFailure(_ error: Error) throws -> Never {
+        lock.lock()
+        consecutiveFailures += 1
+        let failures = consecutiveFailures
+        lock.unlock()
+
+        if isGhostModelError(error) || failures >= maxConsecutiveFailures {
+            lock.lock()
+            state = .evicted
+            lock.unlock()
+            throw CoreMLRunnerError.modelEvicted(underlyingError: error)
+        }
+
+        throw error
     }
 
     func attemptRecovery() async throws {

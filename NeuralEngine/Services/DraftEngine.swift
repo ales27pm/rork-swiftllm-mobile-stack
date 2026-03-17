@@ -10,6 +10,7 @@ nonisolated final class DraftEngine: @unchecked Sendable {
         let tokens: [Int]
         let logitSnapshots: [[Float]]
         let confidenceScores: [Float]
+        let draftTokenProbabilities: [Float]
         let draftLatencyMS: Double
     }
 
@@ -61,6 +62,7 @@ nonisolated final class DraftEngine: @unchecked Sendable {
         var draftTokens: [Int] = []
         var logitSnapshots: [[Float]] = []
         var confidenceScores: [Float] = []
+        var draftTokenProbabilities: [Float] = []
         var currentToken = seedToken
         var contextWindow = recentTokens
 
@@ -73,10 +75,14 @@ nonisolated final class DraftEngine: @unchecked Sendable {
                 break
             }
 
-            let token = sampler.sample(logits: logits, recentTokens: Array(contextWindow.suffix(64)))
+            let context = Array(contextWindow.suffix(64))
+            let distribution = sampler.prepareDistribution(logits: logits, recentTokens: context)
+            let token = sampler.sample(from: distribution)
+            let tokenProbability = distribution.probability(of: token)
             draftTokens.append(token)
             logitSnapshots.append(logits)
             confidenceScores.append(confidence)
+            draftTokenProbabilities.append(tokenProbability)
             currentToken = token
             contextWindow.append(token)
         }
@@ -87,6 +93,7 @@ nonisolated final class DraftEngine: @unchecked Sendable {
             tokens: draftTokens,
             logitSnapshots: logitSnapshots,
             confidenceScores: confidenceScores,
+            draftTokenProbabilities: draftTokenProbabilities,
             draftLatencyMS: latency
         )
     }
@@ -120,6 +127,7 @@ nonisolated final class DraftEngine: @unchecked Sendable {
         var draftTokens: [Int] = []
         var logitSnapshots: [[Float]] = []
         var confidenceScores: [Float] = []
+        var draftTokenProbabilities: [Float] = []
         var currentToken = seedToken
         var contextWindow = recentTokens
 
@@ -133,10 +141,14 @@ nonisolated final class DraftEngine: @unchecked Sendable {
                 break
             }
 
-            let token = sampler.sample(logits: logits, recentTokens: Array(contextWindow.suffix(64)))
+            let context = Array(contextWindow.suffix(64))
+            let distribution = sampler.prepareDistribution(logits: logits, recentTokens: context)
+            let token = sampler.sample(from: distribution)
+            let tokenProbability = distribution.probability(of: token)
             draftTokens.append(token)
             logitSnapshots.append(logits)
             confidenceScores.append(confidence)
+            draftTokenProbabilities.append(tokenProbability)
             currentToken = token
             contextWindow.append(token)
         }
@@ -147,6 +159,7 @@ nonisolated final class DraftEngine: @unchecked Sendable {
             tokens: draftTokens,
             logitSnapshots: logitSnapshots,
             confidenceScores: confidenceScores,
+            draftTokenProbabilities: draftTokenProbabilities,
             draftLatencyMS: latency
         )
     }
