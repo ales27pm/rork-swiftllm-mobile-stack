@@ -76,8 +76,9 @@ nonisolated final class DraftEngine: @unchecked Sendable {
             }
 
             let context = Array(contextWindow.suffix(64))
-            let token = sampler.sample(logits: logits, recentTokens: context)
-            let tokenProbability = sampler.probability(of: token, logits: logits, recentTokens: context)
+            let distribution = sampler.prepareDistribution(logits: logits, recentTokens: context)
+            let token = sampler.sample(from: distribution)
+            let tokenProbability = distribution.probability(of: token)
             draftTokens.append(token)
             logitSnapshots.append(logits)
             confidenceScores.append(confidence)
@@ -141,8 +142,9 @@ nonisolated final class DraftEngine: @unchecked Sendable {
             }
 
             let context = Array(contextWindow.suffix(64))
-            let token = sampler.sample(logits: logits, recentTokens: context)
-            let tokenProbability = sampler.probability(of: token, logits: logits, recentTokens: context)
+            let distribution = sampler.prepareDistribution(logits: logits, recentTokens: context)
+            let token = sampler.sample(from: distribution)
+            let tokenProbability = distribution.probability(of: token)
             draftTokens.append(token)
             logitSnapshots.append(logits)
             confidenceScores.append(confidence)

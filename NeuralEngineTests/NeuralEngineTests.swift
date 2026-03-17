@@ -216,4 +216,39 @@ extension NeuralEngineTests {
         #expect(verification.correctionToken == nil)
         #expect(!verification.correctionSampled)
     }
+
+    @Test func verifySpeculativeTokens_rejectsWhenDraftProbabilityIsZero() throws {
+        let decodeEngine = DecodeEngine()
+        let sampler = Sampler(config: SamplingConfig(
+            temperature: 1.0,
+            topK: 16,
+            topP: 1.0,
+            repetitionPenalty: 1.0,
+            maxTokens: 16,
+            stopSequences: [],
+            samplerSeed: 42
+        ))
+
+        let draft = DraftEngine.DraftSequence(
+            tokens: [1],
+            logitSnapshots: [[0, 5, -5]],
+            confidenceScores: [0.9],
+            draftTokenProbabilities: [0],
+            draftLatencyMS: 1
+        )
+
+        let runner = MockLogitsRunner(spanLogits: [[0, 5, -5]])
+
+        let verification = try decodeEngine.verifySpeculativeTokens(
+            draftSequence: draft,
+            runner: runner,
+            sampler: sampler,
+            recentTokens: []
+        )
+
+        #expect(verification.accepted.isEmpty)
+        #expect(verification.rejected == [1])
+        #expect(verification.correctionSampled)
+    }
+
 }

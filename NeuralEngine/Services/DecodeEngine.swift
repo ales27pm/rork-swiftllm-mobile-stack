@@ -134,10 +134,11 @@ nonisolated final class DecodeEngine: @unchecked Sendable {
 
         for i in 0..<spanCount {
             let token = draftTokens[i]
-            let targetDist = sampler.probabilityDistribution(logits: targetLogitsSpan[i], recentTokens: Array(contextWindow.suffix(64)))
-            let targetProb = token < targetDist.count ? targetDist[token] : 0
+            let currentContext = Array(contextWindow.suffix(64))
+            let targetDistribution = sampler.prepareDistribution(logits: targetLogitsSpan[i], recentTokens: currentContext)
+            let targetProb = targetDistribution.probability(of: token)
             let draftProb = i < draftSequence.draftTokenProbabilities.count ? draftSequence.draftTokenProbabilities[i] : 0
-            let acceptance = draftProb > 0 ? min(1.0, targetProb / draftProb) : (targetProb > 0 ? 1.0 : 0)
+            let acceptance = draftProb > 0 ? min(1.0, targetProb / draftProb) : 0
 
             if sampler.uniformSample() <= acceptance {
                 accepted.append(token)
@@ -149,10 +150,10 @@ nonisolated final class DecodeEngine: @unchecked Sendable {
             rejected = Array(draftTokens[i...])
 
             if i < draftSequence.logitSnapshots.count {
-                let draftDist = sampler.probabilityDistribution(logits: draftSequence.logitSnapshots[i], recentTokens: Array(contextWindow.suffix(64)))
-                correctionToken = sampler.sampleResidual(target: targetDist, draft: draftDist)
+                let draftDist = sampler.probabilityDistribution(logits: draftSequence.logitSnapshots[i], recentTokens: currentContext)
+                correctionToken = sampler.sampleResidual(target: targetDistribution.probabilities, draft: draftDist)
             } else {
-                correctionToken = sampler.sample(logits: targetLogitsSpan[i], recentTokens: Array(contextWindow.suffix(64)))
+                correctionToken = sampler.sample(from: targetDistribution)
             }
             break
         }

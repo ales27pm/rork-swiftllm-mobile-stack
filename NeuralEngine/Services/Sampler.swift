@@ -10,15 +10,25 @@ nonisolated final class SeededRandomSource: @unchecked Sendable {
 
     func nextFloat() -> Float {
         lock.lock()
+        defer { lock.unlock() }
+
         state &+= 0x9E3779B97F4A7C15
         var z = state
         z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
         z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
         z = z ^ (z >> 31)
-        lock.unlock()
 
         let maxValue = Double(UInt64.max)
         return Float(Double(z) / maxValue)
+    }
+}
+
+nonisolated struct SamplingDistribution: Sendable {
+    let probabilities: [Float]
+
+    func probability(of token: Int) -> Float {
+        guard token >= 0, token < probabilities.count else { return 0 }
+        return probabilities[token]
     }
 }
 
@@ -37,19 +47,22 @@ nonisolated struct Sampler: Sendable {
 
     func sample(logits: [Float], recentTokens: [Int]) -> Int {
         guard !logits.isEmpty else { return 0 }
-        let probs = probabilityDistribution(logits: logits, recentTokens: recentTokens)
-        return sample(from: probs)
+        let distribution = prepareDistribution(logits: logits, recentTokens: recentTokens)
+        return sample(from: distribution)
     }
 
     func probability(of token: Int, logits: [Float], recentTokens: [Int]) -> Float {
         guard token >= 0 else { return 0 }
-        let probs = probabilityDistribution(logits: logits, recentTokens: recentTokens)
-        guard token < probs.count else { return 0 }
-        return probs[token]
+        let distribution = prepareDistribution(logits: logits, recentTokens: recentTokens)
+        return distribution.probability(of: token)
     }
 
     func probabilityDistribution(logits: [Float], recentTokens: [Int]) -> [Float] {
-        guard !logits.isEmpty else { return [] }
+        prepareDistribution(logits: logits, recentTokens: recentTokens).probabilities
+    }
+
+    func prepareDistribution(logits: [Float], recentTokens: [Int]) -> SamplingDistribution {
+        guard !logits.isEmpty else { return SamplingDistribution(probabilities: []) }
 
         var processed = logits
         applyRepetitionPenalty(&processed, recentTokens: recentTokens)
@@ -63,7 +76,7 @@ nonisolated struct Sampler: Sendable {
             filtered[idx] = processed[idx]
         }
 
-        return softmax(filtered)
+        return SamplingDistribution(probabilities: softmax(filtered))
     }
 
     func sampleResidual(target: [Float], draft: [Float]) -> Int {
@@ -78,21 +91,25 @@ nonisolated struct Sampler: Sendable {
         }
 
         guard total > 0 else {
-            return sample(from: target)
+            return sample(from: SamplingDistribution(probabilities: target))
         }
 
         for i in residual.indices {
             residual[i] /= total
         }
 
-        return sample(from: residual)
+        return sample(from: SamplingDistribution(probabilities: residual))
     }
 
     func uniformSample() -> Float {
         randomSource?.nextFloat() ?? Float.random(in: 0..<1)
     }
 
-    private func sample(from probs: [Float]) -> Int {
+    func sample(from distribution: SamplingDistribution) -> Int {
+        sample(fromProbabilities: distribution.probabilities)
+    }
+
+    private func sample(fromProbabilities probs: [Float]) -> Int {
         guard !probs.isEmpty else { return 0 }
         let r = uniformSample()
         var cumulative: Float = 0
