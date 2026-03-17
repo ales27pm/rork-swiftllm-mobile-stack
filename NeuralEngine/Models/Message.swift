@@ -37,4 +37,7 @@ nonisolated struct GenerationMetrics: Sendable {
     var totalDuration: Double
     var acceptedSpeculativeTokens: Int
     var rejectedSpeculativeTokens: Int
+    var zeroTokenProbeLatencyMS: Double = 0
+    var recoveryRetryCount: Int = 0
+    var fallbackMode: String = "none"
 }

@@ -431,6 +431,10 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
         }
     }
 
+    func runZeroTokenProbe() -> ZeroTokenProbeResult {
+        zeroTokenProbe()
+    }
+
     func zeroTokenProbe() -> ZeroTokenProbeResult {
         lock.lock()
         guard let model, state == .ready || state == .recovering else {
@@ -567,6 +571,29 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
         }
 
         return true
+    }
+
+    func switchToCPUOnly() async throws {
+        lock.lock()
+        guard let url = modelURL else {
+            lock.unlock()
+            throw CoreMLRunnerError.modelNotLoaded
+        }
+        state = .recovering
+        lock.unlock()
+
+        do {
+            try await loadWithFallback(at: url, preferredUnits: .cpuOnly)
+            lock.lock()
+            consecutiveFailures = 0
+            totalRecoveries += 1
+            lock.unlock()
+        } catch {
+            lock.lock()
+            state = .evicted
+            lock.unlock()
+            throw error
+        }
     }
 
     func unload() {

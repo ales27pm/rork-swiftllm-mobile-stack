@@ -13,6 +13,9 @@ nonisolated struct InferenceMetrics: Sendable {
     var totalTokensGenerated: Int = 0
     var thermalState: ThermalLevel = .nominal
     var contextEvictions: Int = 0
+    var zeroTokenProbeLatencyMS: Double = 0
+    var recoveryRetryCount: Int = 0
+    var fallbackMode: String = "none"
 
     var speculativeAcceptanceRate: Double {
         let total = acceptedSpeculativeTokens + rejectedSpeculativeTokens
