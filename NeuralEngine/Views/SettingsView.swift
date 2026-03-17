@@ -1,7 +1,9 @@
 import SwiftUI
+import AVFoundation
 
 struct SettingsView: View {
     @Bindable var chatViewModel: ChatViewModel
+    @Bindable var speechViewModel: SpeechViewModel
     let thermalGovernor: ThermalGovernor
 
     @State private var temperature: Double = 0.8
@@ -12,6 +14,20 @@ struct SettingsView: View {
     @State private var hfToken: String = ""
     @State private var isTokenVisible: Bool = false
     @State private var tokenSaved: Bool = false
+    @State private var selectedSpeechLanguageCode: String = SpeechSelection.systemDefaultTag
+    @State private var selectedSpeechVoiceIdentifier: String = SpeechSelection.systemDefaultTag
+
+
+    private enum SpeechSelection {
+        static let systemDefaultTag = "system-default"
+    }
+
+    private struct SpeechLanguageOption: Identifiable {
+        let code: String
+        let label: String
+
+        var id: String { code }
+    }
 
     private let secureStore = SecureStore()
     private let hfTokenKey = "hf_api_token"
@@ -23,6 +39,7 @@ struct SettingsView: View {
             samplingSection
             systemPromptSection
             runtimeSection
+            speechSection
             aboutSection
         }
         .navigationTitle("Settings")
@@ -37,6 +54,8 @@ struct SettingsView: View {
         repetitionPenalty = Double(chatViewModel.samplingConfig.repetitionPenalty)
         maxTokens = Double(chatViewModel.samplingConfig.maxTokens)
         hfToken = secureStore.getString(hfTokenKey) ?? ""
+        selectedSpeechLanguageCode = speechViewModel.selectedSpeechLanguageCode ?? SpeechSelection.systemDefaultTag
+        selectedSpeechVoiceIdentifier = speechViewModel.selectedSpeechVoiceIdentifier ?? SpeechSelection.systemDefaultTag
     }
 
     private func syncConfig() {
@@ -216,6 +235,104 @@ struct SettingsView: View {
             "Sharing & Messaging": "square.and.arrow.up",
             "Date & Time": "clock.fill"
         ]
+    }
+
+
+    private var speechSection: some View {
+        Section {
+            Picker("Speech Language", selection: $selectedSpeechLanguageCode) {
+                Text("System Default")
+                    .tag(SpeechSelection.systemDefaultTag)
+
+                ForEach(availableSpeechLanguages) { option in
+                    Text(option.label)
+                        .tag(option.code)
+                }
+            }
+            .onChange(of: selectedSpeechLanguageCode) { _, newValue in
+                let languageCode = newValue == SpeechSelection.systemDefaultTag ? nil : newValue
+                speechViewModel.updateSpeechLanguage(code: languageCode)
+
+                if let currentVoice = selectedSpeechVoiceIdentifierOrNil,
+                   !filteredSpeechVoices.contains(where: { $0.identifier == currentVoice }) {
+                    selectedSpeechVoiceIdentifier = SpeechSelection.systemDefaultTag
+                    speechViewModel.updateSpeechVoice(identifier: nil)
+                }
+            }
+
+            Picker("Speech Voice", selection: $selectedSpeechVoiceIdentifier) {
+                Text("System Default")
+                    .tag(SpeechSelection.systemDefaultTag)
+
+                ForEach(filteredSpeechVoices, id: \.identifier) { voice in
+                    HStack {
+                        Text(voice.displayName)
+                        Spacer()
+                        if let badge = qualityLabel(for: voice.quality) {
+                            Text(badge)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .tag(voice.identifier)
+                }
+            }
+            .onChange(of: selectedSpeechVoiceIdentifier) { _, newValue in
+                speechViewModel.updateSpeechVoice(
+                    identifier: newValue == SpeechSelection.systemDefaultTag ? nil : newValue
+                )
+            }
+        } header: {
+            Label("Speech", systemImage: "waveform")
+        } footer: {
+            Text("Language and voice changes apply to the next spoken response.")
+        }
+    }
+
+    private var availableSpeechLanguages: [SpeechLanguageOption] {
+        let grouped = Dictionary(grouping: speechViewModel.speechVoiceOptions(), by: \.language)
+        return grouped.keys.sorted().map { code in
+            let localeName = Locale.current.localizedString(forIdentifier: code) ?? code
+            return SpeechLanguageOption(code: code, label: localeName)
+        }
+    }
+
+    private var filteredSpeechVoices: [SpeechSynthesisService.VoiceOption] {
+        let allVoices = speechViewModel.speechVoiceOptions()
+        guard selectedSpeechLanguageCode != SpeechSelection.systemDefaultTag else {
+            return allVoices.sorted { lhs, rhs in
+                if lhs.language == rhs.language {
+                    return lhs.displayName < rhs.displayName
+                }
+                return lhs.language < rhs.language
+            }
+        }
+
+        return allVoices
+            .filter { $0.language == selectedSpeechLanguageCode }
+            .sorted { lhs, rhs in
+                if lhs.quality == rhs.quality {
+                    return lhs.displayName < rhs.displayName
+                }
+                return lhs.quality.rawValue > rhs.quality.rawValue
+            }
+    }
+
+    private var selectedSpeechVoiceIdentifierOrNil: String? {
+        selectedSpeechVoiceIdentifier == SpeechSelection.systemDefaultTag ? nil : selectedSpeechVoiceIdentifier
+    }
+
+    private func qualityLabel(for quality: AVSpeechSynthesisVoiceQuality) -> String? {
+        switch quality {
+        case .default:
+            return "Default"
+        case .enhanced:
+            return "Enhanced"
+        case .premium:
+            return "Premium"
+        @unknown default:
+            return nil
+        }
     }
 
     private var aboutSection: some View {

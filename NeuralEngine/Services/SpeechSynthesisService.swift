@@ -127,7 +127,22 @@ class SpeechSynthesisService: NSObject {
         }
     }
 
-    func setVoice(identifier: String) {
+    func currentVoiceIdentifier() -> String? {
+        selectedVoiceIdentifier
+    }
+
+    func currentPreferredLanguageCode() -> String? {
+        preferredLanguageCode
+    }
+
+    func setVoice(identifier: String?) {
+        guard let identifier else {
+            selectedVoiceIdentifier = nil
+            userDefaults.removeObject(forKey: StorageKey.selectedVoiceIdentifier)
+            prepareVoice(availableVoices: loadAvailableVoices(forceRefresh: true))
+            return
+        }
+
         var availableVoices = loadAvailableVoices()
         if !availableVoices.contains(where: { $0.identifier == identifier }) {
             availableVoices = loadAvailableVoices(forceRefresh: true)
@@ -144,7 +159,17 @@ class SpeechSynthesisService: NSObject {
         userDefaults.set(voice.identifier, forKey: StorageKey.selectedVoiceIdentifier)
     }
 
-    func setLanguagePreferred(_ languageCode: String) {
+    func setLanguagePreferred(_ languageCode: String?) {
+        selectedVoiceIdentifier = nil
+        userDefaults.removeObject(forKey: StorageKey.selectedVoiceIdentifier)
+
+        guard let languageCode else {
+            preferredLanguageCode = nil
+            userDefaults.removeObject(forKey: StorageKey.preferredLanguageCode)
+            prepareVoice(availableVoices: loadAvailableVoices(forceRefresh: true))
+            return
+        }
+
         preferredLanguageCode = languageCode
         userDefaults.set(languageCode, forKey: StorageKey.preferredLanguageCode)
 

@@ -371,6 +371,27 @@ class SpeechViewModel {
         audioLevel = recognitionService.audioLevel
     }
 
+
+    var selectedSpeechLanguageCode: String? {
+        synthesisService.currentPreferredLanguageCode()
+    }
+
+    var selectedSpeechVoiceIdentifier: String? {
+        synthesisService.currentVoiceIdentifier()
+    }
+
+    func speechVoiceOptions() -> [SpeechSynthesisService.VoiceOption] {
+        synthesisService.availableVoices()
+    }
+
+    func updateSpeechLanguage(code: String?) {
+        synthesisService.setLanguagePreferred(code)
+    }
+
+    func updateSpeechVoice(identifier: String?) {
+        synthesisService.setVoice(identifier: identifier)
+    }
+
     func clearTranscript() {
         conversationTranscript.removeAll()
         turnCount = 0
