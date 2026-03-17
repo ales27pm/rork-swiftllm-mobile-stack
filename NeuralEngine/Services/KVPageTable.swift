@@ -11,8 +11,21 @@ actor KVPageTable {
 
     struct PageMapping: Sendable {
         let pageID: UUID
+        let tokenStart: Int
         let tokenEnd: Int
         let origin: KVPageOrigin
+
+        init(pageID: UUID, tokenStart: Int, tokenEnd: Int, origin: KVPageOrigin) {
+            precondition(tokenEnd >= tokenStart, "Invalid page mapping token span: tokenEnd (\(tokenEnd)) < tokenStart (\(tokenStart))")
+            self.pageID = pageID
+            self.tokenStart = tokenStart
+            self.tokenEnd = tokenEnd
+            self.origin = origin
+        }
+
+        var tokenCount: Int {
+            tokenEnd - tokenStart
+        }
     }
 
     struct SequenceEntry: Sendable {
@@ -52,10 +65,18 @@ actor KVPageTable {
         return id
     }
 
-    func appendPage(_ pageID: UUID, to sequenceID: UUID, tokenEnd: Int, origin: KVPageOrigin = .materialized) {
+    func appendPage(
+        _ pageID: UUID,
+        to sequenceID: UUID,
+        tokenStart: Int,
+        tokenEnd: Int,
+        origin: KVPageOrigin = .materialized
+    ) {
         guard var entry = sequences[sequenceID] else { return }
-        entry.pageMappings.append(PageMapping(pageID: pageID, tokenEnd: tokenEnd, origin: origin))
-        entry.tokenRange = entry.tokenRange.lowerBound..<tokenEnd
+        entry.pageMappings.append(PageMapping(pageID: pageID, tokenStart: tokenStart, tokenEnd: tokenEnd, origin: origin))
+
+        let firstTokenStart = entry.pageMappings[0].tokenStart
+        entry.tokenRange = firstTokenStart..<tokenEnd
         entry.lastAccessed = Date()
         sequences[sequenceID] = entry
     }
@@ -95,6 +116,41 @@ actor KVPageTable {
         entry.pageMappings = Array(entry.pageMappings.prefix(keepPages))
         entry.lastAccessed = Date()
         sequences[sequenceID] = entry
+        return removed
+    }
+
+    func truncateMiddlePages(
+        _ sequenceID: UUID,
+        prefixPages: Int,
+        tailPages: Int
+    ) -> [PageMapping] {
+        guard var entry = sequences[sequenceID] else { return [] }
+
+        let totalPages = entry.pageMappings.count
+        let protectedPrefixCount = max(0, prefixPages)
+        let protectedTailCount = max(0, tailPages)
+        guard totalPages > protectedPrefixCount + protectedTailCount else { return [] }
+
+        // Keep the first `protectedPrefixCount` pages and the last `protectedTailCount` pages.
+        // Remove the contiguous middle range: [middleStart, middleEnd).
+        let middleStart = min(protectedPrefixCount, totalPages)
+        let middleEnd = max(middleStart, totalPages - protectedTailCount)
+        guard middleStart < middleEnd else { return [] }
+
+        let removed = Array(entry.pageMappings[middleStart..<middleEnd])
+        let keptPrefix = entry.pageMappings.prefix(middleStart)
+        let keptTail = entry.pageMappings.suffix(totalPages - middleEnd)
+        entry.pageMappings = Array(keptPrefix + keptTail)
+
+        if let first = entry.pageMappings.first, let last = entry.pageMappings.last {
+            entry.tokenRange = first.tokenStart..<last.tokenEnd
+        } else {
+            entry.tokenRange = 0..<0
+        }
+
+        entry.lastAccessed = Date()
+        sequences[sequenceID] = entry
+
         return removed
     }
 

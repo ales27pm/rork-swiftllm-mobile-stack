@@ -56,7 +56,7 @@ actor KVCacheManager {
                let cachedPage = await arena.getPage(cachedPageID)
             {
                 await arena.retainPage(cachedPageID)
-                await pageTable.appendPage(cachedPageID, to: sequenceID, tokenEnd: tokenEnd, origin: .sharedPrefix)
+                await pageTable.appendPage(cachedPageID, to: sequenceID, tokenStart: tokenStart, tokenEnd: tokenEnd, origin: .sharedPrefix)
                 allocated.append(cachedPage)
             } else {
                 let page = await arena.allocatePage(
@@ -65,7 +65,7 @@ actor KVCacheManager {
                     sequenceID: sequenceID
                 )
                 await arena.register(blockHash: blockHash, pageID: page.id)
-                await pageTable.appendPage(page.id, to: sequenceID, tokenEnd: tokenEnd, origin: .materialized)
+                await pageTable.appendPage(page.id, to: sequenceID, tokenStart: tokenStart, tokenEnd: tokenEnd, origin: .materialized)
                 allocated.append(page)
             }
 
@@ -105,25 +105,33 @@ actor KVCacheManager {
         let keepCount = slidingWindowSize
         let preservePrefix = systemTokenCount
         let pageSize = await arena.configuredPageSize
-        let prefixPages = (preservePrefix + pageSize - 1) / pageSize
-        let totalPages = await pageTable.pageIDs(for: sequenceID).count
+        // Mirror `.lruWithPrefixProtection`: always pin the token-start 0 page, even with zero system tokens.
+        let protectedPrefixPages = max(1, (preservePrefix + pageSize - 1) / pageSize)
 
-        let keepPages = prefixPages + (keepCount + pageSize - 1) / pageSize
-        guard totalPages > keepPages else {
+        let mappings = await pageTable.pageMappings(for: sequenceID)
+        let totalPages = mappings.count
+        let tailPages = (keepCount + pageSize - 1) / pageSize
+
+        guard totalPages > protectedPrefixPages + tailPages else {
             return SlidingWindowResult(evictedTokens: 0, pagesFreed: 0, newLength: currentLength)
         }
 
-        let removedIDs = await pageTable.truncateSequence(sequenceID, keepPages: keepPages)
-        for id in removedIDs {
-            await arena.releasePage(id)
+        let removedMappings = await pageTable.truncateMiddlePages(
+            sequenceID,
+            prefixPages: protectedPrefixPages,
+            tailPages: tailPages
+        )
+
+        for mapping in removedMappings {
+            await arena.releasePage(mapping.pageID)
         }
 
-        let evictedTokens = removedIDs.count * pageSize
+        let evictedTokens = removedMappings.reduce(0) { $0 + $1.tokenCount }
         let newLength = currentLength - evictedTokens
 
         return SlidingWindowResult(
             evictedTokens: evictedTokens,
-            pagesFreed: removedIDs.count,
+            pagesFreed: removedMappings.count,
             newLength: max(newLength, preservePrefix + keepCount)
         )
     }
