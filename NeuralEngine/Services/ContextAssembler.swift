@@ -33,6 +33,9 @@ struct ContextAssembler {
             if !summary.isEmpty { sections.append(summary) }
         }
 
+        let userLocationOverride = buildUserProvidedLocationOverride(history: conversationHistory)
+        if !userLocationOverride.isEmpty { sections.append(userLocationOverride) }
+
         if toolsEnabled {
             sections.append(ToolExecutor.buildToolsPrompt())
         }
@@ -242,6 +245,57 @@ struct ContextAssembler {
         summary += "Maintain consistency with earlier responses. If you contradicted yourself, acknowledge it."
 
         return summary
+    }
+
+    private static func buildUserProvidedLocationOverride(history: [Message]) -> String {
+        let userMessages = history.filter { $0.role == .user }
+        guard let latestCoordinates = userMessages.reversed().compactMap(extractCoordinates).first else {
+            return ""
+        }
+
+        return """
+        [User-Provided Location]
+        The user explicitly provided their location as latitude \(latestCoordinates.latitude), longitude \(latestCoordinates.longitude).
+        Prefer these coordinates over inferred city-level guesses. Only override this if a newer user message provides updated coordinates or the user explicitly requests a fresh device GPS check.
+        """
+    }
+
+    private static func extractCoordinates(from message: Message) -> (latitude: String, longitude: String)? {
+        let lowered = message.content.lowercased()
+        let locationCues = ["location", "located", "position", "coordinate", "coords", "latitude", "longitude", "lat", "lng", "where am i", "real position"]
+        guard locationCues.contains(where: lowered.contains) else {
+            return nil
+        }
+
+        let pattern = #"\(?\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*\)?"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+
+        let range = NSRange(message.content.startIndex..., in: message.content)
+        let matches = regex.matches(in: message.content, options: [], range: range)
+
+        for match in matches.reversed() {
+            guard match.numberOfRanges == 3,
+                  let latRange = Range(match.range(at: 1), in: message.content),
+                  let lonRange = Range(match.range(at: 2), in: message.content) else {
+                continue
+            }
+
+            let latitude = String(message.content[latRange])
+            let longitude = String(message.content[lonRange])
+
+            guard let latValue = Double(latitude),
+                  let lonValue = Double(longitude),
+                  (-90...90).contains(latValue),
+                  (-180...180).contains(lonValue) else {
+                continue
+            }
+
+            return (latitude, longitude)
+        }
+
+        return nil
     }
 
     private static func buildVoiceModeAddendum() -> String {
