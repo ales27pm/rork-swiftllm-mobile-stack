@@ -105,6 +105,7 @@ actor KVCacheManager {
         let keepCount = slidingWindowSize
         let preservePrefix = systemTokenCount
         let pageSize = await arena.configuredPageSize
+        // Mirror `.lruWithPrefixProtection`: always pin the token-start 0 page, even with zero system tokens.
         let protectedPrefixPages = max(1, (preservePrefix + pageSize - 1) / pageSize)
 
         let mappings = await pageTable.pageMappings(for: sequenceID)

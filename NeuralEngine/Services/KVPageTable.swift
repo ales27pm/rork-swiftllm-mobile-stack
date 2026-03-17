@@ -15,8 +15,16 @@ actor KVPageTable {
         let tokenEnd: Int
         let origin: KVPageOrigin
 
+        init(pageID: UUID, tokenStart: Int, tokenEnd: Int, origin: KVPageOrigin) {
+            precondition(tokenEnd >= tokenStart, "Invalid page mapping token span: tokenEnd (\(tokenEnd)) < tokenStart (\(tokenStart))")
+            self.pageID = pageID
+            self.tokenStart = tokenStart
+            self.tokenEnd = tokenEnd
+            self.origin = origin
+        }
+
         var tokenCount: Int {
-            max(0, tokenEnd - tokenStart)
+            tokenEnd - tokenStart
         }
     }
 
@@ -67,11 +75,8 @@ actor KVPageTable {
         guard var entry = sequences[sequenceID] else { return }
         entry.pageMappings.append(PageMapping(pageID: pageID, tokenStart: tokenStart, tokenEnd: tokenEnd, origin: origin))
 
-        if let first = entry.pageMappings.first {
-            entry.tokenRange = first.tokenStart..<tokenEnd
-        } else {
-            entry.tokenRange = tokenStart..<tokenEnd
-        }
+        let firstTokenStart = entry.pageMappings[0].tokenStart
+        entry.tokenRange = firstTokenStart..<tokenEnd
         entry.lastAccessed = Date()
         sequences[sequenceID] = entry
     }
@@ -122,17 +127,19 @@ actor KVPageTable {
         guard var entry = sequences[sequenceID] else { return [] }
 
         let totalPages = entry.pageMappings.count
-        let safePrefix = max(0, prefixPages)
-        let safeTail = max(0, tailPages)
-        guard totalPages > safePrefix + safeTail else { return [] }
+        let protectedPrefixCount = max(0, prefixPages)
+        let protectedTailCount = max(0, tailPages)
+        guard totalPages > protectedPrefixCount + protectedTailCount else { return [] }
 
-        let removeStart = min(safePrefix, totalPages)
-        let keepTailStart = max(removeStart, totalPages - safeTail)
-        guard removeStart < keepTailStart else { return [] }
+        // Keep the first `protectedPrefixCount` pages and the last `protectedTailCount` pages.
+        // Remove the contiguous middle range: [middleStart, middleEnd).
+        let middleStart = min(protectedPrefixCount, totalPages)
+        let middleEnd = max(middleStart, totalPages - protectedTailCount)
+        guard middleStart < middleEnd else { return [] }
 
-        let removed = Array(entry.pageMappings[removeStart..<keepTailStart])
-        let keptPrefix = entry.pageMappings.prefix(removeStart)
-        let keptTail = entry.pageMappings.suffix(totalPages - keepTailStart)
+        let removed = Array(entry.pageMappings[middleStart..<middleEnd])
+        let keptPrefix = entry.pageMappings.prefix(middleStart)
+        let keptTail = entry.pageMappings.suffix(totalPages - middleEnd)
         entry.pageMappings = Array(keptPrefix + keptTail)
 
         if let first = entry.pageMappings.first, let last = entry.pageMappings.last {
