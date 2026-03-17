@@ -60,7 +60,9 @@ struct ToolCallParser {
     private static func parseJSON(_ jsonStr: String) -> ToolCall? {
         guard let data = jsonStr.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let name = obj["name"] as? String else { return nil }
+              let name = obj["name"] as? String,
+              DeviceToolName(rawValue: name) != nil else { return nil }
+
         let params = obj["parameters"] as? [String: Any] ?? obj["arguments"] as? [String: Any] ?? [:]
         return ToolCall(name: name, parameters: params)
     }
