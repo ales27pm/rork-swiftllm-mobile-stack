@@ -3,23 +3,12 @@ import Foundation
 struct ToolCallParser {
     static let toolCallPattern = #"<tool_call>\s*(\{.*?\})\s*</tool_call>"#
     static let functionCallPattern = #"\[TOOL_CALL\]\s*(\{.*?\})\s*\[/TOOL_CALL\]"#
+    static let batchedToolCallsPattern = #"<tool_calls>\s*(.*?)\s*</tool_calls>"#
     static let jsonCallPattern = #"\{"name"\s*:\s*"([^"]+)"\s*,\s*"parameters"\s*:\s*(\{.*?\})\}"#
 
     static func parse(from text: String) -> [ToolCall] {
-        var calls: [ToolCall] = []
-
-        let patterns = [toolCallPattern, functionCallPattern]
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { continue }
-            let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
-            for match in matches {
-                guard let jsonRange = Range(match.range(at: 1), in: text) else { continue }
-                let jsonStr = String(text[jsonRange])
-                if let call = parseJSON(jsonStr) {
-                    calls.append(call)
-                }
-            }
-        }
+        var calls = extractSingleCalls(from: text)
+        calls.append(contentsOf: extractBatchedCalls(from: text))
 
         if calls.isEmpty {
             if let regex = try? NSRegularExpression(pattern: jsonCallPattern, options: [.dotMatchesLineSeparators]) {
@@ -37,14 +26,15 @@ struct ToolCallParser {
             }
         }
 
-        return calls
+        return deduplicated(calls)
     }
 
     static func stripToolCalls(from text: String) -> String {
         var result = text
         let patterns = [
             #"<tool_call>\s*\{.*?\}\s*</tool_call>"#,
-            #"\[TOOL_CALL\]\s*\{.*?\}\s*\[/TOOL_CALL\]"#
+            #"\[TOOL_CALL\]\s*\{.*?\}\s*\[/TOOL_CALL\]"#,
+            #"<tool_calls>\s*.*?\s*</tool_calls>"#
         ]
         for pattern in patterns {
             guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { continue }
@@ -65,6 +55,101 @@ struct ToolCallParser {
 
         let params = obj["parameters"] as? [String: Any] ?? obj["arguments"] as? [String: Any] ?? [:]
         return ToolCall(name: name, parameters: params)
+    }
+
+    private static func extractSingleCalls(from text: String) -> [ToolCall] {
+        var calls: [ToolCall] = []
+        let patterns = [toolCallPattern, functionCallPattern]
+
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { continue }
+            let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for match in matches {
+                guard let jsonRange = Range(match.range(at: 1), in: text) else { continue }
+                let jsonStr = String(text[jsonRange])
+                if let call = parseJSON(jsonStr) {
+                    calls.append(call)
+                }
+            }
+        }
+
+        return calls
+    }
+
+    private static func extractBatchedCalls(from text: String) -> [ToolCall] {
+        guard let regex = try? NSRegularExpression(pattern: batchedToolCallsPattern, options: [.dotMatchesLineSeparators]) else {
+            return []
+        }
+
+        var calls: [ToolCall] = []
+        let matches = regex.matches(in: text, range: NSRange(text.startIndex..., in: text))
+        for match in matches {
+            guard let jsonRange = Range(match.range(at: 1), in: text) else { continue }
+            let rawPayload = String(text[jsonRange])
+            guard let payload = parseBatchedPayload(rawPayload) else { continue }
+
+            for entry in payload {
+                guard let name = entry["name"] as? String,
+                      DeviceToolName(rawValue: name) != nil else { continue }
+                let params = entry["parameters"] as? [String: Any] ?? entry["arguments"] as? [String: Any] ?? [:]
+                calls.append(ToolCall(name: name, parameters: params))
+            }
+        }
+        return calls
+    }
+
+
+    private static func parseBatchedPayload(_ rawPayload: String) -> [[String: Any]]? {
+        if let direct = parseJSONArray(rawPayload) {
+            return direct
+        }
+
+        // Be tolerant if the payload contains extra text around the JSON array.
+        guard let start = rawPayload.firstIndex(of: "["),
+              let end = rawPayload.lastIndex(of: "]"),
+              start <= end else {
+            return nil
+        }
+
+        let candidate = String(rawPayload[start...end])
+        return parseJSONArray(candidate)
+    }
+
+    private static func parseJSONArray(_ text: String) -> [[String: Any]]? {
+        guard let data = text.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return nil
+        }
+        return payload
+    }
+
+    private static func deduplicated(_ calls: [ToolCall]) -> [ToolCall] {
+        var seen: Set<String> = []
+        var unique: [ToolCall] = []
+
+        for call in calls {
+            let signature = "\(call.name)::\(serializedParams(call.parameters))"
+            guard !seen.contains(signature) else { continue }
+            seen.insert(signature)
+            unique.append(call)
+        }
+
+        return unique
+    }
+
+    private static func serializedParams(_ params: [String: Any]) -> String {
+        if JSONSerialization.isValidJSONObject(params),
+           let data = try? JSONSerialization.data(withJSONObject: params, options: [.sortedKeys]),
+           let json = String(data: data, encoding: .utf8) {
+            return json
+        }
+
+        // Fallback keeps malformed/non-JSON values distinct for deduping.
+        let pairs = params.keys.sorted().map { key in
+            let valueDescription = String(describing: params[key] ?? NSNull())
+            return "\(key)=\(valueDescription)"
+        }
+        return pairs.joined(separator: "|")
     }
 
     private static func parseParams(_ str: String) -> [String: Any] {
