@@ -301,6 +301,13 @@ class ChatViewModel {
     }
 
     private func finalizeResponse(assistantIndex: Int, userText: String) {
+        let composedResponse = LocationResponseComposer.composeResponseIfNeeded(
+            userText: userText,
+            assistantDraft: messages[assistantIndex].content,
+            messages: messages
+        )
+        messages[assistantIndex].content = composedResponse
+
         if let convId = currentConversationId {
             conversationService.saveMessage(messages[assistantIndex], conversationId: convId)
 

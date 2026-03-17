@@ -96,7 +96,12 @@ class ToolExecutor: NSObject {
 
         guard locationManager.authorizationStatus == .authorizedWhenInUse ||
               locationManager.authorizationStatus == .authorizedAlways else {
-            return ToolResult(toolName: "get_location", success: false, data: "Location permission not granted", displayIcon: "location.slash.fill")
+            return ToolResult(
+                toolName: "get_location",
+                success: false,
+                data: #"{"permissionGranted":false,"error":"location_permission_not_granted"}"#,
+                displayIcon: "location.slash.fill"
+            )
         }
 
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
@@ -108,7 +113,12 @@ class ToolExecutor: NSObject {
         }
 
         guard let location else {
-            return ToolResult(toolName: "get_location", success: false, data: "Could not determine location", displayIcon: "location.slash.fill")
+            return ToolResult(
+                toolName: "get_location",
+                success: false,
+                data: #"{"permissionGranted":true,"error":"no_location_signal"}"#,
+                displayIcon: "location.slash.fill"
+            )
         }
 
         let geocoder = CLGeocoder()
@@ -119,8 +129,11 @@ class ToolExecutor: NSObject {
             address = parts.joined(separator: ", ")
         }
 
+        let confidence = max(0.0, min(1.0, 1 - (location.horizontalAccuracy / 500)))
+        let timestamp = ISO8601DateFormatter().string(from: location.timestamp)
+        let escapedAddress = address.replacingOccurrences(of: "\"", with: "\\\"")
         let data = """
-        {"latitude": \(location.coordinate.latitude), "longitude": \(location.coordinate.longitude), "altitude": \(location.altitude), "accuracy": \(location.horizontalAccuracy), "address": "\(address)"}
+        {"latitude": \(location.coordinate.latitude), "longitude": \(location.coordinate.longitude), "altitude": \(location.altitude), "accuracy": \(location.horizontalAccuracy), "address": "\(escapedAddress)", "timestamp": "\(timestamp)", "permissionGranted": true, "source": "core_location", "confidence": \(confidence)}
         """
         return ToolResult(toolName: "get_location", success: true, data: data, displayIcon: "location.fill")
     }
