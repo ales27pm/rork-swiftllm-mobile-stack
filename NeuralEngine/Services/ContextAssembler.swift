@@ -229,6 +229,27 @@ struct ContextAssembler {
         return parts.joined(separator: "\n")
     }
 
+    private static let recentUserLocationWindow = 3
+    private static let locationCues = [
+        "location", "located", "position", "coordinate", "coords",
+        "latitude", "longitude", "lat", "lng", "where am i", "real position"
+    ]
+    private static let explicitCoordinateRegex = try? NSRegularExpression(
+        pattern: #"\(?\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*\)?"#
+    )
+    private static let latitudeLabelRegex = try? NSRegularExpression(
+        pattern: #"(?:latitude|lat)\s*[:=]?\s*(-?\d{1,2}(?:\.\d+)?)"#,
+        options: [.caseInsensitive]
+    )
+    private static let longitudeLabelRegex = try? NSRegularExpression(
+        pattern: #"(?:longitude|lon|lng)\s*[:=]?\s*(-?\d{1,3}(?:\.\d+)?)"#,
+        options: [.caseInsensitive]
+    )
+    private static let freshGPSRequestRegex = try? NSRegularExpression(
+        pattern: #"(fresh|new|re-?check|update|current).{0,20}(gps|location)|\b(use|check)\s+(device\s+)?gps\b"#,
+        options: [.caseInsensitive]
+    )
+
     private static func buildConversationSummary(history: [Message]) -> String {
         let userMessages = history.filter { $0.role == .user }
         let assistantMessages = history.filter { $0.role == .assistant && !$0.isToolExecution }
@@ -248,8 +269,21 @@ struct ContextAssembler {
     }
 
     private static func buildUserProvidedLocationOverride(history: [Message]) -> String {
-        let userMessages = history.filter { $0.role == .user }
-        guard let latestCoordinates = userMessages.reversed().compactMap(extractCoordinates).first else {
+        let recentUserMessages = history
+            .filter { $0.role == .user }
+            .suffix(recentUserLocationWindow)
+
+        guard !recentUserMessages.isEmpty else {
+            return ""
+        }
+
+        if let latestMessage = recentUserMessages.last,
+           requestsFreshGPSCheck(latestMessage),
+           extractCoordinates(from: latestMessage) == nil {
+            return ""
+        }
+
+        guard let latestCoordinates = recentUserMessages.reversed().compactMap(extractCoordinates).first else {
             return ""
         }
 
@@ -261,41 +295,90 @@ struct ContextAssembler {
     }
 
     private static func extractCoordinates(from message: Message) -> (latitude: String, longitude: String)? {
+        if let explicit = extractCoordinatePair(using: explicitCoordinateRegex, from: message.content) {
+            return explicit
+        }
+
+        if let labeled = extractLabeledCoordinates(from: message.content) {
+            return labeled
+        }
+
         let lowered = message.content.lowercased()
-        let locationCues = ["location", "located", "position", "coordinate", "coords", "latitude", "longitude", "lat", "lng", "where am i", "real position"]
         guard locationCues.contains(where: lowered.contains) else {
             return nil
         }
 
-        let pattern = #"\(?\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*\)?"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        return extractCoordinatePair(using: explicitCoordinateRegex, from: message.content)
+    }
+
+    private static func extractCoordinatePair(using regex: NSRegularExpression?, from text: String) -> (latitude: String, longitude: String)? {
+        guard let regex else {
             return nil
         }
 
-        let range = NSRange(message.content.startIndex..., in: message.content)
-        let matches = regex.matches(in: message.content, options: [], range: range)
+        let range = NSRange(text.startIndex..., in: text)
+        let matches = regex.matches(in: text, options: [], range: range)
 
         for match in matches.reversed() {
-            guard match.numberOfRanges == 3,
-                  let latRange = Range(match.range(at: 1), in: message.content),
-                  let lonRange = Range(match.range(at: 2), in: message.content) else {
+            guard match.numberOfRanges >= 3,
+                  let latRange = Range(match.range(at: 1), in: text),
+                  let lonRange = Range(match.range(at: 2), in: text) else {
                 continue
             }
 
-            let latitude = String(message.content[latRange])
-            let longitude = String(message.content[lonRange])
+            let latitude = String(text[latRange])
+            let longitude = String(text[lonRange])
 
-            guard let latValue = Double(latitude),
-                  let lonValue = Double(longitude),
-                  (-90...90).contains(latValue),
-                  (-180...180).contains(lonValue) else {
-                continue
+            if isValidCoordinatePair(latitude: latitude, longitude: longitude) {
+                return (latitude, longitude)
             }
-
-            return (latitude, longitude)
         }
 
         return nil
+    }
+
+    private static func extractLabeledCoordinates(from text: String) -> (latitude: String, longitude: String)? {
+        guard let latRegex = latitudeLabelRegex,
+              let lonRegex = longitudeLabelRegex else {
+            return nil
+        }
+
+        let range = NSRange(text.startIndex..., in: text)
+        guard let latMatch = latRegex.firstMatch(in: text, options: [], range: range),
+              let lonMatch = lonRegex.firstMatch(in: text, options: [], range: range),
+              let latRange = Range(latMatch.range(at: 1), in: text),
+              let lonRange = Range(lonMatch.range(at: 1), in: text) else {
+            return nil
+        }
+
+        let latitude = String(text[latRange])
+        let longitude = String(text[lonRange])
+
+        guard isValidCoordinatePair(latitude: latitude, longitude: longitude) else {
+            return nil
+        }
+
+        return (latitude, longitude)
+    }
+
+    private static func isValidCoordinatePair(latitude: String, longitude: String) -> Bool {
+        guard let latValue = Double(latitude),
+              let lonValue = Double(longitude),
+              (-90...90).contains(latValue),
+              (-180...180).contains(lonValue) else {
+            return false
+        }
+
+        return true
+    }
+
+    private static func requestsFreshGPSCheck(_ message: Message) -> Bool {
+        guard let freshGPSRequestRegex else {
+            return false
+        }
+
+        let range = NSRange(message.content.startIndex..., in: message.content)
+        return freshGPSRequestRegex.firstMatch(in: message.content, options: [], range: range) != nil
     }
 
     private static func buildVoiceModeAddendum() -> String {
