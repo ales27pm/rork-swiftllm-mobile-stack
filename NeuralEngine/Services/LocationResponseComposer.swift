@@ -121,6 +121,7 @@ private extension LocationResponseComposer {
         let address: String?
         let timestamp: Date?
         let permissionGranted: Bool
+        
         let source: String?
         let confidence: Double?
     }
