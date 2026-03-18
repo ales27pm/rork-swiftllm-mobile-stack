@@ -5,6 +5,17 @@ import os.log
 
 @Observable
 class SpeechRecognitionService: NSObject {
+    private enum SpeechRecognitionError: LocalizedError {
+        case microphoneInputUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .microphoneInputUnavailable:
+                return "Microphone input unavailable"
+            }
+        }
+    }
+
     private static let supportedLocales: [(originalIdentifier: String, normalizedIdentifier: String)] =
         SFSpeechRecognizer.supportedLocales()
             .map { locale in
@@ -173,6 +184,17 @@ class SpeechRecognitionService: NSObject {
 
         resetAudioEngine()
 
+        let inputNode = audioEngine.inputNode
+        let hardwareFormat = inputNode.inputFormat(forBus: 0)
+        guard hardwareFormat.channelCount > 0, hardwareFormat.sampleRate > 0 else {
+            logger.error("Invalid hardware input format for speech recognition tap. Channels: \(hardwareFormat.channelCount), sample rate: \(hardwareFormat.sampleRate, privacy: .public)")
+            stopListening()
+            let microphoneError = SpeechRecognitionError.microphoneInputUnavailable
+            error = microphoneError.localizedDescription
+            throw microphoneError
+        }
+        let tapFormat = inputNode.outputFormat(forBus: 0)
+
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         guard let recognitionRequest else { return }
 
@@ -183,50 +205,43 @@ class SpeechRecognitionService: NSObject {
         }
 
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, taskError in
-            guard let self else { return }
+            DispatchQueue.main.async {
+                guard let self else { return }
 
-            if let result {
-                self.transcript = result.bestTranscription.formattedString
-                self.lastSpeechTime = Date()
+                if let result {
+                    self.transcript = result.bestTranscription.formattedString
+                    self.lastSpeechTime = Date()
 
-                if !self.isSpeechDetected {
-                    self.isSpeechDetected = true
-                    self.speechStartTime = Date()
-                }
+                    if !self.isSpeechDetected {
+                        self.isSpeechDetected = true
+                        self.speechStartTime = Date()
+                    }
 
-                self.updateDynamicSilenceDuration()
+                    self.updateDynamicSilenceDuration()
 
-                if result.isFinal {
-                    self.stopListening()
-                    self.onSilenceDetected?()
-                }
-            }
-
-            if let taskError {
-                let nsError = taskError as NSError
-                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
-                    if !self.transcript.isEmpty {
+                    if result.isFinal {
+                        self.stopListening()
                         self.onSilenceDetected?()
-                    } else {
+                    }
+                }
+
+                if let taskError {
+                    let nsError = taskError as NSError
+                    if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
+                        if !self.transcript.isEmpty {
+                            self.onSilenceDetected?()
+                        } else {
+                            self.stopListening()
+                        }
+                    } else if nsError.code != 216 {
+                        self.error = taskError.localizedDescription
                         self.stopListening()
                     }
-                } else if nsError.code != 216 {
-                    self.error = taskError.localizedDescription
-                    self.stopListening()
                 }
             }
         }
 
-        let inputNode = audioEngine.inputNode
-        let inputFormat = inputNode.inputFormat(forBus: 0)
-        guard inputFormat.channelCount > 0, inputFormat.sampleRate > 0 else {
-            logger.error("Invalid input format for speech recognition tap. Channels: \(inputFormat.channelCount), sample rate: \(inputFormat.sampleRate, privacy: .public)")
-            stopListening()
-            error = "Microphone input unavailable"
-            return
-        }
-
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: tapFormat) { [weak self] buffer, _ in
             self?.recognitionRequest?.append(buffer)
             self?.processAudioLevel(buffer: buffer)
         }
@@ -240,6 +255,7 @@ class SpeechRecognitionService: NSObject {
         } catch {
             logger.error("Failed to start audio engine for speech recognition: \(error.localizedDescription, privacy: .public)")
             stopListening()
+            self.error = error.localizedDescription
             throw error
         }
     }
@@ -248,16 +264,7 @@ class SpeechRecognitionService: NSObject {
         silenceTimer?.invalidate()
         silenceTimer = nil
 
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-
-        if isInputTapInstalled {
-            audioEngine.inputNode.removeTap(onBus: 0)
-            isInputTapInstalled = false
-        }
-
-        audioEngine.reset()
+        resetAudioEngine()
 
         recognitionRequest?.endAudio()
         recognitionRequest = nil
