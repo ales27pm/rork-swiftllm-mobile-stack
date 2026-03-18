@@ -118,7 +118,7 @@ class ModelLoaderService {
                 repoID: "bartowski/Dolphin3.0-Llama3.2-3B-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "Dolphin3.0-Llama3.2-3B-Q4_K_M.gguf",
-                checksum: "f22d27da16ddd1ee374c4ece362c3ea177f3a2272eec19458921831781ad4345",
+                checksum: "5d6d02eeefa1ab5dbf23f97afdf5c2c95ad3d946dc3b6e9ab72e6c1637d54177",
                 isDraft: false,
                 format: .gguf,
                 recommendation: ModelRecommendation(
@@ -292,7 +292,7 @@ class ModelLoaderService {
                 repoID: "HuggingFaceTB/SmolLM2-360M-Instruct-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "smollm2-360m-instruct-q8_0.gguf",
-                checksum: "8984394569a035f54547b90ad7b351656dd289c45808377dd2d0cf644a248a79",
+                checksum: "48ab3034d0dd401fbc721eb1df3217902fee7dab9078992d66431f09b7750201",
                 isDraft: false,
                 format: .gguf
             ),
@@ -308,7 +308,7 @@ class ModelLoaderService {
                 repoID: "HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "smollm2-1.7b-instruct-q4_k_m.gguf",
-                checksum: "697ef022637a26165cd8fdf936f4b7df15cff6c0a29430d8a9b16bfc0ee067e6",
+                checksum: "decd2598bc2c8ed08c19adc3c8fdd461ee19ed5708679d1c54ef54a5a30d4f33",
                 isDraft: false,
                 format: .gguf
             ),
@@ -324,7 +324,7 @@ class ModelLoaderService {
                 repoID: "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-                checksum: "6ca5463cf24c16cd56d7ad7461524d813b07b3f29889b2fbdbb8286a7e97a14a",
+                checksum: "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
                 isDraft: false,
                 format: .gguf
             ),
@@ -340,7 +340,7 @@ class ModelLoaderService {
                 repoID: "bartowski/Llama-3.2-3B-Instruct-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-                checksum: "4cb1444f81355e47d236ada8190f0325ce46412a83f3ab62a1d63bb314592ebc",
+                checksum: "6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff",
                 isDraft: false,
                 format: .gguf
             ),
@@ -356,7 +356,7 @@ class ModelLoaderService {
                 repoID: "bartowski/Phi-3.5-mini-instruct-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "Phi-3.5-mini-instruct-Q4_K_M.gguf",
-                checksum: "216e0385d8d2da14827e44b4482f0d2885e041d99bb1103c60092eedd2da1284",
+                checksum: "e4165e3a71af97f1b4820da61079826d8752a2088e313af0c7d346796c38eff5",
                 isDraft: false,
                 format: .gguf
             ),
@@ -372,7 +372,7 @@ class ModelLoaderService {
                 repoID: "bartowski/Dolphin3.0-Qwen2.5-1.5B-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "Dolphin3.0-Qwen2.5-1.5B-Q4_K_M.gguf",
-                checksum: "7f24545160f310f9de1154b154b7b2997a141ee859c0faf06d675ce612d27927",
+                checksum: "7caa630a60c8831a509e2663e1761355fa24bcf6ccc03e3cc767e5b5747a3be5",
                 isDraft: false,
                 format: .gguf,
                 recommendation: ModelRecommendation(
@@ -393,7 +393,7 @@ class ModelLoaderService {
                 repoID: "bartowski/Dolphin3.0-Qwen2.5-1.5B-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "Dolphin3.0-Qwen2.5-1.5B-Q8_0.gguf",
-                checksum: "9342a07d40d4387cad6d7692d7e5f2581466166568a0e3811a8eb55bd2b6f989",
+                checksum: "a6e0e6f801428a083b39a25897a08eee3ab8a0f091573299c53d8f85cc8b3e04",
                 isDraft: false,
                 format: .gguf
             ),
@@ -409,7 +409,7 @@ class ModelLoaderService {
                 repoID: "bartowski/gemma-2-2b-it-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "gemma-2-2b-it-Q4_K_M.gguf",
-                checksum: "90f9c2316393fb452b47988ffa7a411f0891e2c1a7178ae868ac4f70f96f7c8d",
+                checksum: "e0aee85060f168f0f2d8473d7ea41ce2f3230c1bc1374847505ea599288a7787",
                 isDraft: false,
                 format: .gguf
             )
