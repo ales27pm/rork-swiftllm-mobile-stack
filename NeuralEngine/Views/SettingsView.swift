@@ -6,14 +6,10 @@ struct SettingsView: View {
     @Bindable var speechViewModel: SpeechViewModel
     let thermalGovernor: ThermalGovernor
 
-    @State private var temperature: Double = 0.8
-    @State private var topK: Double = 40
-    @State private var topP: Double = 0.95
-    @State private var repetitionPenalty: Double = 1.1
-    @State private var maxTokens: Double = 2048
+    @State private var draftSampling = SamplingDraft()
     @State private var hfToken: String = ""
-    @State private var isTokenVisible: Bool = false
-    @State private var tokenSaved: Bool = false
+    @State private var isTokenVisible = false
+    @State private var tokenSaveState: TokenSaveState = .idle
     @State private var selectedSpeechLanguageCode: String?
     @State private var selectedSpeechVoiceIdentifier: String?
 
@@ -22,73 +18,182 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            hfTokenSection
-            toolsSection
-            samplingSection
+            overviewSection
+            modelBehaviorSection
             systemPromptSection
-            runtimeSection
+            toolsSection
             speechSection
-            aboutSection
+            accessSection
+            runtimeSection
+            engineSection
         }
         .navigationTitle(AppStrings.settingsTitle)
         .navigationBarTitleDisplayMode(.large)
-        .onAppear { loadConfig() }
+        .onAppear(perform: loadConfig)
+        .onChange(of: chatViewModel.systemPrompt) { _, _ in
+            chatViewModel.saveSettings()
+        }
     }
 
     private func loadConfig() {
-        temperature = Double(chatViewModel.samplingConfig.temperature)
-        topK = Double(chatViewModel.samplingConfig.topK)
-        topP = Double(chatViewModel.samplingConfig.topP)
-        repetitionPenalty = Double(chatViewModel.samplingConfig.repetitionPenalty)
-        maxTokens = Double(chatViewModel.samplingConfig.maxTokens)
+        draftSampling = SamplingDraft(config: chatViewModel.samplingConfig)
         hfToken = secureStore.getString(hfTokenKey) ?? ""
         selectedSpeechLanguageCode = speechViewModel.selectedSpeechLanguageCode
         selectedSpeechVoiceIdentifier = speechViewModel.selectedSpeechVoiceIdentifier
     }
 
-    private func syncConfig() {
-        chatViewModel.samplingConfig.temperature = Float(temperature)
-        chatViewModel.samplingConfig.topK = Int(topK)
-        chatViewModel.samplingConfig.topP = Float(topP)
-        chatViewModel.samplingConfig.repetitionPenalty = Float(repetitionPenalty)
-        chatViewModel.samplingConfig.maxTokens = Int(maxTokens)
+    private func applySamplingChanges() {
+        chatViewModel.samplingConfig = draftSampling.makeConfig()
         chatViewModel.saveSettings()
     }
 
-    private var samplingSection: some View {
+    private func saveToken() {
+        let trimmedToken = hfToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let didPersist: Bool
+
+        if trimmedToken.isEmpty {
+            secureStore.delete(hfTokenKey)
+            hfToken = ""
+            didPersist = true
+        } else {
+            didPersist = secureStore.setString(trimmedToken, forKey: hfTokenKey)
+            if didPersist {
+                hfToken = trimmedToken
+            }
+        }
+
+        tokenSaveState = didPersist ? .saved : .failed
+
+        guard didPersist else { return }
+
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            if tokenSaveState == .saved {
+                tokenSaveState = .idle
+            }
+        }
+    }
+
+    private var overviewSection: some View {
         Section {
-            sliderRow(title: AppStrings.temperature, value: $temperature, range: 0...2, step: 0.05, format: "%.2f")
-            sliderRow(title: AppStrings.topK, value: $topK, range: 1...100, step: 1, format: "%.0f")
-            sliderRow(title: AppStrings.topP, value: $topP, range: 0...1, step: 0.05, format: "%.2f")
-            sliderRow(title: AppStrings.repetitionPenalty, value: $repetitionPenalty, range: 1...2, step: 0.05, format: "%.2f")
-            sliderRow(title: AppStrings.maxTokens, value: $maxTokens, range: 128...8192, step: 128, format: "%.0f")
+            statusRow(
+                title: "Runtime Mode",
+                subtitle: runtimeSummaryText,
+                icon: thermalGovernor.currentMode.icon,
+                tint: runtimeAccentColor
+            )
+
+            statusRow(
+                title: "Speech",
+                subtitle: speechSummaryText,
+                icon: "waveform",
+                tint: .blue
+            )
+
+            statusRow(
+                title: "Tools",
+                subtitle: chatViewModel.toolsEnabled ? "Device capabilities are available during chat." : "Tool calling is disabled for generation.",
+                icon: chatViewModel.toolsEnabled ? "hammer.fill" : "hammer",
+                tint: chatViewModel.toolsEnabled ? .orange : .secondary
+            )
         } header: {
-            Label(AppStrings.samplingTitle, systemImage: "slider.horizontal.3")
+            Label("Overview", systemImage: "slider.horizontal.below.rectangle")
+        } footer: {
+            Text("Review the current assistant configuration before changing generation, speech, or device access behavior.")
+        }
+    }
+
+    private var modelBehaviorSection: some View {
+        Section {
+            samplingControl(
+                title: AppStrings.temperature,
+                description: "Balances determinism versus creativity.",
+                value: $draftSampling.temperature,
+                range: 0...2,
+                step: 0.05,
+                format: "%.2f"
+            )
+            samplingControl(
+                title: AppStrings.topK,
+                description: "Limits the number of tokens considered at each step.",
+                value: $draftSampling.topK,
+                range: 1...100,
+                step: 1,
+                format: "%.0f"
+            )
+            samplingControl(
+                title: AppStrings.topP,
+                description: "Narrows token selection using cumulative probability.",
+                value: $draftSampling.topP,
+                range: 0...1,
+                step: 0.05,
+                format: "%.2f"
+            )
+            samplingControl(
+                title: AppStrings.repetitionPenalty,
+                description: "Discourages repeated phrasing across long outputs.",
+                value: $draftSampling.repetitionPenalty,
+                range: 1...2,
+                step: 0.05,
+                format: "%.2f"
+            )
+            samplingControl(
+                title: AppStrings.maxTokens,
+                description: "Caps the maximum assistant response length.",
+                value: $draftSampling.maxTokens,
+                range: 128...8192,
+                step: 128,
+                format: "%.0f"
+            )
+        } header: {
+            Label("Model Behavior", systemImage: "dial.high")
         } footer: {
             Text(AppStrings.samplingFooter)
         }
     }
 
-    private func sliderRow(title: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double, format: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(title)
+    private func samplingControl(
+        title: String,
+        description: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        step: Double,
+        format: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.headline)
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 Text(String(format: format, value.wrappedValue))
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+
             Slider(value: value, in: range, step: step) { _ in
-                syncConfig()
+                applySamplingChanges()
             }
         }
+        .padding(.vertical, 4)
     }
 
     private var systemPromptSection: some View {
         Section {
-            TextEditor(text: $chatViewModel.systemPrompt)
-                .font(.subheadline)
-                .frame(minHeight: 100)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Assistant Instructions")
+                    .font(.headline)
+                Text("This prompt is prepended to every conversation and shapes the assistant’s voice, safety, and priorities.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextEditor(text: $chatViewModel.systemPrompt)
+                    .font(.subheadline)
+                    .frame(minHeight: 140)
+            }
         } header: {
             Label(AppStrings.systemPromptTitle, systemImage: "text.quote")
         } footer: {
@@ -96,138 +201,60 @@ struct SettingsView: View {
         }
     }
 
-    private var runtimeSection: some View {
-        Section {
-            runtimeRow(label: AppStrings.thermalState, icon: "thermometer.medium", value: thermalGovernor.thermalLevel.rawValue)
-            runtimeRow(label: AppStrings.runtimeMode, icon: thermalGovernor.currentMode.icon, value: thermalGovernor.currentMode.rawValue)
-            specRow
-            runtimeRow(label: AppStrings.maxDraftTokens, icon: "number", value: "\(thermalGovernor.currentMode.maxDraftTokens)")
-        } header: {
-            Label(AppStrings.runtimeTitle, systemImage: "cpu")
-        } footer: {
-            Text(AppStrings.runtimeFooter)
-        }
-    }
-
-    private func runtimeRow(label: String, icon: String, value: String) -> some View {
-        HStack {
-            Label(label, systemImage: icon)
-            Spacer()
-            Text(value)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var specRow: some View {
-        HStack {
-            Label(AppStrings.speculativeDecoding, systemImage: "bolt.fill")
-            Spacer()
-            Text(thermalGovernor.currentMode.speculativeEnabled ? AppStrings.enabled : AppStrings.disabled)
-                .foregroundStyle(thermalGovernor.currentMode.speculativeEnabled ? .green : .secondary)
-        }
-    }
-
-    private var hfTokenSection: some View {
-        Section {
-            HStack(spacing: 12) {
-                Image(systemName: "key.fill")
-                    .foregroundStyle(.orange)
-                    .frame(width: 24)
-                if isTokenVisible {
-                    TextField("hf_...", text: $hfToken)
-                        .font(.subheadline.monospaced())
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                } else {
-                    SecureField("hf_...", text: $hfToken)
-                        .font(.subheadline.monospaced())
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                }
-                Button {
-                    isTokenVisible.toggle()
-                } label: {
-                    Image(systemName: isTokenVisible ? "eye.slash" : "eye")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            Button {
-                if hfToken.isEmpty {
-                    secureStore.delete(hfTokenKey)
-                } else {
-                    _ = secureStore.setString(hfToken, forKey: hfTokenKey)
-                }
-                tokenSaved = true
-                Task {
-                    try? await Task.sleep(for: .seconds(2))
-                    tokenSaved = false
-                }
-            } label: {
-                HStack {
-                    Spacer()
-                    Label(tokenSaved ? "Saved" : "Save Token", systemImage: tokenSaved ? "checkmark.circle.fill" : "square.and.arrow.down")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(tokenSaved ? .green : .accentColor)
-                    Spacer()
-                }
-            }
-            .disabled(tokenSaved)
-        } header: {
-            Label("Hugging Face", systemImage: "server.rack")
-        } footer: {
-            Text("Required to download gated models. Get your token at huggingface.co/settings/tokens.")
-        }
-    }
-
     private var toolsSection: some View {
         Section {
             Toggle(isOn: Binding(
                 get: { chatViewModel.toolsEnabled },
-                set: { chatViewModel.toolsEnabled = $0; chatViewModel.saveSettings() }
+                set: {
+                    chatViewModel.toolsEnabled = $0
+                    chatViewModel.saveSettings()
+                }
             )) {
-                Label("Device Tools", systemImage: "wrench.and.screwdriver.fill")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Device Tool Calling")
+                    Text("Allow the assistant to use on-device capabilities when a conversation requires them.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if chatViewModel.toolsEnabled {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(toolCategories.keys.sorted()), id: \.self) { category in
-                        HStack(spacing: 6) {
-                            Image(systemName: toolCategories[category] ?? "circle")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                                .frame(width: 20)
-                            Text(category)
+                ForEach(SettingsToolCategory.defaults) { category in
+                    HStack(spacing: 12) {
+                        Image(systemName: category.icon)
+                            .foregroundStyle(.orange)
+                            .frame(width: 22)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(category.title)
+                            Text(category.description)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
+                    .padding(.vertical, 2)
                 }
-                .padding(.vertical, 4)
             }
         } header: {
-            Label("Tool Calling", systemImage: "hammer.fill")
+            Label("Tools", systemImage: "hammer.fill")
         } footer: {
-            Text("When enabled, the AI can access device capabilities like location, battery, calendar, contacts, and more through natural conversation.")
+            Text("Disable tool calling when you want pure text-only inference without using device integrations.")
         }
     }
 
-    private var toolCategories: [String: String] {
-        [
-            "Location & Maps": "location.fill",
-            "Battery & Device": "battery.100percent",
-            "Calendar & Events": "calendar",
-            "Contacts": "person.2.fill",
-            "Notifications": "bell.fill",
-            "Screen & Haptics": "sun.max.fill",
-            "Sharing & Messaging": "square.and.arrow.up",
-            "Date & Time": "clock.fill"
-        ]
-    }
-
-
     private var speechSection: some View {
         Section {
+            Toggle(isOn: Binding(
+                get: { speechViewModel.isAutoListenEnabled },
+                set: { speechViewModel.isAutoListenEnabled = $0 }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto-Listen")
+                    Text("Resume listening automatically after spoken responses complete.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Picker("Speech Language", selection: $selectedSpeechLanguageCode) {
                 Text("System Default")
                     .tag(Optional<String>.none)
@@ -239,7 +266,6 @@ struct SettingsView: View {
             }
             .onChange(of: selectedSpeechLanguageCode) { _, newValue in
                 speechViewModel.updateSpeechLanguage(code: newValue)
-
                 selectedSpeechVoiceIdentifier = nil
                 speechViewModel.updateSpeechVoice(identifier: nil)
             }
@@ -249,16 +275,8 @@ struct SettingsView: View {
                     .tag(Optional<String>.none)
 
                 ForEach(speechViewModel.speechVoices(for: selectedSpeechLanguageCode), id: \.identifier) { voice in
-                    HStack {
-                        Text(voice.displayName)
-                        Spacer()
-                        if let badge = qualityLabel(for: voice.quality) {
-                            Text(badge)
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .tag(Optional(voice.identifier))
+                    Text(voiceRowLabel(for: voice))
+                        .tag(Optional(voice.identifier))
                 }
             }
             .onChange(of: selectedSpeechVoiceIdentifier) { _, newValue in
@@ -269,6 +287,168 @@ struct SettingsView: View {
         } footer: {
             Text("Language and voice changes apply to speech output, speech recognition input, and voice-mode replies.")
         }
+    }
+
+    private var accessSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    Image(systemName: "key.fill")
+                        .foregroundStyle(.orange)
+                        .frame(width: 24)
+
+                    Group {
+                        if isTokenVisible {
+                            TextField("hf_...", text: $hfToken)
+                        } else {
+                            SecureField("hf_...", text: $hfToken)
+                        }
+                    }
+                    .font(.subheadline.monospaced())
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+
+                    Button {
+                        isTokenVisible.toggle()
+                    } label: {
+                        Image(systemName: isTokenVisible ? "eye.slash" : "eye")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button(action: saveToken) {
+                    HStack {
+                        Spacer()
+                        Label(tokenSaveState.buttonTitle, systemImage: tokenSaveState.buttonIcon)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(tokenSaveState.buttonColor)
+                        Spacer()
+                    }
+                }
+                .disabled(tokenSaveState == .saved)
+
+                if tokenSaveState == .failed {
+                    Text("The token could not be saved securely. Try again after checking device keychain availability.")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+        } header: {
+            Label("Access", systemImage: "server.rack")
+        } footer: {
+            Text("A Hugging Face token is only required for downloading gated models. Generate one at huggingface.co/settings/tokens.")
+        }
+    }
+
+    private var runtimeSection: some View {
+        Section {
+            runtimeMetricRow(title: AppStrings.thermalState, value: thermalGovernor.thermalLevel.rawValue, icon: "thermometer.medium", tint: thermalAccentColor)
+            runtimeMetricRow(title: AppStrings.runtimeMode, value: thermalGovernor.currentMode.rawValue, icon: thermalGovernor.currentMode.icon, tint: runtimeAccentColor)
+            runtimeMetricRow(title: AppStrings.maxDraftTokens, value: "\(thermalGovernor.currentMode.maxDraftTokens)", icon: "number", tint: .blue)
+            runtimeMetricRow(title: AppStrings.speculativeDecoding, value: thermalGovernor.currentMode.speculativeEnabled ? AppStrings.enabled : AppStrings.disabled, icon: "bolt.fill", tint: thermalGovernor.currentMode.speculativeEnabled ? .green : .secondary)
+            runtimeMetricRow(title: "Memory Pressure", value: thermalGovernor.memoryPressureLevel.rawValue.capitalized, icon: "memorychip", tint: .purple)
+            runtimeMetricRow(title: "Current Memory", value: String(format: "%.0f MB", thermalGovernor.currentMemoryUsageMB), icon: "internaldrive", tint: .teal)
+        } header: {
+            Label(AppStrings.runtimeTitle, systemImage: "cpu")
+        } footer: {
+            Text("Runtime mode adapts automatically from thermal and memory conditions, so these values are read-only diagnostics.")
+        }
+    }
+
+    private func runtimeMetricRow(title: String, value: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .foregroundStyle(tint)
+                .frame(width: 22)
+            Text(title)
+            Spacer()
+            Text(value)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private var engineSection: some View {
+        Section {
+            aboutRow(label: "Backends", value: "CoreML + llama.cpp (GGUF)")
+            aboutRow(label: "Architecture", value: "Split Prefill / Decode + Paged KV")
+            aboutRow(label: "KV Cache", value: "Paged Arena (128 tokens / page)")
+            aboutRow(label: "Speculation", value: "Adaptive Draft Length")
+            aboutRow(label: "Prefix Cache", value: "Hash-based (8 entries)")
+        } header: {
+            Label("Engine", systemImage: "gearshape.2")
+        } footer: {
+            Text("These values document the current local inference stack shipping with the app build.")
+        }
+    }
+
+    private func aboutRow(label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(value)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func statusRow(title: String, subtitle: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .foregroundStyle(tint)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.headline)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var runtimeSummaryText: String {
+        "\(thermalGovernor.currentMode.rawValue) • \(thermalGovernor.thermalLevel.rawValue) thermal • \(thermalGovernor.memoryPressureLevel.rawValue.capitalized) memory"
+    }
+
+    private var speechSummaryText: String {
+        let languageSummary = selectedSpeechLanguageCode ?? "System Default"
+        let voiceSummary = selectedSpeechVoiceIdentifier == nil ? "Default Voice" : "Custom Voice"
+        return "\(languageSummary) • \(voiceSummary)"
+    }
+
+    private var runtimeAccentColor: Color {
+        switch thermalGovernor.currentMode {
+        case .maxPerformance:
+            return .green
+        case .balanced:
+            return .blue
+        case .coolDown:
+            return .orange
+        case .emergency:
+            return .red
+        }
+    }
+
+    private var thermalAccentColor: Color {
+        switch thermalGovernor.thermalLevel {
+        case .nominal:
+            return .green
+        case .fair:
+            return .yellow
+        case .serious:
+            return .orange
+        case .critical:
+            return .red
+        }
+    }
+
+    private func voiceRowLabel(for voice: SpeechSynthesisService.VoiceOption) -> String {
+        let quality = qualityLabel(for: voice.quality).map { " · \($0)" } ?? ""
+        return "\(voice.displayName)\(quality)"
     }
 
     private func qualityLabel(for quality: AVSpeechSynthesisVoiceQuality) -> String? {
@@ -283,26 +463,103 @@ struct SettingsView: View {
             return nil
         }
     }
+}
 
-    private var aboutSection: some View {
-        Section {
-            aboutRow(label: "Backends", value: "CoreML + llama.cpp (GGUF)")
-            aboutRow(label: "Architecture", value: "Split Prefill/Decode + Paged KV")
-            aboutRow(label: "KV Cache", value: "Paged Arena (128 tokens/page)")
-            aboutRow(label: "Speculation", value: "Adaptive Draft Length")
-            aboutRow(label: "Prefix Cache", value: "Hash-based (8 entries)")
-        } header: {
-            Label("Engine", systemImage: "gearshape.2")
+struct SamplingDraft: Equatable {
+    var temperature: Double
+    var topK: Double
+    var topP: Double
+    var repetitionPenalty: Double
+    var maxTokens: Double
+
+    init(
+        temperature: Double = 0.8,
+        topK: Double = 40,
+        topP: Double = 0.95,
+        repetitionPenalty: Double = 1.1,
+        maxTokens: Double = 2048
+    ) {
+        self.temperature = temperature
+        self.topK = topK
+        self.topP = topP
+        self.repetitionPenalty = repetitionPenalty
+        self.maxTokens = maxTokens
+    }
+
+    init(config: SamplingConfig) {
+        self.temperature = Double(config.temperature)
+        self.topK = Double(config.topK)
+        self.topP = Double(config.topP)
+        self.repetitionPenalty = Double(config.repetitionPenalty)
+        self.maxTokens = Double(config.maxTokens)
+    }
+
+    func makeConfig() -> SamplingConfig {
+        SamplingConfig(
+            temperature: Float(temperature),
+            topK: Int(topK.rounded()),
+            topP: Float(topP),
+            repetitionPenalty: Float(repetitionPenalty),
+            maxTokens: Int(maxTokens.rounded()),
+            stopSequences: [],
+            samplerSeed: nil
+        )
+    }
+}
+
+struct SettingsToolCategory: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let description: String
+    let icon: String
+
+    static let defaults: [SettingsToolCategory] = [
+        .init(id: "location", title: "Location & Maps", description: "Use map lookups, directions, and local context.", icon: "location.fill"),
+        .init(id: "device", title: "Battery & Device", description: "Read battery, device, and environment signals.", icon: "battery.100percent"),
+        .init(id: "calendar", title: "Calendar & Events", description: "Review and create event-related actions.", icon: "calendar"),
+        .init(id: "contacts", title: "Contacts", description: "Reference people and communication targets.", icon: "person.2.fill"),
+        .init(id: "notifications", title: "Notifications", description: "Schedule reminders and alerts when supported.", icon: "bell.fill"),
+        .init(id: "screen", title: "Screen & Haptics", description: "Coordinate visual feedback and haptic responses.", icon: "sun.max.fill"),
+        .init(id: "sharing", title: "Sharing & Messaging", description: "Send content into system share flows.", icon: "square.and.arrow.up"),
+        .init(id: "time", title: "Date & Time", description: "Work with calendars, clocks, and scheduling context.", icon: "clock.fill")
+    ]
+}
+
+enum TokenSaveState: Equatable {
+    case idle
+    case saved
+    case failed
+
+    var buttonTitle: String {
+        switch self {
+        case .idle:
+            return "Save Token"
+        case .saved:
+            return "Saved"
+        case .failed:
+            return "Save Failed"
         }
     }
 
-    private func aboutRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            Text(value)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    var buttonIcon: String {
+        switch self {
+        case .idle:
+            return "square.and.arrow.down"
+        case .saved:
+            return "checkmark.circle.fill"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    var buttonColor: Color {
+        switch self {
+        case .idle:
+            return .accentColor
+        case .saved:
+            return .green
+        case .failed:
+            return .red
         }
     }
 }
