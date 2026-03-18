@@ -73,14 +73,13 @@ class InferenceEngine {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if let newState = notification.userInfo?["newState"] as? Int,
-                   newState >= ProcessInfo.ThermalState.serious.rawValue,
-                   self.isGenerating {
-                    self.metricsLogger.recordThermalState(self.thermalGovernor.thermalLevel)
-                }
-            }
+            let newState = notification.userInfo?["newState"] as? Int
+            guard let self,
+                  let newState,
+                  newState >= ProcessInfo.ThermalState.serious.rawValue,
+                  self.isGenerating else { return }
+
+            self.metricsLogger.recordThermalState(self.thermalGovernor.thermalLevel)
         }
     }
 
