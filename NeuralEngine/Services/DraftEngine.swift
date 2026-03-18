@@ -132,7 +132,7 @@ nonisolated final class DraftEngine: @unchecked Sendable {
         var contextWindow = recentTokens
 
         for _ in 0..<count {
-            let logits = try runner.predictLogits(inputIDs: [currentToken])
+            let logits = try predictNextLogits(runner: runner, token: currentToken, preferSpanPath: true)
 
             let entropy = computeShannonEntropy(logits: logits)
             let confidence = 1.0 - min(Float(entropy) / entropyThreshold, 1.0)
@@ -195,6 +195,17 @@ nonisolated final class DraftEngine: @unchecked Sendable {
         }
 
         return entropy
+    }
+
+    private func predictNextLogits(
+        runner: CoreMLModelRunner,
+        token: Int,
+        preferSpanPath: Bool
+    ) throws -> [Float] {
+        if preferSpanPath {
+            return try runner.predictLogitsSpan(inputIDs: [token]).last ?? []
+        }
+        return try runner.predictLogits(inputIDs: [token])
     }
 
     func resetDraftState() {

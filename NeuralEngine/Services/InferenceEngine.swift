@@ -322,7 +322,7 @@ class InferenceEngine {
 
             do {
                 if !tokensToProcess.isEmpty {
-                    let _ = try runner.predictLogits(inputIDs: tokensToProcess)
+                    let _ = try prefillEngine.prefill(tokens: tokensToProcess, runner: runner)
                 }
             } catch let error as CoreMLRunnerError where error.isEviction {
                 self.metricsLogger.recordModelEviction(reason: error.localizedDescription, computeUnits: self.metricsLogger.activeComputeLabel)
@@ -332,7 +332,7 @@ class InferenceEngine {
                     runner.resetState()
                     do {
                         if !tokensToProcess.isEmpty {
-                            let _ = try runner.predictLogits(inputIDs: tokensToProcess)
+                            let _ = try prefillEngine.prefill(tokens: tokensToProcess, runner: runner)
                         }
                     } catch {
                         self.isGenerating = false
@@ -432,7 +432,7 @@ class InferenceEngine {
                 }
 
                 if useSpeculation && self.speculationPolicy.shouldUseSpeculation {
-                    let specResult = self.executeSpeculativeDecode(
+                    let specResult = await self.executeSpeculativeDecode(
                         lastToken: lastToken,
                         runner: runner,
                         sampler: sampler,
@@ -810,7 +810,7 @@ class InferenceEngine {
         tokenizer: TokenizerService,
         maxRemaining: Int,
         onToken: @escaping (String) -> Void
-    ) -> SpeculativeResult? {
+    ) async -> SpeculativeResult? {
         let draftK = min(speculationPolicy.k, maxRemaining)
         guard draftK > 0 else { return nil }
 
@@ -837,48 +837,64 @@ class InferenceEngine {
                 rejectedCount: verification.rejected.count,
                 correctionCount: verification.correctionSampled ? 1 : 0,
                 draftLatencyMS: draftSequence.draftLatencyMS,
-                verifyLatencyMS: verification.verificationLatencyMS
+                verifyLatencyMS: verification.verificationLatencyMS,
+                committedCount: verification.committedTokens.count,
+                mismatchIndex: verification.mismatchIndex
             )
 
-            var tokensGenerated = 0
             var hitEOS = false
             var currentLast = lastToken
+            var committedTokens: [Int] = []
 
             for token in verification.accepted {
                 if eosTokens.contains(token) {
                     hitEOS = true
                     break
                 }
-
-                sessionCache.accept(tokens: [token])
-                metricsLogger.recordToken()
-                tokensGenerated += 1
+                committedTokens.append(token)
                 currentLast = token
-
-                if let text = streamingDecoder.append(token, tokenizer: tokenizer) {
-                    currentText += text
-                    onToken(text)
-                }
             }
 
             if !hitEOS, let correction = verification.correctionToken {
                 if eosTokens.contains(correction) {
                     hitEOS = true
                 } else {
-                    sessionCache.accept(tokens: [correction])
-                    metricsLogger.recordToken()
-                    tokensGenerated += 1
+                    committedTokens.append(correction)
                     currentLast = correction
+                }
+            }
 
-                    if let text = streamingDecoder.append(correction, tokenizer: tokenizer) {
+            if !committedTokens.isEmpty, let sequenceID = sessionCache.sequenceID {
+                let startPosition = sessionCache.activeLength
+                sessionCache.accept(tokens: committedTokens)
+                for _ in committedTokens {
+                    metricsLogger.recordToken()
+                }
+
+                let newPages = await kvCacheManager.allocatePages(
+                    sequenceID: sequenceID,
+                    tokens: committedTokens,
+                    startPosition: startPosition
+                )
+                sessionCache.targetPages.append(contentsOf: newPages)
+
+                for token in committedTokens {
+                    if let text = streamingDecoder.append(token, tokenizer: tokenizer) {
                         currentText += text
                         onToken(text)
                     }
                 }
+
+                metricsLogger.recordContextLength(sessionCache.activeLength)
+                let kvPages = await kvCacheManager.activePageCount()
+                metricsLogger.recordKVPages(kvPages)
+                metricsLogger.recordThermalState(thermalGovernor.thermalLevel)
+                let estimatedMem = await kvCacheManager.estimatedMemoryBytes()
+                metricsLogger.recordMemory(estimatedMem)
             }
 
             return SpeculativeResult(
-                tokensGenerated: tokensGenerated,
+                tokensGenerated: committedTokens.count,
                 accepted: verification.accepted.count,
                 rejected: verification.rejected.count,
                 lastToken: currentLast,

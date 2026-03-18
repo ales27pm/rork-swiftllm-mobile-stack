@@ -110,6 +110,20 @@ nonisolated final class DecodeEngine: @unchecked Sendable {
         sampler: Sampler,
         recentTokens: [Int]
     ) throws -> SpeculativeVerification {
+        try verifySpeculativeTokensSpan(
+            draftSequence: draftSequence,
+            runner: runner,
+            sampler: sampler,
+            recentTokens: recentTokens
+        )
+    }
+
+    func verifySpeculativeTokensBaseline(
+        draftSequence: DraftEngine.DraftSequence,
+        runner: LogitsPredicting,
+        sampler: Sampler,
+        recentTokens: [Int]
+    ) throws -> SpeculativeVerification {
         let startTime = Date()
         let draftTokens = draftSequence.tokens
 
@@ -119,11 +133,69 @@ nonisolated final class DecodeEngine: @unchecked Sendable {
                 rejected: [],
                 correctionToken: nil,
                 correctionSampled: false,
-                verificationLatencyMS: Date().timeIntervalSince(startTime) * 1000
+                mismatchIndex: nil,
+                verificationLatencyMS: Date().timeIntervalSince(startTime) * 1000,
+                verificationMode: .baseline
+            )
+        }
+
+        var targetLogitsSpan: [[Float]] = []
+        targetLogitsSpan.reserveCapacity(draftTokens.count)
+        for token in draftTokens {
+            targetLogitsSpan.append(try runner.predictLogits(inputIDs: [token]))
+        }
+
+        return try verifyDraftTokens(
+            draftSequence: draftSequence,
+            targetLogitsSpan: targetLogitsSpan,
+            sampler: sampler,
+            recentTokens: recentTokens,
+            startedAt: startTime,
+            mode: .baseline
+        )
+    }
+
+    func verifySpeculativeTokensSpan(
+        draftSequence: DraftEngine.DraftSequence,
+        runner: LogitsPredicting,
+        sampler: Sampler,
+        recentTokens: [Int]
+    ) throws -> SpeculativeVerification {
+        let startTime = Date()
+        let draftTokens = draftSequence.tokens
+
+        guard !draftTokens.isEmpty else {
+            return SpeculativeVerification(
+                accepted: [],
+                rejected: [],
+                correctionToken: nil,
+                correctionSampled: false,
+                mismatchIndex: nil,
+                verificationLatencyMS: Date().timeIntervalSince(startTime) * 1000,
+                verificationMode: .span
             )
         }
 
         let targetLogitsSpan = try runner.predictLogitsSpan(inputIDs: draftTokens)
+        return try verifyDraftTokens(
+            draftSequence: draftSequence,
+            targetLogitsSpan: targetLogitsSpan,
+            sampler: sampler,
+            recentTokens: recentTokens,
+            startedAt: startTime,
+            mode: .span
+        )
+    }
+
+    private func verifyDraftTokens(
+        draftSequence: DraftEngine.DraftSequence,
+        targetLogitsSpan: [[Float]],
+        sampler: Sampler,
+        recentTokens: [Int],
+        startedAt startTime: Date,
+        mode: SpeculativeVerification.Mode
+    ) throws -> SpeculativeVerification {
+        let draftTokens = draftSequence.tokens
         let spanCount = min(draftTokens.count, targetLogitsSpan.count)
 
         var accepted: [Int] = []
@@ -167,7 +239,9 @@ nonisolated final class DecodeEngine: @unchecked Sendable {
             rejected: rejected,
             correctionToken: correctionToken,
             correctionSampled: correctionToken != nil,
-            verificationLatencyMS: Date().timeIntervalSince(startTime) * 1000
+            mismatchIndex: rejectionIndex,
+            verificationLatencyMS: Date().timeIntervalSince(startTime) * 1000,
+            verificationMode: mode
         )
     }
 
@@ -191,16 +265,31 @@ nonisolated final class DecodeEngine: @unchecked Sendable {
 }
 
 nonisolated struct SpeculativeVerification: Sendable {
+    enum Mode: String, Sendable {
+        case baseline
+        case span
+    }
+
     let accepted: [Int]
     let rejected: [Int]
     let correctionToken: Int?
     let correctionSampled: Bool
+    let mismatchIndex: Int?
     let verificationLatencyMS: Double
+    let verificationMode: Mode
 
     var acceptanceRate: Double {
         let total = accepted.count + rejected.count
         guard total > 0 else { return 0 }
         return Double(accepted.count) / Double(total)
+    }
+
+    var committedTokens: [Int] {
+        var committed = accepted
+        if let correctionToken {
+            committed.append(correctionToken)
+        }
+        return committed
     }
 }
 
