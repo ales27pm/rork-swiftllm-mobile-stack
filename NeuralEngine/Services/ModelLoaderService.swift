@@ -57,7 +57,7 @@ class ModelLoaderService {
             return manifest.tokenizerRepoID == nil ? .intact : .corrupted("Missing tokenizer checksum")
         }
 
-        guard let actual = fileSystem.computeSHA256(for: url) else {
+        guard let actual = fileSystem.computeAssetSHA256(for: url) else {
             return .corrupted("Unable to compute tokenizer SHA-256 hash")
         }
 
@@ -532,7 +532,7 @@ class ModelLoaderService {
                     throw ModelLoaderError.integrityCheckFailed(statusForIntegrityResult(tokenizerIntegrity).displayMessage)
                 }
 
-                if let hash = fileSystem.computeSHA256(for: modelURL ?? tokenizerDir) {
+                if let hash = fileSystem.computeAssetSHA256(for: modelURL ?? tokenizerDir) {
                     fileSystem.saveChecksum(hash, forModelID: modelID)
                 }
 
