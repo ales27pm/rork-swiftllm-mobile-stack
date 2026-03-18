@@ -275,32 +275,45 @@ class InferenceEngine {
             self.sessionCache.sequenceID = sequenceID
 
             let prefillStart = Date()
-            var tokensToProcess: [Int]
+            var tokensToProcess: [Int] = promptTokens
             var prefixHit = false
+            var restoredPrefixState = false
 
             if let cached = await self.kvCacheManager.lookupPrefix(key: prefixKey) {
                 prefixHit = true
-                let newTokens = Array(promptTokens.dropFirst(cached.tokenizedPrefix.count))
-                tokensToProcess = newTokens
-                self.sessionCache.sequencePosition = cached.sequencePosition
-                self.sessionCache.allTokens = cached.tokenizedPrefix
-                self.sessionCache.activeLength = cached.tokenizedPrefix.count
+                restoredPrefixState = runner.restorePrefillState(from: cached.stateSnapshot, expectedPrefixTokens: cached.tokenizedPrefix)
 
-                let prefixPages = await self.kvCacheManager.allocatePages(
-                    sequenceID: sequenceID,
-                    tokens: cached.tokenizedPrefix,
-                    startPosition: 0
-                )
-                self.sessionCache.targetPages.append(contentsOf: prefixPages)
+                if restoredPrefixState {
+                    let newTokens = Array(promptTokens.dropFirst(cached.tokenizedPrefix.count))
+                    tokensToProcess = newTokens
+                    self.sessionCache.sequencePosition = cached.sequencePosition
+                    self.sessionCache.allTokens = cached.tokenizedPrefix
+                    self.sessionCache.activeLength = cached.tokenizedPrefix.count
+                    self.sessionCache.prefixKey = cached.key
 
-                self.metricsLogger.recordDiagnostic(DiagnosticEvent(
-                    code: .prefixCacheHit,
-                    message: "Prefix cache hit: skipped \(cached.tokenizedPrefix.count) tokens (\(prefixPages.count) pages)",
-                    severity: .info,
-                    metadata: ["prefixTokens": "\(cached.tokenizedPrefix.count)"]
-                ))
+                    let prefixPages = await self.kvCacheManager.allocatePages(
+                        sequenceID: sequenceID,
+                        tokens: cached.tokenizedPrefix,
+                        startPosition: 0
+                    )
+                    self.sessionCache.targetPages.append(contentsOf: prefixPages)
+
+                    self.metricsLogger.recordDiagnostic(DiagnosticEvent(
+                        code: .prefixCacheHit,
+                        message: "Prefix cache hit: restored state for \(cached.tokenizedPrefix.count) tokens (\(prefixPages.count) pages)",
+                        severity: .info,
+                        metadata: ["prefixTokens": "\(cached.tokenizedPrefix.count)"]
+                    ))
+                } else {
+                    runner.resetState()
+                    self.metricsLogger.recordDiagnostic(DiagnosticEvent(
+                        code: .prefixCacheMiss,
+                        message: "Prefix cache restore unavailable; prefilling full prompt",
+                        severity: .info,
+                        metadata: ["prefixTokens": "\(cached.tokenizedPrefix.count)"]
+                    ))
+                }
             } else {
-                tokensToProcess = promptTokens
                 runner.resetState()
             }
 
@@ -351,12 +364,21 @@ class InferenceEngine {
             self.sessionCache.accept(tokens: tokensToProcess)
             self.sessionCache.prefillComplete = true
 
-            if !prefixHit {
+            if !prefixHit || !restoredPrefixState {
+                let stateSnapshot: PrefixStateSnapshot
+                switch runner.exportPrefillState(for: systemTokens) {
+                case .available(let snapshot):
+                    stateSnapshot = snapshot
+                case .unavailable(let reason):
+                    stateSnapshot = .unavailable(reason: reason)
+                }
+
                 let cached = CachedPrefix(
                     key: prefixKey,
                     tokenizedPrefix: systemTokens,
                     pageCount: (systemTokens.count + 127) / 128,
                     sequencePosition: systemTokens.count,
+                    stateSnapshot: stateSnapshot,
                     timestamp: Date()
                 )
                 await self.kvCacheManager.storePrefix(cached)

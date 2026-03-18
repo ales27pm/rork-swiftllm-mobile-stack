@@ -1,11 +1,24 @@
 import Foundation
 
+nonisolated enum PrefixStateSnapshot: Sendable, Equatable {
+    case unavailable(reason: String)
+    case runnerOwned(handleID: UUID, createdAt: Date)
+}
+
 nonisolated struct CachedPrefix: Sendable {
     let key: PromptPrefixKey
     let tokenizedPrefix: [Int]
     let pageCount: Int
     let sequencePosition: Int
+    let stateSnapshot: PrefixStateSnapshot
     let timestamp: Date
+
+    var hasReusableStateSnapshot: Bool {
+        if case .runnerOwned = stateSnapshot {
+            return true
+        }
+        return false
+    }
 }
 
 actor PromptPrefixCache {
