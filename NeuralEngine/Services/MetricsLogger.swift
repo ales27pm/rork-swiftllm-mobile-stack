@@ -30,6 +30,7 @@ nonisolated enum DiagnosticCode: String, Sendable {
     case inferenceThrottled = "INFERENCE_THROTTLED"
     case healthCheckFailed = "HEALTH_CHECK_FAILED"
     case prefixCacheHit = "PREFIX_CACHE_HIT"
+    case prefixCacheMiss = "PREFIX_CACHE_MISS"
     case generationComplete = "GENERATION_COMPLETE"
     case assetIntegrityPassed = "ASSET_INTEGRITY_PASSED"
     case assetIntegrityFailed = "ASSET_INTEGRITY_FAILED"
