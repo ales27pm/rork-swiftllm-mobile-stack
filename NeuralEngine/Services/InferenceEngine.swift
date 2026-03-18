@@ -263,10 +263,14 @@ class InferenceEngine {
 
             let systemTokens = tokenizer.encode(systemPrompt)
             let promptTokens = tokenizer.encode(fullPrompt)
+            let modelIdentity = runner.currentPrefixSnapshotModelID ?? "active-model"
+            let tokenizerIdentity = tokenizer.cacheIdentifier
+
+            runner.configurePrefixSnapshotContext(modelID: modelIdentity, tokenizerID: tokenizerIdentity)
 
             let prefixKey = PromptPrefixKey(
-                modelID: "active-model",
-                tokenizerID: "default",
+                modelID: modelIdentity,
+                tokenizerID: tokenizerIdentity,
                 prefix: systemTokens
             )
 

@@ -25,6 +25,7 @@ final class TokenizerService: @unchecked Sendable {
     private var _vocabularySize: Int = 32000
     private var isRealTokenizer: Bool = false
     private var schemaInfo: TokenizerSchemaInfo?
+    private var sourceIdentifier: String = "fallback-tokenizer"
 
     static let bosToken = 1
     static let eosToken = 2
@@ -52,6 +53,12 @@ final class TokenizerService: @unchecked Sendable {
         return eosTokenIDs
     }
 
+    var cacheIdentifier: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return sourceIdentifier
+    }
+
     init() {
         buildFallbackVocabulary()
     }
@@ -61,6 +68,7 @@ final class TokenizerService: @unchecked Sendable {
         lock.lock()
         tokenizer = loaded
         isRealTokenizer = true
+        sourceIdentifier = "hub:\(repoID)"
         detectEOSTokens(loaded)
         lock.unlock()
     }
@@ -70,6 +78,7 @@ final class TokenizerService: @unchecked Sendable {
         lock.lock()
         tokenizer = loaded
         isRealTokenizer = true
+        sourceIdentifier = "dir:\(url.standardizedFileURL.path)"
         detectEOSTokens(loaded)
         lock.unlock()
     }
@@ -96,6 +105,7 @@ final class TokenizerService: @unchecked Sendable {
         lock.lock()
         tokenizer = nil
         isRealTokenizer = false
+        sourceIdentifier = "fallback-tokenizer"
         lock.unlock()
     }
 

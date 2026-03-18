@@ -2,7 +2,21 @@ import Foundation
 
 nonisolated enum PrefixStateSnapshot: Sendable, Equatable {
     case unavailable(reason: String)
-    case runnerOwned(handleID: UUID, createdAt: Date)
+    case runnerOwned(RunnerOwnedPrefixStateSnapshot)
+}
+
+nonisolated struct RunnerOwnedPrefixStateSnapshot: Sendable, Equatable {
+    let handleID: UUID
+    let createdAt: Date
+    let metadata: PrefixStateSnapshotMetadata
+}
+
+nonisolated struct PrefixStateSnapshotMetadata: Sendable, Equatable {
+    let modelID: String
+    let tokenizerID: String
+    let computeUnits: String
+    let prefixTokens: [Int]
+    let modelSessionID: UUID
 }
 
 nonisolated struct CachedPrefix: Sendable {
