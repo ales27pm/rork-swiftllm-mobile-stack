@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var toolExecutor = ToolExecutor()
     @State private var speechViewModel = SpeechViewModel()
     @State private var assistantAgent: AssistantAgent?
+    @State private var permissionCoordinator = FirstRunPermissionCoordinator()
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -63,8 +64,9 @@ struct ContentView: View {
                 }
             }
         }
-        .onAppear {
+        .task {
             setupViewModels()
+            await permissionCoordinator.requestAllPermissionsIfNeeded(using: keyValueStore)
         }
         .sheet(isPresented: $toolExecutor.showInAppBrowser) {
             if let url = toolExecutor.browserURL {
