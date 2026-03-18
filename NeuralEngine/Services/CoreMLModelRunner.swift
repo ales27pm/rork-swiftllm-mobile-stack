@@ -44,6 +44,12 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
     private var isBackgrounded: Bool = false
     private var backgroundTimestamp: Date?
 
+    private func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
+
     var isLoaded: Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -69,26 +75,28 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
     }
 
     func loadModel(at url: URL, computeUnits: MLComputeUnits = .all) async throws {
-        lock.lock()
-        guard state != .loading && state != .disposing else {
-            let currentState = state
-            lock.unlock()
+        let didEnterLoadingState = withLock { () -> Bool in
+            guard state != .loading && state != .disposing else {
+                return false
+            }
+            state = .loading
+            return true
+        }
+
+        guard didEnterLoadingState else {
+            let currentState = withLock { state }
             if currentState == .disposing {
                 throw CoreMLRunnerError.invalidState(.disposing)
             }
             throw CoreMLRunnerError.modelNotLoaded
         }
-        state = .loading
-        lock.unlock()
 
         do {
             try await loadWithFallback(at: url, preferredUnits: computeUnits)
             setupLifecycleObservers()
             setupStateSerializationPath()
         } catch {
-            lock.lock()
-            state = .idle
-            lock.unlock()
+            withLock { state = .idle }
             throw error
         }
     }
@@ -152,20 +160,20 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
                     $0.contains("logit") || $0.contains("token_scores")
                 } ?? "logits"
 
-                lock.lock()
-                model = loadedModel
-                modelURL = url
-                activeComputeUnits = units
-                inputName = detectedInput
-                outputName = detectedOutput
-                consecutiveFailures = 0
-                lastSuccessfulPrediction = Date()
+                withLock {
+                    model = loadedModel
+                    modelURL = url
+                    activeComputeUnits = units
+                    inputName = detectedInput
+                    outputName = detectedOutput
+                    consecutiveFailures = 0
+                    lastSuccessfulPrediction = Date()
 
-                let modelState = loadedModel.makeState()
-                mlState = modelState
-                usesState = true
-                state = .ready
-                lock.unlock()
+                    let modelState = loadedModel.makeState()
+                    mlState = modelState
+                    usesState = true
+                    state = .ready
+                }
 
                 return
             } catch {
@@ -386,47 +394,49 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
     }
 
     func attemptRecovery() async throws {
-        lock.lock()
-        guard let url = modelURL else {
-            lock.unlock()
-            throw CoreMLRunnerError.modelNotLoaded
+        let recoveryContext: (url: URL, units: MLComputeUnits)? = withLock {
+            guard let url = modelURL else {
+                return nil
+            }
+            guard state == .evicted || state == .ready else {
+                return nil
+            }
+
+            if let lastAttempt = lastRecoveryAttempt {
+                let backoff = recoveryBackoffBase * pow(2.0, Double(min(totalRecoveries, 5)))
+                let elapsed = Date().timeIntervalSince(lastAttempt)
+                if elapsed < backoff {
+                    return nil
+                }
+            }
+
+            state = .recovering
+            lastRecoveryAttempt = Date()
+            return (url: url, units: activeComputeUnits)
         }
-        guard state == .evicted || state == .ready else {
-            lock.unlock()
+
+        guard let recoveryContext else {
+            if withLock({ modelURL == nil }) {
+                throw CoreMLRunnerError.modelNotLoaded
+            }
             return
         }
 
-        if let lastAttempt = lastRecoveryAttempt {
-            let backoff = recoveryBackoffBase * pow(2.0, Double(min(totalRecoveries, 5)))
-            let elapsed = Date().timeIntervalSince(lastAttempt)
-            if elapsed < backoff {
-                lock.unlock()
-                return
-            }
-        }
-
-        state = .recovering
-        lastRecoveryAttempt = Date()
-        let units = activeComputeUnits
-        lock.unlock()
-
         let degradedUnits: MLComputeUnits
-        switch units {
+        switch recoveryContext.units {
         case .all: degradedUnits = .cpuAndNeuralEngine
         case .cpuAndNeuralEngine: degradedUnits = .cpuOnly
         default: degradedUnits = .cpuOnly
         }
 
         do {
-            try await loadWithFallback(at: url, preferredUnits: degradedUnits)
-            lock.lock()
-            totalRecoveries += 1
-            consecutiveFailures = 0
-            lock.unlock()
+            try await loadWithFallback(at: recoveryContext.url, preferredUnits: degradedUnits)
+            withLock {
+                totalRecoveries += 1
+                consecutiveFailures = 0
+            }
         } catch {
-            lock.lock()
-            state = .evicted
-            lock.unlock()
+            withLock { state = .evicted }
             throw error
         }
     }

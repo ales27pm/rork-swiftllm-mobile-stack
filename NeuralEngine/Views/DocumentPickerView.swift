@@ -30,12 +30,9 @@ struct DocumentPickerView: UIViewControllerRepresentable {
             self.onPick = onPick
         }
 
-        nonisolated func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             guard let url = urls.first else { return }
-            let onPick = self.onPick
-            Task { @MainActor in
-                onPick(url)
-            }
+            onPick(url)
         }
     }
 }

@@ -284,7 +284,9 @@ struct ContextAssembler {
             return ""
         }
 
-        guard let latestCoordinates = recentUserMessages.reversed().compactMap(extractCoordinates).first else {
+        guard let latestCoordinates = recentUserMessages.reversed().compactMap({ message in
+            extractCoordinates(from: message)
+        }).first else {
             return ""
         }
 
