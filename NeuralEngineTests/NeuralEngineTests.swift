@@ -120,11 +120,17 @@ struct NeuralEngineTests {
 
 }
 
-private struct MockLogitsRunner: LogitsPredicting {
+private final class MockLogitsRunner: LogitsPredicting {
     let spanLogits: [[Float]]
+    private var cursor: Int = 0
+
+    init(spanLogits: [[Float]]) {
+        self.spanLogits = spanLogits
+    }
 
     func predictLogits(inputIDs: [Int]) throws -> [Float] {
-        spanLogits.last ?? []
+        defer { cursor += 1 }
+        return spanLogits[min(cursor, max(spanLogits.count - 1, 0))]
     }
 
     func predictLogitsSpan(inputIDs: [Int]) throws -> [[Float]] {
@@ -217,6 +223,86 @@ extension NeuralEngineTests {
         #expect(!verification.correctionSampled)
     }
 
+    @Test func verifySpeculativeTokens_spanMatchesSingleTokenBaseline() throws {
+        let decodeEngine = DecodeEngine()
+        let sampler = Sampler(config: SamplingConfig(
+            temperature: 1.0,
+            topK: 16,
+            topP: 1.0,
+            repetitionPenalty: 1.0,
+            maxTokens: 16,
+            stopSequences: [],
+            samplerSeed: 11
+        ))
+
+        let draft = DraftEngine.DraftSequence(
+            tokens: [1, 2, 3],
+            logitSnapshots: [
+                [0, 4, -4, -4],
+                [0, -4, 4, -4],
+                [0, -4, -4, 4]
+            ],
+            confidenceScores: [0.9, 0.9, 0.9],
+            draftTokenProbabilities: [0.3, 0.3, 0.3],
+            draftLatencyMS: 1
+        )
+
+        let logits: [[Float]] = [
+            [0, 5, -5, -5],
+            [0, -5, 5, -5],
+            [0, -5, -5, 5]
+        ]
+
+        let spanVerification = try decodeEngine.verifySpeculativeTokensSpan(
+            draftSequence: draft,
+            runner: MockLogitsRunner(spanLogits: logits),
+            sampler: sampler,
+            recentTokens: []
+        )
+
+        let baselineVerification = try decodeEngine.verifySpeculativeTokensBaseline(
+            draftSequence: draft,
+            runner: MockLogitsRunner(spanLogits: logits),
+            sampler: sampler,
+            recentTokens: []
+        )
+
+        #expect(spanVerification.accepted == baselineVerification.accepted)
+        #expect(spanVerification.rejected == baselineVerification.rejected)
+        #expect(spanVerification.correctionToken == baselineVerification.correctionToken)
+        #expect(spanVerification.mismatchIndex == baselineVerification.mismatchIndex)
+    }
+
+    @Test func verifySpeculativeTokens_throwsWhenSpanLengthDoesNotMatchDraftLength() {
+        let decodeEngine = DecodeEngine()
+        let sampler = Sampler(config: SamplingConfig(
+            temperature: 1.0,
+            topK: 16,
+            topP: 1.0,
+            repetitionPenalty: 1.0,
+            maxTokens: 16,
+            stopSequences: [],
+            samplerSeed: 5
+        ))
+
+        let draft = DraftEngine.DraftSequence(
+            tokens: [1, 2, 3],
+            logitSnapshots: [[0, 4, -4], [0, -4, 4], [0, -4, -4]],
+            confidenceScores: [0.9, 0.9, 0.9],
+            draftTokenProbabilities: [0.5, 0.5, 0.5],
+            draftLatencyMS: 1
+        )
+
+        #expect(throws: DecodeError.self) {
+            _ = try decodeEngine.verifySpeculativeTokensSpan(
+                draftSequence: draft,
+                runner: MockLogitsRunner(spanLogits: [[0, 5, -5]]),
+                sampler: sampler,
+                recentTokens: []
+            )
+        }
+    }
+
     @Test func verifySpeculativeTokens_rejectsWhenDraftProbabilityIsZero() throws {
         let decodeEngine = DecodeEngine()
         let sampler = Sampler(config: SamplingConfig(
@@ -249,6 +335,58 @@ extension NeuralEngineTests {
         #expect(verification.accepted.isEmpty)
         #expect(verification.rejected == [1])
         #expect(verification.correctionSampled)
+    }
+
+    @Test func speculationPolicy_disablesSpeculationAfterRepeatedPoorSpanEfficiency() {
+        var policy = SpeculationPolicy()
+
+        for _ in 0..<4 {
+            policy.recordVerification(
+                draftCount: 6,
+                acceptedCount: 0,
+                rejectedCount: 6,
+                correctionCount: 1,
+                draftLatencyMS: 12,
+                verifyLatencyMS: 6,
+                committedCount: 1,
+                mismatchIndex: 0
+            )
+        }
+
+        #expect(!policy.shouldUseSpeculation)
+        #expect(policy.k <= 2)
+    }
+
+    @Test func speculationPolicyVerificationMetrics_handlesZeroCountsSafely() {
+        let metrics = SpeculationPolicy.VerificationMetrics.from(
+            draftCount: 0,
+            acceptedCount: 0,
+            draftLatencyMS: 12,
+            verifyLatencyMS: 6,
+            committedCount: 0,
+            mismatchIndex: nil
+        )
+
+        #expect(metrics.acceptanceRate == 0)
+        #expect(metrics.acceptedLatencyMS == 18)
+        #expect(abs(metrics.latencyEfficiency - 0.3333333333333333) < 0.000_001)
+        #expect(metrics.mismatchPenalty == 0)
+    }
+
+    @Test func speculationPolicyVerificationMetrics_penalizesEarlyMismatch() {
+        let metrics = SpeculationPolicy.VerificationMetrics.from(
+            draftCount: 6,
+            acceptedCount: 2,
+            draftLatencyMS: 12,
+            verifyLatencyMS: 6,
+            committedCount: 3,
+            mismatchIndex: 0
+        )
+
+        #expect(abs(metrics.acceptanceRate - (2.0 / 6.0)) < 0.000_001)
+        #expect(metrics.acceptedLatencyMS == 6)
+        #expect(metrics.mismatchPenalty == 1)
+        #expect(abs(metrics.latencyEfficiency - 0.1875) < 0.000_001)
     }
 
 }

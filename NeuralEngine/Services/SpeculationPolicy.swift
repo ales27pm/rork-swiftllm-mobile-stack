@@ -1,12 +1,47 @@
 import Foundation
 
 struct SpeculationPolicy: Sendable {
+    struct VerificationMetrics: Sendable, Equatable {
+        let acceptanceRate: Double
+        let acceptedLatencyMS: Double
+        let latencyEfficiency: Double
+        let mismatchPenalty: Double
+
+        static func from(
+            draftCount: Int,
+            acceptedCount: Int,
+            draftLatencyMS: Double,
+            verifyLatencyMS: Double,
+            committedCount: Int,
+            mismatchIndex: Int?
+        ) -> VerificationMetrics {
+            let safeDraftCount = max(draftCount, 1)
+            let safeCommittedCount = max(committedCount, 1)
+            let acceptanceRate = draftCount > 0 ? Double(acceptedCount) / Double(draftCount) : 0
+            let acceptedLatencyMS = (draftLatencyMS + verifyLatencyMS) / Double(safeCommittedCount)
+            let baselinePerToken = verifyLatencyMS / Double(safeDraftCount)
+            let actualPerCommitted = (draftLatencyMS + verifyLatencyMS) / Double(safeCommittedCount)
+            let mismatchPenalty = mismatchIndex.map { 1.0 - (Double($0) / Double(safeDraftCount)) } ?? 0
+            let latencyEfficiency = baselinePerToken > 0
+                ? (baselinePerToken / max(actualPerCommitted, 0.001)) * (1.0 - 0.25 * mismatchPenalty)
+                : 1.0
+
+            return VerificationMetrics(
+                acceptanceRate: acceptanceRate,
+                acceptedLatencyMS: acceptedLatencyMS,
+                latencyEfficiency: latencyEfficiency,
+                mismatchPenalty: mismatchPenalty
+            )
+        }
+    }
+
     var k: Int = 4
     var minK: Int = 1
     var maxK: Int = 8
     private var acceptanceHistory: [Double] = []
     private var latencyHistory: [Double] = []
     private var verificationCostHistory: [Double] = []
+    private var acceptedLatencyHistory: [Double] = []
     private var consecutiveFullAccepts: Int = 0
     private var consecutivePartialRejects: Int = 0
     var totalDraftTokens: Int = 0
@@ -15,7 +50,7 @@ struct SpeculationPolicy: Sendable {
     var totalVerifications: Int = 0
     var totalCorrections: Int = 0
 
-    mutating func update(acceptanceRate: Double) {
+    mutating func update(acceptanceRate: Double, latencyEfficiency: Double) {
         acceptanceHistory.append(acceptanceRate)
         if acceptanceHistory.count > 20 {
             acceptanceHistory.removeFirst()
@@ -34,11 +69,11 @@ struct SpeculationPolicy: Sendable {
 
         let avgRate = acceptanceHistory.reduce(0, +) / Double(acceptanceHistory.count)
 
-        if consecutiveFullAccepts >= 3 {
+        if consecutiveFullAccepts >= 2 && latencyEfficiency >= 1.0 {
             k = min(k + 2, maxK)
-        } else if avgRate > 0.85 {
+        } else if avgRate > 0.85 && latencyEfficiency >= 0.9 {
             k = min(k + 1, maxK)
-        } else if consecutivePartialRejects >= 3 {
+        } else if consecutivePartialRejects >= 2 || latencyEfficiency < 0.6 {
             k = max(k - 2, minK)
         } else if avgRate < 0.50 {
             k = max(k - 1, minK)
@@ -51,7 +86,9 @@ struct SpeculationPolicy: Sendable {
         rejectedCount: Int,
         correctionCount: Int,
         draftLatencyMS: Double,
-        verifyLatencyMS: Double
+        verifyLatencyMS: Double,
+        committedCount: Int,
+        mismatchIndex: Int?
     ) {
         totalDraftTokens += draftCount
         totalAcceptedTokens += acceptedCount
@@ -69,8 +106,21 @@ struct SpeculationPolicy: Sendable {
             verificationCostHistory.removeFirst()
         }
 
-        let rate = draftCount > 0 ? Double(acceptedCount) / Double(draftCount) : 0
-        update(acceptanceRate: rate)
+        let metrics = VerificationMetrics.from(
+            draftCount: draftCount,
+            acceptedCount: acceptedCount,
+            draftLatencyMS: draftLatencyMS,
+            verifyLatencyMS: verifyLatencyMS,
+            committedCount: committedCount,
+            mismatchIndex: mismatchIndex
+        )
+
+        acceptedLatencyHistory.append(metrics.acceptedLatencyMS)
+        if acceptedLatencyHistory.count > 20 {
+            acceptedLatencyHistory.removeFirst()
+        }
+
+        update(acceptanceRate: metrics.acceptanceRate, latencyEfficiency: metrics.latencyEfficiency)
     }
 
     var shouldUseSpeculation: Bool {
@@ -83,6 +133,12 @@ struct SpeculationPolicy: Sendable {
             let specCost = avgDraft + avgVerify
             let estimatedNormalCost = avgVerify * Double(k)
             if specCost > estimatedNormalCost * 1.5 { return false }
+        }
+
+        if let acceptedLatency = averageAcceptedLatencyMS,
+           let verifyLatency = averageVerificationLatencyMS,
+           acceptedLatency > verifyLatency * 1.15 {
+            return false
         }
 
         return true
@@ -108,6 +164,11 @@ struct SpeculationPolicy: Sendable {
         return verificationCostHistory.reduce(0, +) / Double(verificationCostHistory.count)
     }
 
+    var averageAcceptedLatencyMS: Double? {
+        guard !acceptedLatencyHistory.isEmpty else { return nil }
+        return acceptedLatencyHistory.reduce(0, +) / Double(acceptedLatencyHistory.count)
+    }
+
     var effectiveSpeedup: Double {
         guard totalVerifications > 0, totalAcceptedTokens > 0 else { return 1.0 }
         return Double(totalAcceptedTokens + totalVerifications) / Double(totalVerifications)
@@ -118,6 +179,7 @@ struct SpeculationPolicy: Sendable {
         acceptanceHistory.removeAll()
         latencyHistory.removeAll()
         verificationCostHistory.removeAll()
+        acceptedLatencyHistory.removeAll()
         consecutiveFullAccepts = 0
         consecutivePartialRejects = 0
         totalDraftTokens = 0

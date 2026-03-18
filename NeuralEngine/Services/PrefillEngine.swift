@@ -56,9 +56,9 @@ nonisolated final class PrefillEngine: @unchecked Sendable {
         var totalProcessed = 0
 
         for chunk in chunks {
-            let logits = try runner.predictLogits(inputIDs: chunk)
+            let logitsSpan = try runner.predictLogitsSpan(inputIDs: chunk)
             totalProcessed += chunk.count
-            lastLogits = logits
+            lastLogits = logitsSpan.last ?? lastLogits
         }
 
         let duration = Date().timeIntervalSince(startTime)
@@ -114,9 +114,9 @@ nonisolated final class PrefillEngine: @unchecked Sendable {
             while subOffset < chunk.count {
                 let subEnd = min(subOffset + chunkSize, chunk.count)
                 let subChunk = Array(chunk[subOffset..<subEnd])
-                let logits = try runner.predictLogits(inputIDs: subChunk)
+                let logitsSpan = try runner.predictLogitsSpan(inputIDs: subChunk)
                 totalProcessed += subChunk.count
-                lastLogits = logits
+                lastLogits = logitsSpan.last ?? lastLogits
                 subOffset = subEnd
             }
             onChunkComplete(index + 1, chunks.count)
