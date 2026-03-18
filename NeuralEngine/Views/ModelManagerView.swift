@@ -88,16 +88,23 @@ struct ModelManagerView: View {
     }
 
     private var sortedModels: [ModelManifest] {
-        let models = viewModel.filteredModels
-        switch sortOrder {
-        case .name:
-            return models.sorted { $0.name < $1.name }
-        case .size:
-            return models.sorted { $0.sizeBytes < $1.sizeBytes }
-        case .context:
-            return models.sorted { $0.contextLength > $1.contextLength }
-        case .parameters:
-            return models.sorted { $0.sizeBytes > $1.sizeBytes }
+        viewModel.filteredModels.sorted { lhs, rhs in
+            let lhsRank = lhs.recommendation?.rank ?? Int.max
+            let rhsRank = rhs.recommendation?.rank ?? Int.max
+            if lhsRank != rhsRank {
+                return lhsRank < rhsRank
+            }
+
+            switch sortOrder {
+            case .name:
+                return lhs.name < rhs.name
+            case .size:
+                return lhs.sizeBytes < rhs.sizeBytes
+            case .context:
+                return lhs.contextLength > rhs.contextLength
+            case .parameters:
+                return lhs.sizeBytes > rhs.sizeBytes
+            }
         }
     }
 
@@ -152,6 +159,16 @@ struct ModelCardView: View {
                         Text(model.name)
                             .font(.headline)
 
+                        if let recommendation = model.recommendation {
+                            Text(recommendation.badge.uppercased())
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.teal.opacity(0.18))
+                                .foregroundStyle(.teal)
+                                .clipShape(Capsule())
+                        }
+
                         if model.isDraft {
                             Text("DRAFT")
                                 .font(.caption2.bold())
@@ -196,6 +213,12 @@ struct ModelCardView: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+
+            if let recommendation = model.recommendation {
+                Label(recommendation.reason, systemImage: "sparkles")
+                    .font(.caption)
+                    .foregroundStyle(.teal)
+            }
 
             statusBar
         }

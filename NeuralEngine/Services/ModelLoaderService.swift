@@ -107,6 +107,27 @@ class ModelLoaderService {
     func loadBuiltinRegistry() {
         availableModels = [
             ModelManifest(
+                id: "dolphin3-3b-q4-gguf",
+                name: "Dolphin 3.0",
+                variant: "3B Q4 GGUF",
+                parameterCount: "3B",
+                quantization: "Q4_K_M",
+                sizeBytes: 2_019_382_400,
+                contextLength: 4096,
+                architecture: .dolphin,
+                repoID: "bartowski/Dolphin3.0-Llama3.2-3B-GGUF",
+                tokenizerRepoID: nil,
+                modelFilePattern: "Dolphin3.0-Llama3.2-3B-Q4_K_M.gguf",
+                checksum: "f22d27da16ddd1ee374c4ece362c3ea177f3a2272eec19458921831781ad4345",
+                isDraft: false,
+                format: .gguf,
+                recommendation: ModelRecommendation(
+                    badge: "Best fit",
+                    reason: "Recent Dolphin release with the best 3B quality-to-size balance for on-device GGUF.",
+                    rank: 1
+                )
+            ),
+            ModelManifest(
                 id: "dolphin3-3b-int4-coreml",
                 name: "Dolphin 3.0",
                 variant: "3B Int4 CoreML",
@@ -353,7 +374,12 @@ class ModelLoaderService {
                 modelFilePattern: "Dolphin3.0-Qwen2.5-1.5B-Q4_K_M.gguf",
                 checksum: "7f24545160f310f9de1154b154b7b2997a141ee859c0faf06d675ce612d27927",
                 isDraft: false,
-                format: .gguf
+                format: .gguf,
+                recommendation: ModelRecommendation(
+                    badge: "Smallest",
+                    reason: "Fastest Dolphin option under 1 GB when RAM or storage is tight.",
+                    rank: 2
+                )
             ),
             ModelManifest(
                 id: "dolphin3-qwen2.5-1.5b-q8-gguf",
@@ -481,7 +507,8 @@ class ModelLoaderService {
                     }
 
                     if ext == "mlmodelc" {
-                        try saveModelPath(url, forModelID: modelID)
+                        let persistedModelURL = try fileSystem.persistModelAsset(from: url, forModelID: modelID)
+                        try saveModelPath(persistedModelURL, forModelID: modelID)
                     } else if ext == "mlpackage" {
                         let manifestFile = url.appendingPathComponent("Manifest.json")
                         if FileManager.default.fileExists(atPath: manifestFile.path) {
@@ -525,9 +552,10 @@ class ModelLoaderService {
                     }
                 }
 
-                try saveTokenizerPath(tokenizerDir, forModelID: modelID)
+                let persistedTokenizerURL = try fileSystem.persistTokenizerAsset(from: tokenizerDir, forModelID: modelID)
+                try saveTokenizerPath(persistedTokenizerURL, forModelID: modelID)
 
-                let tokenizerIntegrity = verifyTokenizerIntegrity(for: manifest, at: tokenizerDir)
+                let tokenizerIntegrity = verifyTokenizerIntegrity(for: manifest, at: persistedTokenizerURL)
                 guard tokenizerIntegrity.isValid else {
                     throw ModelLoaderError.integrityCheckFailed(statusForIntegrityResult(tokenizerIntegrity).displayMessage)
                 }
@@ -641,9 +669,10 @@ class ModelLoaderService {
                     }
                 }
 
-                try saveModelPath(url, forModelID: modelID)
+                let persistedModelURL = try fileSystem.persistModelAsset(from: url, forModelID: modelID)
+                try saveModelPath(persistedModelURL, forModelID: modelID)
 
-                if let hash = fileSystem.computeStreamingSHA256(for: url) {
+                if let hash = fileSystem.computeStreamingSHA256(for: persistedModelURL) {
                     fileSystem.saveChecksum(hash, forModelID: modelID)
                 }
 

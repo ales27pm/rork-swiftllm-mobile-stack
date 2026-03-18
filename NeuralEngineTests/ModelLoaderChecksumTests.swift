@@ -112,6 +112,34 @@ struct ModelLoaderChecksumTests {
         #expect(assetHash == expectedHash)
     }
 
+    @Test func persistAssetsCopiesSnapshotsIntoManagedStorage() throws {
+        let fileSystem = FileSystemService()
+
+        let sourceFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("gguf")
+        try Data([0x47, 0x47, 0x55, 0x46, 0x01, 0x02, 0x03, 0x04]).write(to: sourceFile)
+        defer { try? FileManager.default.removeItem(at: sourceFile) }
+
+        let sourceTokenizer = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceTokenizer, withIntermediateDirectories: true)
+        try Data("{\"hello\":\"world\"}".utf8).write(to: sourceTokenizer.appendingPathComponent("tokenizer.json"))
+        defer { try? FileManager.default.removeItem(at: sourceTokenizer) }
+
+        let modelID = "persist-fixture-\(UUID().uuidString)"
+        let persistedModel = try fileSystem.persistModelAsset(from: sourceFile, forModelID: modelID)
+        let persistedTokenizer = try fileSystem.persistTokenizerAsset(from: sourceTokenizer, forModelID: modelID)
+        defer { fileSystem.deleteModelAssets(forModelID: modelID) }
+
+        #expect(persistedModel.path.hasPrefix(fileSystem.modelStorageDirectory.path))
+        #expect(persistedTokenizer.path.hasPrefix(fileSystem.tokenizerStorageDirectory.path))
+        #expect(FileManager.default.fileExists(atPath: persistedModel.path))
+        #expect(FileManager.default.fileExists(atPath: persistedTokenizer.appendingPathComponent("tokenizer.json").path))
+        #expect(fileSystem.computeAssetSHA256(for: sourceFile) == fileSystem.computeAssetSHA256(for: persistedModel))
+        #expect(fileSystem.computeAssetSHA256(for: sourceTokenizer) == fileSystem.computeAssetSHA256(for: persistedTokenizer))
+    }
+
     private func legacyDirectoryHash(at directory: URL) throws -> String {
         let enumerator = try #require(FileManager.default.enumerator(
             at: directory,
