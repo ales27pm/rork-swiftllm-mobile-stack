@@ -50,6 +50,18 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
     private var inactivityTimeoutSeconds: TimeInterval = 120
     private var isBackgrounded: Bool = false
     private var backgroundTimestamp: Date?
+    private var prefixSnapshotStore: [UUID: RunnerPrefillStateRecord] = [:]
+    private var prefixSnapshotModelID: String?
+    private var prefixSnapshotTokenizerID: String = "unknown-tokenizer"
+    private var modelSessionID: UUID = UUID()
+#if DEBUG
+    private var syntheticStateEnabledForTesting: Bool = false
+#endif
+
+    private struct RunnerPrefillStateRecord {
+        let state: MLState?
+        let metadata: PrefixStateSnapshotMetadata
+    }
 
 
     init(loadImplementation: LoadImplementation? = nil) {
@@ -86,6 +98,19 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
         lock.lock()
         defer { lock.unlock() }
         return consecutiveFailures
+    }
+
+    var currentPrefixSnapshotModelID: String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return prefixSnapshotModelID ?? modelURL?.lastPathComponent
+    }
+
+    func configurePrefixSnapshotContext(modelID: String, tokenizerID: String) {
+        withLock {
+            prefixSnapshotModelID = modelID
+            prefixSnapshotTokenizerID = tokenizerID
+        }
     }
 
     func loadModel(at url: URL, computeUnits: MLComputeUnits = .all) async throws {
@@ -189,9 +214,15 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
             usesState = false
             lastSuccessfulPrediction = nil
             stateSerializationURL = nil
+            prefixSnapshotStore.removeAll()
+            modelSessionID = UUID()
+#if DEBUG
+            syntheticStateEnabledForTesting = false
+#endif
         }
     }
 
+#if DEBUG
     func completeSyntheticLoadForTesting(at url: URL, computeUnits: MLComputeUnits) {
         withLock {
             modelURL = url
@@ -199,8 +230,51 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
             state = .ready
             consecutiveFailures = 0
             lastSuccessfulPrediction = Date()
+            modelSessionID = UUID()
+            prefixSnapshotStore.removeAll()
+            syntheticStateEnabledForTesting = true
         }
     }
+
+    @discardableResult
+    func installSyntheticPrefillStateForTesting(prefixTokens: [Int], modelID: String, tokenizerID: String, computeUnits: MLComputeUnits) -> PrefixStateSnapshotAvailability {
+        withLock {
+            prefixSnapshotModelID = modelID
+            prefixSnapshotTokenizerID = tokenizerID
+            activeComputeUnits = computeUnits
+            usesState = true
+            state = .ready
+            syntheticStateEnabledForTesting = true
+        }
+
+        guard let snapshot = makeSyntheticSnapshotForTesting(prefixTokens: prefixTokens) else {
+            return .unavailable(reason: "Synthetic prefix snapshot requires at least one token")
+        }
+
+        return .available(.runnerOwned(snapshot))
+    }
+
+    private func makeSyntheticSnapshotForTesting(prefixTokens: [Int]) -> RunnerOwnedPrefixStateSnapshot? {
+        withLock {
+            guard !prefixTokens.isEmpty else { return nil }
+            let metadata = PrefixStateSnapshotMetadata(
+                modelID: prefixSnapshotModelID ?? modelURL?.lastPathComponent ?? "unknown-model",
+                tokenizerID: prefixSnapshotTokenizerID,
+                computeUnits: computeUnitsIdentifier(activeComputeUnits),
+                prefixTokens: prefixTokens,
+                modelSessionID: modelSessionID
+            )
+            let handleID = UUID()
+            prefixSnapshotStore[handleID] = RunnerPrefillStateRecord(state: mlState, metadata: metadata)
+            let snapshot = RunnerOwnedPrefixStateSnapshot(
+                handleID: handleID,
+                createdAt: Date(),
+                metadata: metadata
+            )
+            return snapshot
+        }
+    }
+#endif
 
     private func loadWithFallback(at url: URL, preferredUnits: MLComputeUnits) async throws {
         let fallbackChain: [MLComputeUnits]
@@ -247,6 +321,11 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
                     mlState = modelState
                     usesState = true
                     state = .ready
+                    modelSessionID = UUID()
+                    prefixSnapshotStore.removeAll()
+#if DEBUG
+                    syntheticStateEnabledForTesting = false
+#endif
                 }
 
                 return
@@ -626,10 +705,32 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
             return .unavailable(reason: "Core ML state snapshotting is unavailable for this model")
         }
 
-        return .unavailable(reason: "Core ML prefill snapshots are not restorable on this runtime")
+        guard let currentState = mlState else {
+            return .unavailable(reason: "No Core ML state is available to snapshot")
+        }
+
+        let metadata = PrefixStateSnapshotMetadata(
+            modelID: prefixSnapshotModelID ?? modelURL?.lastPathComponent ?? "unknown-model",
+            tokenizerID: prefixSnapshotTokenizerID,
+            computeUnits: computeUnitsIdentifier(activeComputeUnits),
+            prefixTokens: prefixTokens,
+            modelSessionID: modelSessionID
+        )
+
+        let handleID = UUID()
+        prefixSnapshotStore[handleID] = RunnerPrefillStateRecord(state: currentState, metadata: metadata)
+        prunePrefixSnapshotStoreIfNeededLocked(maxEntries: 16)
+
+        return .available(.runnerOwned(
+            RunnerOwnedPrefixStateSnapshot(
+                handleID: handleID,
+                createdAt: Date(),
+                metadata: metadata
+            )
+        ))
     }
 
-    func restorePrefillState(from snapshot: PrefixStateSnapshot, expectedPrefixTokens _: [Int]) -> Bool {
+    func restorePrefillState(from snapshot: PrefixStateSnapshot, expectedPrefixTokens: [Int]) -> Bool {
         lock.lock()
         defer { lock.unlock() }
 
@@ -637,15 +738,38 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
             return false
         }
 
-        guard usesState, model != nil else {
+        let allowsSyntheticRestore = withDebugSyntheticRestoreEnabled()
+        guard usesState, model != nil || allowsSyntheticRestore else {
             return false
         }
 
         switch snapshot {
         case .unavailable:
             return false
-        case .runnerOwned:
-            return false
+        case .runnerOwned(let runnerSnapshot):
+            let metadata = runnerSnapshot.metadata
+            guard metadata.prefixTokens == expectedPrefixTokens else {
+                return false
+            }
+            guard metadata.modelID == (prefixSnapshotModelID ?? modelURL?.lastPathComponent ?? "unknown-model") else {
+                return false
+            }
+            guard metadata.tokenizerID == prefixSnapshotTokenizerID else {
+                return false
+            }
+            guard metadata.computeUnits == computeUnitsIdentifier(activeComputeUnits) else {
+                return false
+            }
+            guard metadata.modelSessionID == modelSessionID else {
+                return false
+            }
+            guard let record = prefixSnapshotStore[runnerSnapshot.handleID], record.metadata == metadata else {
+                return false
+            }
+            if let restoredState = record.state {
+                mlState = restoredState
+            }
+            return true
         }
     }
 
@@ -737,6 +861,8 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
         lastSuccessfulPrediction = nil
         lastRecoveryAttempt = nil
         stateSerializationURL = nil
+        prefixSnapshotStore.removeAll()
+        modelSessionID = UUID()
         state = .idle
         lock.unlock()
     }
@@ -815,6 +941,40 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
             return shape.last ?? 32000
         }
         return 32000
+    }
+
+    private func prunePrefixSnapshotStoreIfNeeded(maxEntries: Int = 16) {
+        withLock {
+            prunePrefixSnapshotStoreIfNeededLocked(maxEntries: maxEntries)
+        }
+    }
+
+    private func prunePrefixSnapshotStoreIfNeededLocked(maxEntries: Int) {
+        guard prefixSnapshotStore.count > maxEntries else { return }
+        let sortedIDs = prefixSnapshotStore
+            .sorted { $0.value.metadata.prefixTokens.count > $1.value.metadata.prefixTokens.count }
+            .map(\.key)
+        for id in sortedIDs.dropFirst(maxEntries) {
+            prefixSnapshotStore.removeValue(forKey: id)
+        }
+    }
+
+    private func computeUnitsIdentifier(_ units: MLComputeUnits) -> String {
+        switch units {
+        case .all: return "all"
+        case .cpuOnly: return "cpuOnly"
+        case .cpuAndGPU: return "cpuAndGPU"
+        case .cpuAndNeuralEngine: return "cpuAndNeuralEngine"
+        @unknown default: return "unknown"
+        }
+    }
+
+    private func withDebugSyntheticRestoreEnabled() -> Bool {
+#if DEBUG
+        syntheticStateEnabledForTesting
+#else
+        false
+#endif
     }
 }
 
