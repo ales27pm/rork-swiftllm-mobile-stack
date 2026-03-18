@@ -32,6 +32,12 @@ struct ChatView: View {
                     ShareSheet(items: viewModel.toolExecutor.shareItems)
                 }
             }
+            .sheet(isPresented: $viewModel.toolExecutor.showSMSComposer) {
+                MessageComposerView(toolExecutor: viewModel.toolExecutor)
+            }
+            .sheet(isPresented: $viewModel.toolExecutor.showEmailComposer) {
+                MailComposerView(toolExecutor: viewModel.toolExecutor)
+            }
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     headerTitle

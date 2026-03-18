@@ -349,6 +349,10 @@ class ToolExecutor: NSObject {
         guard let to = params["to"] as? String, let body = params["body"] as? String else {
             return ToolResult(toolName: "send_sms", success: false, data: "Missing 'to' or 'body' parameters", displayIcon: "message.fill")
         }
+        guard MFMessageComposeViewController.canSendText() else {
+            resetSMSComposerState()
+            return ToolResult(toolName: "send_sms", success: false, data: "SMS composer unavailable on this device", displayIcon: "message.fill")
+        }
         pendingSMSTo = to
         pendingSMSBody = body
         showSMSComposer = true
@@ -359,11 +363,28 @@ class ToolExecutor: NSObject {
         guard let to = params["to"] as? String else {
             return ToolResult(toolName: "send_email", success: false, data: "Missing 'to' parameter", displayIcon: "envelope.fill")
         }
+        guard MFMailComposeViewController.canSendMail() else {
+            resetEmailComposerState()
+            return ToolResult(toolName: "send_email", success: false, data: "Mail composer unavailable on this device", displayIcon: "envelope.fill")
+        }
         pendingEmailTo = to
         pendingEmailSubject = params["subject"] as? String ?? ""
         pendingEmailBody = params["body"] as? String ?? ""
         showEmailComposer = true
         return ToolResult(toolName: "send_email", success: true, data: "{\"status\": \"composer_opened\", \"to\": \"\(to)\"}", displayIcon: "envelope.fill")
+    }
+
+    func resetSMSComposerState() {
+        pendingSMSTo = nil
+        pendingSMSBody = nil
+        showSMSComposer = false
+    }
+
+    func resetEmailComposerState() {
+        pendingEmailTo = nil
+        pendingEmailSubject = nil
+        pendingEmailBody = nil
+        showEmailComposer = false
     }
 
     private func executeShareContent(_ params: [String: Any]) -> ToolResult {

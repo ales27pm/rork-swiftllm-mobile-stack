@@ -45,6 +45,12 @@ struct AgentHubView: View {
                     ShareSheet(items: chatViewModel.toolExecutor.shareItems)
                 }
             }
+            .sheet(isPresented: $chatViewModel.toolExecutor.showSMSComposer) {
+                MessageComposerView(toolExecutor: chatViewModel.toolExecutor)
+            }
+            .sheet(isPresented: $chatViewModel.toolExecutor.showEmailComposer) {
+                MailComposerView(toolExecutor: chatViewModel.toolExecutor)
+            }
             .sheet(item: $activeSheet) { capability in
                 capabilitySheet(capability)
             }
