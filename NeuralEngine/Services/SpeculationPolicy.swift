@@ -1,6 +1,40 @@
 import Foundation
 
 struct SpeculationPolicy: Sendable {
+    struct VerificationMetrics: Sendable, Equatable {
+        let acceptanceRate: Double
+        let acceptedLatencyMS: Double
+        let latencyEfficiency: Double
+        let mismatchPenalty: Double
+
+        static func from(
+            draftCount: Int,
+            acceptedCount: Int,
+            draftLatencyMS: Double,
+            verifyLatencyMS: Double,
+            committedCount: Int,
+            mismatchIndex: Int?
+        ) -> VerificationMetrics {
+            let safeDraftCount = max(draftCount, 1)
+            let safeCommittedCount = max(committedCount, 1)
+            let acceptanceRate = draftCount > 0 ? Double(acceptedCount) / Double(draftCount) : 0
+            let acceptedLatencyMS = (draftLatencyMS + verifyLatencyMS) / Double(safeCommittedCount)
+            let baselinePerToken = verifyLatencyMS / Double(safeDraftCount)
+            let actualPerCommitted = (draftLatencyMS + verifyLatencyMS) / Double(safeCommittedCount)
+            let mismatchPenalty = mismatchIndex.map { 1.0 - (Double($0) / Double(safeDraftCount)) } ?? 0
+            let latencyEfficiency = baselinePerToken > 0
+                ? (baselinePerToken / max(actualPerCommitted, 0.001)) * (1.0 - 0.25 * mismatchPenalty)
+                : 1.0
+
+            return VerificationMetrics(
+                acceptanceRate: acceptanceRate,
+                acceptedLatencyMS: acceptedLatencyMS,
+                latencyEfficiency: latencyEfficiency,
+                mismatchPenalty: mismatchPenalty
+            )
+        }
+    }
+
     var k: Int = 4
     var minK: Int = 1
     var maxK: Int = 8
@@ -72,19 +106,21 @@ struct SpeculationPolicy: Sendable {
             verificationCostHistory.removeFirst()
         }
 
-        acceptedLatencyHistory.append((draftLatencyMS + verifyLatencyMS) / Double(max(committedCount, 1)))
+        let metrics = VerificationMetrics.from(
+            draftCount: draftCount,
+            acceptedCount: acceptedCount,
+            draftLatencyMS: draftLatencyMS,
+            verifyLatencyMS: verifyLatencyMS,
+            committedCount: committedCount,
+            mismatchIndex: mismatchIndex
+        )
+
+        acceptedLatencyHistory.append(metrics.acceptedLatencyMS)
         if acceptedLatencyHistory.count > 20 {
             acceptedLatencyHistory.removeFirst()
         }
 
-        let rate = draftCount > 0 ? Double(acceptedCount) / Double(draftCount) : 0
-        let baselinePerToken = verifyLatencyMS / Double(max(draftCount, 1))
-        let actualPerCommitted = (draftLatencyMS + verifyLatencyMS) / Double(max(committedCount, 1))
-        let mismatchPenalty = mismatchIndex.map { 1.0 - (Double($0) / Double(max(draftCount, 1))) } ?? 0
-        let latencyEfficiency = baselinePerToken > 0
-            ? (baselinePerToken / max(actualPerCommitted, 0.001)) * (1.0 - 0.25 * mismatchPenalty)
-            : 1.0
-        update(acceptanceRate: rate, latencyEfficiency: latencyEfficiency)
+        update(acceptanceRate: metrics.acceptanceRate, latencyEfficiency: metrics.latencyEfficiency)
     }
 
     var shouldUseSpeculation: Bool {

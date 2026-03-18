@@ -196,7 +196,11 @@ nonisolated final class DecodeEngine: @unchecked Sendable {
         mode: SpeculativeVerification.Mode
     ) throws -> SpeculativeVerification {
         let draftTokens = draftSequence.tokens
-        let spanCount = min(draftTokens.count, targetLogitsSpan.count)
+        guard targetLogitsSpan.count == draftTokens.count else {
+            throw DecodeError.verificationFailed(
+                "Expected \(draftTokens.count) target logits rows, received \(targetLogitsSpan.count)"
+            )
+        }
 
         var accepted: [Int] = []
         var rejected: [Int] = []
@@ -204,7 +208,7 @@ nonisolated final class DecodeEngine: @unchecked Sendable {
         var rejectionIndex: Int?
         var contextWindow = recentTokens
 
-        for i in 0..<spanCount {
+        for i in 0..<draftTokens.count {
             let token = draftTokens[i]
             let currentContext = Array(contextWindow.suffix(64))
             let targetDistribution = sampler.prepareDistribution(logits: targetLogitsSpan[i], recentTokens: currentContext)
@@ -228,10 +232,6 @@ nonisolated final class DecodeEngine: @unchecked Sendable {
                 correctionToken = sampler.sample(from: targetDistribution)
             }
             break
-        }
-
-        if rejectionIndex == nil && draftTokens.count > spanCount {
-            rejected = Array(draftTokens[spanCount...])
         }
 
         return SpeculativeVerification(
