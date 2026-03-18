@@ -37,15 +37,33 @@ struct IntentClassifier {
         (#"(?i)\b(hypothetical|scenario|what would happen|if.*then)\b"#, .explorationHypothetical, 0.8),
     ]
 
-    static func classify(text: String, conversationHistory: [Message]) -> IntentClassification {
+    static func classify(text: String, conversationHistory: [Message], languageHint: String? = nil) -> IntentClassification {
+        let processed = NLTextProcessing.process(text: text, languageHint: languageHint)
         var scores: [IntentType: Double] = [:]
 
         for (pattern, intent, weight) in intentPatterns {
             guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
-            let matchCount = regex.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text))
+            let sources = [text, processed.normalizedText]
+            let matchCount = sources.reduce(0) { partial, source in
+                partial + regex.numberOfMatches(in: source, range: NSRange(source.startIndex..., in: source))
+            }
             if matchCount > 0 {
                 scores[intent, default: 0] += weight * Double(min(matchCount, 3))
             }
+        }
+
+        let lemmaTerms = processed.searchableTerms
+        let lexicalBoosts: [(IntentType, Set<String>, Double)] = [
+            (.requestCalculation, ["calculate", "compute", "equation", "solve", "formula"], 0.35),
+            (.requestSearch, ["search", "find", "lookup", "browse", "google"], 0.3),
+            (.requestMemory, ["remember", "recall"], 0.35),
+            (.requestAnalysis, ["analyze", "analysis", "review", "evaluate", "examine"], 0.3),
+            (.statementEmotion, ["feel", "feeling"], 0.35),
+            (.socialGratitude, ["thank", "thanks", "grateful"], 0.25),
+            (.socialApology, ["sorry", "apologize", "forgive"], 0.25)
+        ]
+        for (intent, terms, weight) in lexicalBoosts where !terms.isDisjoint(with: Set(lemmaTerms)) {
+            scores[intent, default: 0] += weight
         }
 
         let sorted = scores.sorted { $0.value > $1.value }
@@ -54,7 +72,7 @@ struct IntentClassifier {
         let topScore = sorted.first?.value ?? 0.5
         let confidence = min(1.0, topScore / 2.0)
 
-        let urgency = detectUrgency(text: text)
+        let urgency = detectUrgency(text: text, normalizedText: processed.normalizedText)
         let isMultiIntent = sorted.count >= 2 && (sorted[1].value / max(sorted[0].value, 0.01)) > 0.6
         let subIntents = isMultiIntent ? sorted.prefix(3).map(\.key) : [primary]
 
@@ -78,7 +96,7 @@ struct IntentClassifier {
         )
     }
 
-    private static func detectUrgency(text: String) -> Double {
+    private static func detectUrgency(text: String, normalizedText: String) -> Double {
         var urgency: Double = 0
         let patterns: [(String, Double)] = [
             (#"(?i)\b(urgent|asap|immediately|right now|emergency)\b"#, 0.9),
@@ -88,7 +106,7 @@ struct IntentClassifier {
         ]
         for (pattern, weight) in patterns {
             if let regex = try? NSRegularExpression(pattern: pattern),
-               regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
+               regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil || regex.firstMatch(in: normalizedText, range: NSRange(normalizedText.startIndex..., in: normalizedText)) != nil {
                 urgency = max(urgency, weight)
             }
         }

@@ -135,7 +135,7 @@ class MemoryService {
         addMemory(memories[idx])
     }
 
-    func searchMemories(query: String, maxResults: Int = 8, minScore: Double = 0.05, categoryFilter: [MemoryCategory]? = nil) -> [RetrievalResult] {
+    func searchMemories(query: String, maxResults: Int = 8, minScore: Double = 0.05, categoryFilter: [MemoryCategory]? = nil, languageHint: String? = nil) -> [RetrievalResult] {
         guard !memories.isEmpty else { return [] }
 
         let filtered = categoryFilter != nil
@@ -144,37 +144,50 @@ class MemoryService {
 
         guard !filtered.isEmpty else { return [] }
 
-        let idf = buildIDF(filtered)
-        let queryVec = computeTFIDF(text: query, idf: idf)
+        let resolvedLanguageHint = languageHint ?? NLTextProcessing.detectLanguage(for: query)?.rawValue
+        let queryTerms = tokenize(query, languageHint: resolvedLanguageHint)
+        let idf = buildIDF(filtered, languageHint: resolvedLanguageHint)
+        let queryVec = computeTFIDF(tokens: queryTerms, idf: idf)
 
-        var scored: [RetrievalResult] = filtered.map { m in
-            let docText = m.content + " " + m.keywords.joined(separator: " ") + " " + m.category.rawValue
-            let docVec = computeTFIDF(text: docText, idf: idf)
+        var scored: [RetrievalResult] = filtered.map { memory in
+            let docText = memory.content + " " + memory.keywords.joined(separator: " ") + " " + memory.category.rawValue
+            let documentLanguageHint = resolvedLanguageHint ?? NLTextProcessing.detectLanguage(for: docText)?.rawValue
+            let docTerms = tokenize(docText, languageHint: documentLanguageHint)
+            let docVec = computeTFIDF(tokens: docTerms, idf: idf)
             let tfidfScore = cosineSimilarity(a: queryVec, b: docVec)
+            let lexicalOverlap = weightedOverlap(queryTerms: queryTerms, documentTerms: docTerms)
 
-            let queryTerms = tokenize(query)
             var keywordBonus: Double = 0
             for term in queryTerms {
-                for kw in m.keywords {
-                    if kw.lowercased().contains(term) || term.contains(kw.lowercased()) {
+                for keyword in memory.keywords {
+                    let normalizedKeyword = NLTextProcessing.normalizeForMatching(keyword, languageHint: documentLanguageHint)
+                    if normalizedKeyword.contains(term) || term.contains(normalizedKeyword) {
                         keywordBonus += 0.15
                     }
                 }
             }
             keywordBonus = min(keywordBonus, 0.4)
 
-            let decay = computeDecay(m)
-            let recencyScore = decay * 0.15
-            let importanceScore = Double(m.importance) / 5.0 * 0.2
-            let activationBonus = m.activationLevel * 0.15
-            let totalScore = tfidfScore + keywordBonus + recencyScore + importanceScore + activationBonus
+            let embeddingScore = NLTextProcessing.embeddingSimilarity(
+                query: query,
+                document: docText,
+                languageHint: resolvedLanguageHint ?? documentLanguageHint
+            ) ?? 0
 
-            var matchType: RetrievalResult.MatchType = tfidfScore > keywordBonus ? .semantic : .keyword
-            if activationBonus > tfidfScore && activationBonus > keywordBonus {
+            let decay = computeDecay(memory)
+            let recencyScore = decay * 0.15
+            let importanceScore = Double(memory.importance) / 5.0 * 0.2
+            let activationBonus = memory.activationLevel * 0.15
+            let hybridLexicalScore = (tfidfScore * 0.5) + (lexicalOverlap * 0.25) + (keywordBonus * 0.25)
+            let semanticScore = embeddingScore * 0.35
+            let totalScore = hybridLexicalScore + semanticScore + recencyScore + importanceScore + activationBonus
+
+            var matchType: RetrievalResult.MatchType = semanticScore > hybridLexicalScore ? .semantic : .keyword
+            if activationBonus > hybridLexicalScore && activationBonus > semanticScore {
                 matchType = .primed
             }
 
-            return RetrievalResult(memory: m, score: totalScore, matchType: matchType)
+            return RetrievalResult(memory: memory, score: totalScore, matchType: matchType)
         }
 
         scored.sort { $0.score > $1.score }
@@ -209,8 +222,8 @@ class MemoryService {
             activations[mem.id] = (1.0, 0)
         }
 
-        for d in 0..<2 {
-            let currentLevel = activations.filter { $0.value.depth == d }
+        for depth in 0..<2 {
+            let currentLevel = activations.filter { $0.value.depth == depth }
             for (nodeId, activation) in currentLevel {
                 let outgoing = associativeLinks.filter { $0.sourceId == nodeId || $0.targetId == nodeId }
                 for link in outgoing {
@@ -219,7 +232,7 @@ class MemoryService {
                     let propagated = activation.level * link.strength * 0.5
                     guard propagated >= 0.05 else { continue }
                     if let existing = activations[neighborId], existing.level >= propagated { continue }
-                    activations[neighborId] = (propagated, d + 1)
+                    activations[neighborId] = (propagated, depth + 1)
                 }
             }
         }
@@ -270,7 +283,8 @@ class MemoryService {
 
     private func extractMemorableContent(userText: String, assistantText: String) -> [MemoryEntry] {
         var entries: [MemoryEntry] = []
-        let lower = userText.lowercased()
+        let lower = NLTextProcessing.normalizeForMatching(userText)
+        let processed = NLTextProcessing.process(text: userText)
 
         let namePatterns = [
             #"(?i)my name is ([\w\s]+)"#,
@@ -285,7 +299,7 @@ class MemoryService {
                 if name.count > 1 && name.count < 30 {
                     entries.append(MemoryEntry(
                         content: "User's name is \(name)",
-                        keywords: ["name", name.lowercased()],
+                        keywords: ["name", name.lowercased()] + processed.namedEntities.map { $0.lowercased() },
                         category: .fact,
                         importance: 5,
                         source: .conversation
@@ -338,7 +352,7 @@ class MemoryService {
             }
         }
 
-        if lower.contains("remember") || lower.contains("always") || lower.contains("make sure") || lower.contains("never") || lower.contains("don't forget") {
+        if lower.contains("remember") || lower.contains("always") || lower.contains("make sure") || lower.contains("never") || lower.contains("dont forget") {
             entries.append(MemoryEntry(
                 content: String(userText.prefix(200)),
                 keywords: extractKeywords(from: userText) + ["instruction"],
@@ -419,8 +433,8 @@ class MemoryService {
         }
     }
 
-    func buildContextInjection(query: String) -> String {
-        let directResults = searchMemories(query: query, maxResults: 5)
+    func buildContextInjection(query: String, languageHint: String? = nil) -> String {
+        let directResults = searchMemories(query: query, maxResults: 5, languageHint: languageHint)
         let associativeResults = getAssociativeMemories(query: query, directResults: directResults)
         let allResults = directResults + associativeResults
 
@@ -437,19 +451,15 @@ class MemoryService {
     }
 
     private func extractKeywords(from text: String) -> [String] {
-        let stopWords: Set<String> = ["the", "a", "an", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "can", "shall", "to", "of", "in", "for", "on", "with", "at", "by", "from", "as", "into", "through", "during", "before", "after", "above", "below", "between", "out", "off", "over", "under", "again", "further", "then", "once", "here", "there", "when", "where", "why", "how", "all", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "just", "don", "now", "and", "but", "or", "if", "while", "this", "that", "these", "those", "it", "its", "i", "me", "my", "you", "your", "he", "she", "we", "they", "them", "his", "her", "our", "their", "what", "which", "who", "whom"]
-
-        let tokens = tokenize(text)
-        let filtered = tokens.filter { !stopWords.contains($0) && $0.count > 2 }
-
         var freq: [String: Int] = [:]
-        for token in filtered { freq[token, default: 0] += 1 }
-
-        return freq.sorted { $0.value > $1.value }.prefix(5).map(\.key)
+        for token in tokenize(text) { freq[token, default: 0] += 1 }
+        return freq.sorted { lhs, rhs in
+            lhs.value == rhs.value ? lhs.key < rhs.key : lhs.value > rhs.value
+        }.prefix(5).map(\.key)
     }
 
     private func classifyCategory(_ text: String) -> MemoryCategory {
-        let lower = text.lowercased()
+        let lower = NLTextProcessing.normalizeForMatching(text)
         if lower.contains("i like") || lower.contains("i prefer") || lower.contains("i love") || lower.contains("i hate") || lower.contains("favorite") {
             return .preference
         }
@@ -483,7 +493,7 @@ class MemoryService {
             guard existing.id != newMemory.id else { continue }
             let existingTokens = Set(tokenize(existing.content + " " + existing.keywords.joined(separator: " ")))
             var overlap = 0
-            for t in newTokens { if existingTokens.contains(t) { overlap += 1 } }
+            for token in newTokens where existingTokens.contains(token) { overlap += 1 }
             let union = newTokens.count + existingTokens.count - overlap
             guard union > 0 else { continue }
             let jaccard = Double(overlap) / Double(union)
@@ -503,11 +513,10 @@ class MemoryService {
                 linkType = .topical
             }
 
-            let keywordOverlap = newMemory.keywords.filter { k in
-                existing.keywords.contains { $0.lowercased() == k.lowercased() }
+            let keywordOverlap = newMemory.keywords.filter { keyword in
+                existing.keywords.contains { $0.caseInsensitiveCompare(keyword) == .orderedSame }
             }.count
             let strength = min(1, jaccard + Double(keywordOverlap) * 0.15)
-
             guard strength > 0.15 else { continue }
 
             newLinks.append(AssociativeLink(
@@ -524,21 +533,17 @@ class MemoryService {
         return Array(newLinks.prefix(8))
     }
 
-    private func tokenize(_ text: String) -> [String] {
-        text.lowercased()
-            .replacingOccurrences(of: "[^a-z0-9\\s]", with: " ", options: .regularExpression)
-            .split(separator: " ")
-            .map(String.init)
-            .filter { $0.count > 2 }
+    private func tokenize(_ text: String, languageHint: String? = nil) -> [String] {
+        NLTextProcessing.stemmedTerms(text, languageHint: languageHint, droppingStopWords: true)
     }
 
-    private func buildIDF(_ entries: [MemoryEntry]) -> [String: Double] {
+    private func buildIDF(_ entries: [MemoryEntry], languageHint: String? = nil) -> [String: Double] {
         let docCount = Double(max(entries.count, 1))
         var termDocFreq: [String: Int] = [:]
 
-        for m in entries {
-            let terms = Set(tokenize(m.content + " " + m.keywords.joined(separator: " ")))
-            for t in terms { termDocFreq[t, default: 0] += 1 }
+        for memory in entries {
+            let terms = Set(tokenize(memory.content + " " + memory.keywords.joined(separator: " "), languageHint: languageHint))
+            for term in terms { termDocFreq[term, default: 0] += 1 }
         }
 
         var idf: [String: Double] = [:]
@@ -548,10 +553,9 @@ class MemoryService {
         return idf
     }
 
-    private func computeTFIDF(text: String, idf: [String: Double]) -> [String: Double] {
-        let tokens = tokenize(text)
+    private func computeTFIDF(tokens: [String], idf: [String: Double]) -> [String: Double] {
         var tf: [String: Double] = [:]
-        for t in tokens { tf[t, default: 0] += 1 }
+        for token in tokens { tf[token, default: 0] += 1 }
         let maxTF = max(tf.values.max() ?? 1, 1)
 
         var tfidf: [String: Double] = [:]
@@ -590,5 +594,14 @@ class MemoryService {
         let freshnessBonus = hoursSinceCreation < 24 ? 0.2 : 0
 
         return max(0.05, min(1.0, decayFactor + freshnessBonus))
+    }
+
+    private func weightedOverlap(queryTerms: [String], documentTerms: [String]) -> Double {
+        guard !queryTerms.isEmpty, !documentTerms.isEmpty else { return 0 }
+        let querySet = Set(queryTerms)
+        let documentSet = Set(documentTerms)
+        let overlap = querySet.intersection(documentSet).count
+        let denominator = max(querySet.count, documentSet.count)
+        return denominator > 0 ? Double(overlap) / Double(denominator) : 0
     }
 }
