@@ -40,8 +40,10 @@ struct EmotionAnalyzer {
         (#"(?i)\b(meaning|philosophy|purpose|existence|consciousness)\b"#, "reflective"),
     ]
 
-    static func analyze(text: String, conversationHistory: [Message]) -> EmotionalState {
-        let lower = text.lowercased()
+    static func analyze(text: String, conversationHistory: [Message], languageHint: String? = nil) -> EmotionalState {
+        let processed = NLTextProcessing.process(text: text, languageHint: languageHint)
+        let normalized = processed.normalizedText
+        let searchableTerms = Set(processed.searchableTerms)
 
         var totalValence: Double = 0
         var totalArousal: Double = 0
@@ -50,7 +52,9 @@ struct EmotionAnalyzer {
         var maxWeight: Double = 0
 
         for entry in emotionLexicon {
-            if lower.contains(entry.pattern) {
+            let normalizedPattern = NLTextProcessing.normalizeForMatching(entry.pattern, languageHint: languageHint)
+            let matched = normalized.contains(normalizedPattern) || searchableTerms.contains(normalizedPattern)
+            if matched {
                 totalValence += entry.valence
                 totalArousal += entry.arousal
                 matchCount += 1
@@ -73,8 +77,8 @@ struct EmotionAnalyzer {
         } else if avgValence < -0.2 {
             valence = .negative
         } else {
-            let hasPos = emotionLexicon.contains { $0.valence > 0.2 && lower.contains($0.pattern) }
-            let hasNeg = emotionLexicon.contains { $0.valence < -0.2 && lower.contains($0.pattern) }
+            let hasPos = emotionLexicon.contains { $0.valence > 0.2 && normalized.contains(NLTextProcessing.normalizeForMatching($0.pattern, languageHint: languageHint)) }
+            let hasNeg = emotionLexicon.contains { $0.valence < -0.2 && normalized.contains(NLTextProcessing.normalizeForMatching($0.pattern, languageHint: languageHint)) }
             valence = (hasPos && hasNeg) ? .mixed : .neutral
         }
 
@@ -83,8 +87,8 @@ struct EmotionAnalyzer {
         else if avgArousal > 0.4 { arousal = .medium }
         else { arousal = .low }
 
-        let style = detectStyle(text: text)
-        let trajectory = detectTrajectory(currentValence: avgValence, history: conversationHistory)
+        let style = detectStyle(text: text, normalizedText: normalized)
+        let trajectory = detectTrajectory(currentValence: avgValence, history: conversationHistory, languageHint: languageHint)
         let empathyLevel = computeEmpathyLevel(valence: avgValence, arousal: avgArousal)
 
         return EmotionalState(
@@ -97,11 +101,11 @@ struct EmotionAnalyzer {
         )
     }
 
-    private static func detectStyle(text: String) -> String {
+    private static func detectStyle(text: String, normalizedText: String) -> String {
         var styleCounts: [String: Int] = [:]
         for (pattern, style) in stylePatterns {
             guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
-            let count = regex.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text))
+            let count = regex.numberOfMatches(in: text, range: NSRange(text.startIndex..., in: text)) + regex.numberOfMatches(in: normalizedText, range: NSRange(normalizedText.startIndex..., in: normalizedText))
             if count > 0 {
                 styleCounts[style, default: 0] += count
             }
@@ -109,17 +113,19 @@ struct EmotionAnalyzer {
         return styleCounts.max(by: { $0.value < $1.value })?.key ?? "neutral"
     }
 
-    private static func detectTrajectory(currentValence: Double, history: [Message]) -> String {
+    private static func detectTrajectory(currentValence: Double, history: [Message], languageHint: String?) -> String {
         let recentUserMessages = history.suffix(6).filter { $0.role == .user }
         guard recentUserMessages.count >= 2 else { return "stable" }
 
         var previousValences: [Double] = []
         for msg in recentUserMessages {
-            let lower = msg.content.lowercased()
+            let processed = NLTextProcessing.process(text: msg.content, languageHint: languageHint)
+            let normalized = processed.normalizedText
             var v: Double = 0
             var c: Double = 0
             for entry in emotionLexicon {
-                if lower.contains(entry.pattern) {
+                let normalizedPattern = NLTextProcessing.normalizeForMatching(entry.pattern, languageHint: languageHint)
+                if normalized.contains(normalizedPattern) {
                     v += entry.valence
                     c += 1
                 }

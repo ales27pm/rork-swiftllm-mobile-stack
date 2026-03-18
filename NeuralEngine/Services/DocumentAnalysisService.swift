@@ -160,9 +160,18 @@ class DocumentAnalysisService {
     }
 
     nonisolated private func detectLanguage(_ text: String) -> String? {
-        let recognizer = NLLanguageRecognizer()
-        recognizer.processString(text)
-        return recognizer.dominantLanguage?.rawValue
+        NLTextProcessing.detectLanguage(for: text)?.rawValue
+    }
+
+    nonisolated func preprocessForDownstreamNLP(_ result: DocumentAnalysisResult) -> NLPDocumentContext {
+        let processed = NLTextProcessing.process(text: result.fullText, languageHint: result.languageHint)
+        return NLPDocumentContext(
+            fullText: result.fullText,
+            languageHint: result.languageHint ?? processed.language?.rawValue,
+            sentenceSegments: processed.sentences,
+            normalizedTerms: processed.searchableTerms,
+            namedEntities: processed.namedEntities
+        )
     }
 }
 
@@ -194,6 +203,14 @@ nonisolated struct TextBlock: Identifiable, Sendable {
     let confidence: Float
     let boundingBox: CGRect
     let normalizedBox: CGRect
+}
+
+nonisolated struct NLPDocumentContext: Sendable {
+    let fullText: String
+    let languageHint: String?
+    let sentenceSegments: [String]
+    let normalizedTerms: [String]
+    let namedEntities: [String]
 }
 
 nonisolated struct BarcodeResult: Identifiable, Sendable {

@@ -144,7 +144,7 @@ init(service: DocumentAnalysisServicing? = nil) {
                         fullText: text,
                         blocks: [TextBlock(text: text, confidence: 1.0, boundingBox: .zero, normalizedBox: .zero)],
                         pageCount: 1,
-                        languageHint: nil
+                        languageHint: NLTextProcessing.detectLanguage(for: text)?.rawValue
                     )
                     statusMessage = AppStrings.textFileLoaded
                     progress = 1.0
