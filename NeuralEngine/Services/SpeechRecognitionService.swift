@@ -5,6 +5,17 @@ import os.log
 
 @Observable
 class SpeechRecognitionService: NSObject {
+    private enum SpeechRecognitionError: LocalizedError {
+        case microphoneInputUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .microphoneInputUnavailable:
+                return "Microphone input unavailable"
+            }
+        }
+    }
+
     private static let supportedLocales: [(originalIdentifier: String, normalizedIdentifier: String)] =
         SFSpeechRecognizer.supportedLocales()
             .map { locale in
@@ -26,6 +37,7 @@ class SpeechRecognitionService: NSObject {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
+    private var isInputTapInstalled = false
     private var silenceTimer: Timer?
     private var lastSpeechTime: Date = Date()
     private var onSilenceDetected: (() -> Void)?
@@ -170,6 +182,19 @@ class SpeechRecognitionService: NSObject {
         try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
 
+        resetAudioEngine()
+
+        let inputNode = audioEngine.inputNode
+        let hardwareFormat = inputNode.inputFormat(forBus: 0)
+        guard hardwareFormat.channelCount > 0, hardwareFormat.sampleRate > 0 else {
+            logger.error("Invalid hardware input format for speech recognition tap. Channels: \(hardwareFormat.channelCount), sample rate: \(hardwareFormat.sampleRate, privacy: .public)")
+            stopListening()
+            let microphoneError = SpeechRecognitionError.microphoneInputUnavailable
+            error = microphoneError.localizedDescription
+            throw microphoneError
+        }
+        let tapFormat = inputNode.outputFormat(forBus: 0)
+
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         guard let recognitionRequest else { return }
 
@@ -180,63 +205,66 @@ class SpeechRecognitionService: NSObject {
         }
 
         recognitionTask = speechRecognizer.recognitionTask(with: recognitionRequest) { [weak self] result, taskError in
-            guard let self else { return }
+            DispatchQueue.main.async {
+                guard let self else { return }
 
-            if let result {
-                self.transcript = result.bestTranscription.formattedString
-                self.lastSpeechTime = Date()
+                if let result {
+                    self.transcript = result.bestTranscription.formattedString
+                    self.lastSpeechTime = Date()
 
-                if !self.isSpeechDetected {
-                    self.isSpeechDetected = true
-                    self.speechStartTime = Date()
-                }
+                    if !self.isSpeechDetected {
+                        self.isSpeechDetected = true
+                        self.speechStartTime = Date()
+                    }
 
-                self.updateDynamicSilenceDuration()
+                    self.updateDynamicSilenceDuration()
 
-                if result.isFinal {
-                    self.stopListening()
-                    self.onSilenceDetected?()
-                }
-            }
-
-            if let taskError {
-                let nsError = taskError as NSError
-                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
-                    if !self.transcript.isEmpty {
+                    if result.isFinal {
+                        self.stopListening()
                         self.onSilenceDetected?()
-                    } else {
+                    }
+                }
+
+                if let taskError {
+                    let nsError = taskError as NSError
+                    if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
+                        if !self.transcript.isEmpty {
+                            self.onSilenceDetected?()
+                        } else {
+                            self.stopListening()
+                        }
+                    } else if nsError.code != 216 {
+                        self.error = taskError.localizedDescription
                         self.stopListening()
                     }
-                } else if nsError.code != 216 {
-                    self.error = taskError.localizedDescription
-                    self.stopListening()
                 }
             }
         }
 
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: tapFormat) { [weak self] buffer, _ in
             self?.recognitionRequest?.append(buffer)
             self?.processAudioLevel(buffer: buffer)
         }
+        isInputTapInstalled = true
 
-        audioEngine.prepare()
-        try audioEngine.start()
-        isListening = true
-
-        startAdaptiveSilenceDetection()
+        do {
+            audioEngine.prepare()
+            try audioEngine.start()
+            isListening = true
+            startAdaptiveSilenceDetection()
+        } catch {
+            logger.error("Failed to start audio engine for speech recognition: \(error.localizedDescription, privacy: .public)")
+            stopListening()
+            self.error = error.localizedDescription
+            throw error
+        }
     }
 
     func stopListening() {
         silenceTimer?.invalidate()
         silenceTimer = nil
 
-        if audioEngine.isRunning {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-        }
+        resetAudioEngine()
 
         recognitionRequest?.endAudio()
         recognitionRequest = nil
@@ -249,6 +277,19 @@ class SpeechRecognitionService: NSObject {
         isSpeechDetected = false
 
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func resetAudioEngine() {
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+
+        if isInputTapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            isInputTapInstalled = false
+        }
+
+        audioEngine.reset()
     }
 
     private func processAudioLevel(buffer: AVAudioPCMBuffer) {
