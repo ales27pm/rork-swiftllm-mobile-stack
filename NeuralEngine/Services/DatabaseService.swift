@@ -153,7 +153,7 @@ nonisolated final class DatabaseService: Sendable {
             case let value as Double:
                 sqlite3_bind_double(stmt, i, value)
             case let value as Data:
-                value.withUnsafeBytes { ptr in
+                let _ = value.withUnsafeBytes { ptr in
                     sqlite3_bind_blob(stmt, i, ptr.baseAddress, Int32(value.count), unsafeBitCast(-1, to: sqlite3_destructor_type.self))
                 }
             case is NSNull:
