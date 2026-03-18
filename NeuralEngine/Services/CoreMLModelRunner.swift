@@ -54,7 +54,9 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
     private var prefixSnapshotModelID: String?
     private var prefixSnapshotTokenizerID: String = "unknown-tokenizer"
     private var modelSessionID: UUID = UUID()
+#if DEBUG
     private var syntheticStateEnabledForTesting: Bool = false
+#endif
 
     private struct RunnerPrefillStateRecord {
         let state: MLState?
@@ -214,10 +216,13 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
             stateSerializationURL = nil
             prefixSnapshotStore.removeAll()
             modelSessionID = UUID()
+#if DEBUG
             syntheticStateEnabledForTesting = false
+#endif
         }
     }
 
+#if DEBUG
     func completeSyntheticLoadForTesting(at url: URL, computeUnits: MLComputeUnits) {
         withLock {
             modelURL = url
@@ -269,6 +274,7 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
             return snapshot
         }
     }
+#endif
 
     private func loadWithFallback(at url: URL, preferredUnits: MLComputeUnits) async throws {
         let fallbackChain: [MLComputeUnits]
@@ -317,7 +323,9 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
                     state = .ready
                     modelSessionID = UUID()
                     prefixSnapshotStore.removeAll()
+#if DEBUG
                     syntheticStateEnabledForTesting = false
+#endif
                 }
 
                 return
@@ -711,7 +719,7 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
 
         let handleID = UUID()
         prefixSnapshotStore[handleID] = RunnerPrefillStateRecord(state: currentState, metadata: metadata)
-        prunePrefixSnapshotStoreIfNeeded()
+        prunePrefixSnapshotStoreIfNeededLocked(maxEntries: 16)
 
         return .available(.runnerOwned(
             RunnerOwnedPrefixStateSnapshot(
@@ -730,7 +738,8 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
             return false
         }
 
-        guard usesState, model != nil || syntheticStateEnabledForTesting else {
+        let allowsSyntheticRestore = withDebugSyntheticRestoreEnabled()
+        guard usesState, model != nil || allowsSyntheticRestore else {
             return false
         }
 
@@ -935,6 +944,12 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
     }
 
     private func prunePrefixSnapshotStoreIfNeeded(maxEntries: Int = 16) {
+        withLock {
+            prunePrefixSnapshotStoreIfNeededLocked(maxEntries: maxEntries)
+        }
+    }
+
+    private func prunePrefixSnapshotStoreIfNeededLocked(maxEntries: Int) {
         guard prefixSnapshotStore.count > maxEntries else { return }
         let sortedIDs = prefixSnapshotStore
             .sorted { $0.value.metadata.prefixTokens.count > $1.value.metadata.prefixTokens.count }
@@ -952,6 +967,14 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
         case .cpuAndNeuralEngine: return "cpuAndNeuralEngine"
         @unknown default: return "unknown"
         }
+    }
+
+    private func withDebugSyntheticRestoreEnabled() -> Bool {
+#if DEBUG
+        syntheticStateEnabledForTesting
+#else
+        false
+#endif
     }
 }
 
