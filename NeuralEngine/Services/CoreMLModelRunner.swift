@@ -22,6 +22,7 @@ nonisolated protocol LogitsPredicting: Sendable {
 }
 
 nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable {
+    typealias LoadImplementation = @Sendable (CoreMLModelRunner, URL, MLComputeUnits) async throws -> Void
     private var model: MLModel?
     private var modelURL: URL?
     private var activeComputeUnits: MLComputeUnits = .all
@@ -31,6 +32,7 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
     private var inputName: String = "input_ids"
     private var outputName: String = "logits"
     private var usesState: Bool = false
+    private let loadImplementation: LoadImplementation
 
     private var consecutiveFailures: Int = 0
     private var lastSuccessfulPrediction: Date?
@@ -48,6 +50,13 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
     private var inactivityTimeoutSeconds: TimeInterval = 120
     private var isBackgrounded: Bool = false
     private var backgroundTimestamp: Date?
+
+
+    init(loadImplementation: LoadImplementation? = nil) {
+        self.loadImplementation = loadImplementation ?? { runner, url, computeUnits in
+            try await runner.loadWithFallback(at: url, preferredUnits: computeUnits)
+        }
+    }
 
     private func withLock<T>(_ body: () throws -> T) rethrows -> T {
         lock.lock()
@@ -97,7 +106,7 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
         }
 
         do {
-            try await loadWithFallback(at: url, preferredUnits: computeUnits)
+            try await loadImplementation(self, url, computeUnits)
             setupLifecycleObservers()
             setupStateSerializationPath()
         } catch {
@@ -107,29 +116,89 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
     }
 
     func loadModelWithTimeout(at url: URL, computeUnits: MLComputeUnits = .all, timeoutSeconds: TimeInterval = 120) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
-                try await self.loadModel(at: url, computeUnits: computeUnits)
-            }
+        enum LoadRaceEvent {
+            case load(Result<Void, Error>)
+            case timeout(Result<Void, Error>)
+        }
 
-            group.addTask {
-                var elapsed: TimeInterval = 0
-                let checkInterval: TimeInterval = 0.5
-                while elapsed < timeoutSeconds {
-                    try await Task.sleep(for: .seconds(checkInterval))
-                    if self.isBackgrounded {
-                        elapsed -= checkInterval
-                    }
-                    elapsed += checkInterval
+        let loadTask = Task<Void, Error> {
+            try await self.loadModel(at: url, computeUnits: computeUnits)
+        }
+        let timeoutTask = Task<Void, Error> {
+            var elapsed: TimeInterval = 0
+            let checkInterval: TimeInterval = 0.5
+            while elapsed < timeoutSeconds {
+                try await Task.sleep(for: .seconds(checkInterval))
+                if self.isBackgrounded {
+                    elapsed -= checkInterval
                 }
-                throw CoreMLRunnerError.loadTimeout(timeoutSeconds)
+                elapsed += checkInterval
+            }
+            throw CoreMLRunnerError.loadTimeout(timeoutSeconds)
+        }
+
+        defer {
+            loadTask.cancel()
+            timeoutTask.cancel()
+        }
+
+        let firstEvent = await withTaskGroup(of: LoadRaceEvent.self, returning: LoadRaceEvent.self) { group in
+            group.addTask {
+                let result = await loadTask.result.map { _ in () }
+                return .load(result)
+            }
+            group.addTask {
+                let result = await timeoutTask.result.map { _ in () }
+                return .timeout(result)
             }
 
-            if let result = try await group.next() {
-                group.cancelAll()
-                return result
-            }
+            let event = await group.next() ?? .load(.failure(CoreMLRunnerError.modelNotLoaded))
             group.cancelAll()
+            return event
+        }
+
+        switch firstEvent {
+        case .load(let result):
+            timeoutTask.cancel()
+            _ = await timeoutTask.result
+            try result.get()
+        case .timeout(let result):
+            loadTask.cancel()
+            _ = await loadTask.result
+            normalizeAbortedLoadState()
+
+            if case .failure(let error) = result {
+                throw error
+            }
+
+            throw CoreMLRunnerError.loadTimeout(timeoutSeconds)
+        }
+    }
+
+
+    private func normalizeAbortedLoadState() {
+        removeLifecycleObservers()
+        withLock {
+            model = nil
+            modelURL = nil
+            mlState = nil
+            activeComputeUnits = .all
+            state = .idle
+            inputName = "input_ids"
+            outputName = "logits"
+            usesState = false
+            lastSuccessfulPrediction = nil
+            stateSerializationURL = nil
+        }
+    }
+
+    func completeSyntheticLoadForTesting(at url: URL, computeUnits: MLComputeUnits) {
+        withLock {
+            modelURL = url
+            activeComputeUnits = computeUnits
+            state = .ready
+            consecutiveFailures = 0
+            lastSuccessfulPrediction = Date()
         }
     }
 
