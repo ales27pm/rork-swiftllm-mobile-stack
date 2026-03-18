@@ -42,7 +42,6 @@ struct EmotionAnalyzer {
 
     static func analyze(text: String, conversationHistory: [Message]) -> EmotionalState {
         let lower = text.lowercased()
-        let words = lower.split(separator: " ").map(String.init)
 
         var totalValence: Double = 0
         var totalArousal: Double = 0

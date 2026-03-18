@@ -925,7 +925,7 @@ class ModelLoaderService {
     }
 
     func initiateAssetRepair(forModelID modelID: String) {
-        guard let manifest = availableModels.first(where: { $0.id == modelID }) else { return }
+        guard availableModels.contains(where: { $0.id == modelID }) else { return }
 
         fileSystem.deleteModelAssets(forModelID: modelID)
         modelStatuses[modelID] = .notDownloaded
