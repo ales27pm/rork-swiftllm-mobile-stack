@@ -1,6 +1,7 @@
 import Foundation
 import Speech
 import AVFoundation
+import os.log
 
 @Observable
 class SpeechRecognitionService: NSObject {
@@ -18,6 +19,8 @@ class SpeechRecognitionService: NSObject {
     private var lastSpeechTime: Date = Date()
     private var onSilenceDetected: (() -> Void)?
     private var speechStartTime: Date?
+    private let logger: Logger
+    private var recognitionLanguageCode: String?
 
     private var recentLevels: [Float] = []
     private let levelHistorySize = 20
@@ -32,8 +35,67 @@ class SpeechRecognitionService: NSObject {
     private let maxSilenceDuration: TimeInterval = 3.0
 
     override init() {
+        let subsystem = Bundle.main.bundleIdentifier ?? "SpeechRecognitionService"
+        logger = Logger(subsystem: subsystem, category: "SpeechRecognitionService")
         super.init()
-        speechRecognizer = SFSpeechRecognizer(locale: Locale.current)
+        recognitionLanguageCode = Locale.current.identifier
+        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: recognitionLanguageCode ?? Locale.current.identifier))
+    }
+
+
+    @discardableResult
+    func setRecognitionLanguage(code: String?) -> String? {
+        let resolvedCode = resolveRecognitionLocaleCode(for: code)
+        recognitionLanguageCode = resolvedCode
+        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: resolvedCode))
+
+        if speechRecognizer == nil {
+            logger.error("Failed to initialize recognizer for locale: \(resolvedCode, privacy: .public). Falling back to current locale.")
+            let fallbackCode = Locale.current.identifier
+            recognitionLanguageCode = fallbackCode
+            speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: fallbackCode))
+        }
+
+        guard let recognizer = speechRecognizer else {
+            error = "Speech recognizer unavailable for selected language"
+            return nil
+        }
+
+        if !recognizer.isAvailable {
+            logger.warning("Speech recognizer currently unavailable for locale: \(recognizer.locale.identifier, privacy: .public)")
+        }
+
+        return recognizer.locale.identifier
+    }
+
+    private func resolveRecognitionLocaleCode(for code: String?) -> String {
+        guard let code, !code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return Locale.current.identifier
+        }
+
+        let normalized = code.replacingOccurrences(of: "_", with: "-")
+        let supportedLocales = Set(SFSpeechRecognizer.supportedLocales().map { $0.identifier })
+
+        if supportedLocales.contains(normalized) {
+            return normalized
+        }
+
+        if supportedLocales.contains(code) {
+            return code
+        }
+
+        let targetLanguage = Locale(identifier: normalized).language.languageCode?.identifier.lowercased() ?? normalized.split(separator: "-").first.map { String($0).lowercased() }
+
+        if let targetLanguage,
+           let match = supportedLocales.sorted().first(where: {
+               Locale(identifier: $0).language.languageCode?.identifier.lowercased() == targetLanguage
+           }) {
+            logger.warning("No exact speech recognition locale for \(normalized, privacy: .public); using \(match, privacy: .public) instead.")
+            return match
+        }
+
+        logger.warning("No supported speech recognition locale for \(normalized, privacy: .public); using current locale.")
+        return Locale.current.identifier
     }
 
     func requestAuthorization() async -> Bool {

@@ -9,7 +9,8 @@ struct ContextAssembler {
         memoryResults: [RetrievalResult],
         conversationHistory: [Message],
         toolsEnabled: Bool,
-        isVoiceMode: Bool
+        isVoiceMode: Bool,
+        preferredResponseLanguageCode: String?
     ) -> String {
         var sections: [String] = []
 
@@ -42,6 +43,10 @@ struct ContextAssembler {
 
         if isVoiceMode {
             sections.append(buildVoiceModeAddendum())
+        }
+
+        if let responseLanguageAddendum = buildResponseLanguageAddendum(preferredResponseLanguageCode) {
+            sections.append(responseLanguageAddendum)
         }
 
         return sections.joined(separator: "\n\n")
@@ -382,6 +387,23 @@ struct ContextAssembler {
 
         let range = NSRange(message.content.startIndex..., in: message.content)
         return freshGPSRequestRegex.firstMatch(in: message.content, options: [], range: range) != nil
+    }
+
+
+    private static func buildResponseLanguageAddendum(_ languageCode: String?) -> String? {
+        guard let languageCode, !languageCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+
+        let locale = Locale(identifier: languageCode)
+        let localizedLanguage = Locale.current.localizedString(forIdentifier: languageCode) ?? languageCode
+
+        return """
+        [Language Preference]
+        The user's preferred language is \(localizedLanguage) (locale code: \(locale.identifier)).
+        Always respond in this language unless the user explicitly asks to switch languages.
+        If you need clarification, ask your follow-up question in this language.
+        """
     }
 
     private static func buildVoiceModeAddendum() -> String {

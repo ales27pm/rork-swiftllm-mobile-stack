@@ -11,6 +11,8 @@ class ChatViewModel {
     var systemPrompt: String = "You are Nexus, a helpful and intelligent AI assistant running locally on-device. You have access to memory from past conversations and use it to provide personalized, contextual responses."
     var toolsEnabled: Bool = true
     var isVoiceMode: Bool = false
+    var speechVoiceIdentifier: String?
+    var speechLanguageCode: String?
     var lastCognitionFrame: CognitionFrame?
     var lastError: WrappedError?
     var loadingProgress: Double = 0.0
@@ -212,7 +214,8 @@ class ChatViewModel {
             memoryResults: allMemoryResults,
             conversationHistory: messages,
             toolsEnabled: toolsEnabled,
-            isVoiceMode: isVoiceMode
+            isVoiceMode: isVoiceMode,
+            preferredResponseLanguageCode: speechLanguageCode
         )
 
         var chatMessages: [[String: String]] = [
@@ -430,6 +433,24 @@ class ChatViewModel {
         keyValueStore.setInt(samplingConfig.maxTokens, forKey: "sampling_maxTokens")
         keyValueStore.setString(systemPrompt, forKey: "system_prompt")
         keyValueStore.setInt(toolsEnabled ? 1 : 0, forKey: "tools_enabled")
+
+        if let speechVoiceIdentifier {
+            keyValueStore.setString(speechVoiceIdentifier, forKey: "speech_voice_identifier")
+        } else {
+            keyValueStore.remove("speech_voice_identifier")
+        }
+
+        if let speechLanguageCode {
+            keyValueStore.setString(speechLanguageCode, forKey: "speech_language_code")
+        } else {
+            keyValueStore.remove("speech_language_code")
+        }
+    }
+
+    func setSpeechSettings(voiceIdentifier: String?, languageCode: String?) {
+        speechVoiceIdentifier = voiceIdentifier
+        speechLanguageCode = languageCode
+        saveSettings()
     }
 
     func logGeneration(metrics: GenerationMetrics) {
@@ -470,5 +491,7 @@ class ChatViewModel {
         if let toolsPref = keyValueStore.getInt("tools_enabled") {
             toolsEnabled = toolsPref == 1
         }
+        speechVoiceIdentifier = keyValueStore.getString("speech_voice_identifier")
+        speechLanguageCode = keyValueStore.getString("speech_language_code")
     }
 }

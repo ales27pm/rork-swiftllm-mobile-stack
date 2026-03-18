@@ -103,6 +103,15 @@ struct ContentView: View {
         )
         chatViewModel = chatVM
 
+        speechViewModel.onSpeechSettingsChanged = { [weak chatVM] voiceIdentifier, languageCode in
+            chatVM?.setSpeechSettings(voiceIdentifier: voiceIdentifier, languageCode: languageCode)
+        }
+
+        _ = speechViewModel.initializeFromPersistedSettings(
+            voiceIdentifier: chatVM.speechVoiceIdentifier,
+            languageCode: chatVM.speechLanguageCode
+        )
+
         let agent = AssistantAgent(
             inferenceEngine: engine,
             metricsLogger: metricsLogger,
