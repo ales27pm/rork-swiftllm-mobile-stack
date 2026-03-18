@@ -23,8 +23,8 @@ struct NLTextProcessing {
     ]
 
     static func detectLanguage(for text: String, preferredHint: String? = nil) -> NLLanguage? {
-        if let preferredHint, let lang = NLLanguage(rawValue: preferredHint) {
-            return lang
+        if let preferredHint {
+            return NLLanguage(rawValue: preferredHint)
         }
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(text)
@@ -35,7 +35,7 @@ struct NLTextProcessing {
         let language = detectLanguage(for: text, preferredHint: languageHint)
         let sentences = tokenize(text: text, unit: .sentence)
         let tokens = tokenize(text: text, unit: .word)
-            .map(normalizeSurface)
+            .map { normalizeSurface($0) }
             .filter { !$0.isEmpty }
 
         let tagger = NLTagger(tagSchemes: [.lemma, .nameTypeOrLexicalClass])
@@ -94,7 +94,8 @@ struct NLTextProcessing {
             return nil
         }
 
-        if let sentenceDistance = embedding.distance(between: query, and: document) {
+        let sentenceDistance = embedding.distance(between: query, and: document)
+        if sentenceDistance.isFinite {
             return max(0, 1 - Double(sentenceDistance))
         }
 
