@@ -405,7 +405,7 @@ class MemoryService {
         let maxPerCategory = 15
         let categoryCounts = Dictionary(grouping: memories, by: \.category)
 
-        for (category, entries) in categoryCounts where entries.count > maxPerCategory {
+        for (_, entries) in categoryCounts where entries.count > maxPerCategory {
             let sorted = entries.sorted { a, b in
                 let scoreA = Double(a.importance) * 0.4 + a.decay * 0.3 + Double(a.accessCount) * 0.1 + (a.activationLevel * 0.2)
                 let scoreB = Double(b.importance) * 0.4 + b.decay * 0.3 + Double(b.accessCount) * 0.1 + (b.activationLevel * 0.2)

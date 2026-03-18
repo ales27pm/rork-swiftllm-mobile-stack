@@ -75,7 +75,6 @@ struct MetacognitionEngine {
         memoryCount: Int,
         historyCount: Int
     ) -> Double {
-        let depthFactor = Double(text.count) / 100.0
         let complexityWeight: Double
         switch complexity {
         case .simple: complexityWeight = 0.9
