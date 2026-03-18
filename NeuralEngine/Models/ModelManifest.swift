@@ -13,10 +13,11 @@ nonisolated struct ModelManifest: Identifiable, Sendable, Codable {
     let tokenizerRepoID: String?
     let modelFilePattern: String
     let checksum: String
+    let tokenizerChecksum: String?
     let isDraft: Bool
     let format: ModelFormat
 
-    init(id: String, name: String, variant: String, parameterCount: String, quantization: String, sizeBytes: Int64, contextLength: Int, architecture: ModelArchitecture, repoID: String, tokenizerRepoID: String?, modelFilePattern: String, checksum: String, isDraft: Bool, format: ModelFormat = .coreML) {
+    init(id: String, name: String, variant: String, parameterCount: String, quantization: String, sizeBytes: Int64, contextLength: Int, architecture: ModelArchitecture, repoID: String, tokenizerRepoID: String?, modelFilePattern: String, checksum: String, tokenizerChecksum: String? = nil, isDraft: Bool, format: ModelFormat = .coreML) {
         self.id = id
         self.name = name
         self.variant = variant
@@ -29,6 +30,7 @@ nonisolated struct ModelManifest: Identifiable, Sendable, Codable {
         self.tokenizerRepoID = tokenizerRepoID
         self.modelFilePattern = modelFilePattern
         self.checksum = checksum
+        self.tokenizerChecksum = tokenizerChecksum
         self.isDraft = isDraft
         self.format = format
     }
@@ -66,5 +68,29 @@ nonisolated enum ModelStatus: Sendable, Equatable {
     case verifying
     case compiling
     case ready
+    case unsupported(String)
+    case checksumFailed(String)
     case failed(String)
+
+    var blocksDownload: Bool {
+        if case .unsupported = self { return true }
+        return false
+    }
+
+    var displayMessage: String {
+        switch self {
+        case .notDownloaded:
+            return "Not downloaded"
+        case .downloading:
+            return "Downloading"
+        case .verifying:
+            return "Verifying checksum"
+        case .compiling:
+            return "Compiling model"
+        case .ready:
+            return "Ready"
+        case .unsupported(let message), .checksumFailed(let message), .failed(let message):
+            return message
+        }
+    }
 }

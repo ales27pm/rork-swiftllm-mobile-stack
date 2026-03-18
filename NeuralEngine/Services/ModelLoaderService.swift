@@ -22,6 +22,88 @@ class ModelLoaderService {
         loadBuiltinRegistry()
     }
 
+    static func registryIssue(for manifest: ModelManifest) -> String? {
+        guard !manifest.checksum.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "Missing required model checksum in registry."
+        }
+
+        if manifest.tokenizerRepoID != nil, (manifest.tokenizerChecksum?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
+            return "Missing required tokenizer checksum in registry."
+        }
+
+        return nil
+    }
+
+    private func statusForUnsupportedManifest(_ manifest: ModelManifest) -> ModelStatus? {
+        guard let issue = Self.registryIssue(for: manifest) else { return nil }
+        return .unsupported("Checksum unavailable. \(issue) Delete any local copy and wait for an updated registry.")
+    }
+
+    private func statusForIntegrityResult(_ result: AssetIntegrityResult) -> ModelStatus {
+        switch result {
+        case .intact:
+            return .ready
+        case .missing:
+            return .notDownloaded
+        case .corrupted(let reason):
+            return .checksumFailed("Asset corrupted: \(reason). Delete and re-download.")
+        case .checksumMismatch:
+            return .checksumFailed("Checksum mismatch detected. Delete and re-download.")
+        }
+    }
+
+    private func verifyTokenizerIntegrity(for manifest: ModelManifest, at url: URL) -> AssetIntegrityResult {
+        guard let checksum = manifest.tokenizerChecksum, !checksum.isEmpty else {
+            return manifest.tokenizerRepoID == nil ? .intact : .corrupted("Missing tokenizer checksum")
+        }
+
+        guard let actual = fileSystem.computeSHA256(for: url) else {
+            return .corrupted("Unable to compute tokenizer SHA-256 hash")
+        }
+
+        return actual == checksum ? .intact : .checksumMismatch(expected: checksum, actual: actual)
+    }
+
+    private func verifyRestoredModelIntegrity(for manifest: ModelManifest, at url: URL) -> AssetIntegrityResult {
+        let structuralResult = fileSystem.verifyModelIntegrity(at: url, format: url.pathExtension)
+        guard structuralResult.isValid else {
+            return structuralResult
+        }
+
+        if manifest.format == .coreML, url.pathExtension == "mlmodelc" {
+            guard let storedHash = fileSystem.loadChecksum(forModelID: manifest.id) else {
+                return .corrupted("Missing recorded source checksum")
+            }
+
+            return storedHash == manifest.checksum
+                ? .intact
+                : .checksumMismatch(expected: manifest.checksum, actual: storedHash)
+        }
+
+        return fileSystem.verifyIntegrity(for: manifest, at: url)
+    }
+
+    func resolveRestoredStatus(for manifest: ModelManifest, modelURL: URL?, tokenizerURL: URL?) -> ModelStatus {
+        if let unsupportedStatus = statusForUnsupportedManifest(manifest) {
+            return unsupportedStatus
+        }
+
+        guard let modelURL else {
+            return .notDownloaded
+        }
+
+        let integrityResult = verifyRestoredModelIntegrity(for: manifest, at: modelURL)
+        guard integrityResult.isValid else {
+            return statusForIntegrityResult(integrityResult)
+        }
+
+        if let tokenizerURL {
+            return statusForIntegrityResult(verifyTokenizerIntegrity(for: manifest, at: tokenizerURL))
+        }
+
+        return manifest.tokenizerRepoID == nil ? .ready : .checksumFailed("Tokenizer assets are missing. Delete and re-download.")
+    }
+
     func loadBuiltinRegistry() {
         availableModels = [
             ModelManifest(
@@ -36,7 +118,8 @@ class ModelLoaderService {
                 repoID: "ales27pm/Dolphin3.0-CoreML",
                 tokenizerRepoID: "cognitivecomputations/Dolphin3.0-Llama3.2-3B",
                 modelFilePattern: "Dolphin3.0-Llama3.2-3B-int4-lut.mlpackage",
-                checksum: "",
+                checksum: "930a399f92118e519eef85060c4862f7432da17dccfb380dd5e13700acf3a21e",
+                tokenizerChecksum: "dcb5f6ff03f1140b431a00df71f789f48b093dbc2c15f1e15ab41e4652092afd",
                 isDraft: false
             ),
             ModelManifest(
@@ -51,7 +134,8 @@ class ModelLoaderService {
                 repoID: "ales27pm/Dolphin3.0-CoreML",
                 tokenizerRepoID: "cognitivecomputations/Dolphin3.0-Llama3.2-3B",
                 modelFilePattern: "Dolphin3.0-Llama3.2-3B-int8.mlpackage",
-                checksum: "",
+                checksum: "1a11a354b6807d422f9511a3c9067f97e88696167aaad2023b13ae146fd6d29c",
+                tokenizerChecksum: "dcb5f6ff03f1140b431a00df71f789f48b093dbc2c15f1e15ab41e4652092afd",
                 isDraft: false
             ),
             ModelManifest(
@@ -66,7 +150,8 @@ class ModelLoaderService {
                 repoID: "ales27pm/Dolphin3.0-CoreML",
                 tokenizerRepoID: "cognitivecomputations/Dolphin3.0-Llama3.2-3B",
                 modelFilePattern: "Dolphin3.0-Llama3.2-3B-fp16.mlpackage",
-                checksum: "",
+                checksum: "54f3693cf804f98aab7f4d2f51e5e47c3f8abe535eeec973a82fd7aace86e633",
+                tokenizerChecksum: "dcb5f6ff03f1140b431a00df71f789f48b093dbc2c15f1e15ab41e4652092afd",
                 isDraft: false
             ),
             ModelManifest(
@@ -186,7 +271,7 @@ class ModelLoaderService {
                 repoID: "HuggingFaceTB/SmolLM2-360M-Instruct-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "smollm2-360m-instruct-q8_0.gguf",
-                checksum: "",
+                checksum: "8984394569a035f54547b90ad7b351656dd289c45808377dd2d0cf644a248a79",
                 isDraft: false,
                 format: .gguf
             ),
@@ -202,7 +287,7 @@ class ModelLoaderService {
                 repoID: "HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "smollm2-1.7b-instruct-q4_k_m.gguf",
-                checksum: "",
+                checksum: "697ef022637a26165cd8fdf936f4b7df15cff6c0a29430d8a9b16bfc0ee067e6",
                 isDraft: false,
                 format: .gguf
             ),
@@ -218,7 +303,7 @@ class ModelLoaderService {
                 repoID: "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-                checksum: "",
+                checksum: "6ca5463cf24c16cd56d7ad7461524d813b07b3f29889b2fbdbb8286a7e97a14a",
                 isDraft: false,
                 format: .gguf
             ),
@@ -234,7 +319,7 @@ class ModelLoaderService {
                 repoID: "bartowski/Llama-3.2-3B-Instruct-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-                checksum: "",
+                checksum: "4cb1444f81355e47d236ada8190f0325ce46412a83f3ab62a1d63bb314592ebc",
                 isDraft: false,
                 format: .gguf
             ),
@@ -250,7 +335,7 @@ class ModelLoaderService {
                 repoID: "bartowski/Phi-3.5-mini-instruct-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "Phi-3.5-mini-instruct-Q4_K_M.gguf",
-                checksum: "",
+                checksum: "216e0385d8d2da14827e44b4482f0d2885e041d99bb1103c60092eedd2da1284",
                 isDraft: false,
                 format: .gguf
             ),
@@ -266,7 +351,7 @@ class ModelLoaderService {
                 repoID: "bartowski/Dolphin3.0-Qwen2.5-1.5B-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "Dolphin3.0-Qwen2.5-1.5B-Q4_K_M.gguf",
-                checksum: "",
+                checksum: "7f24545160f310f9de1154b154b7b2997a141ee859c0faf06d675ce612d27927",
                 isDraft: false,
                 format: .gguf
             ),
@@ -282,7 +367,7 @@ class ModelLoaderService {
                 repoID: "bartowski/Dolphin3.0-Qwen2.5-1.5B-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "Dolphin3.0-Qwen2.5-1.5B-Q8_0.gguf",
-                checksum: "",
+                checksum: "9342a07d40d4387cad6d7692d7e5f2581466166568a0e3811a8eb55bd2b6f989",
                 isDraft: false,
                 format: .gguf
             ),
@@ -298,14 +383,18 @@ class ModelLoaderService {
                 repoID: "bartowski/gemma-2-2b-it-GGUF",
                 tokenizerRepoID: nil,
                 modelFilePattern: "gemma-2-2b-it-Q4_K_M.gguf",
-                checksum: "",
+                checksum: "90f9c2316393fb452b47988ffa7a411f0891e2c1a7178ae868ac4f70f96f7c8d",
                 isDraft: false,
                 format: .gguf
             )
         ]
 
         for model in availableModels {
-            modelStatuses[model.id] = .notDownloaded
+            if let unsupportedStatus = statusForUnsupportedManifest(model) {
+                modelStatuses[model.id] = unsupportedStatus
+            } else {
+                modelStatuses[model.id] = .notDownloaded
+            }
         }
 
         restorePreviouslyDownloadedModels()
@@ -313,32 +402,17 @@ class ModelLoaderService {
 
     private func restorePreviouslyDownloadedModels() {
         for model in availableModels {
-            if let modelURL = loadModelPath(forModelID: model.id) {
-                let ext = modelURL.pathExtension
-                let integrityResult = fileSystem.verifyModelIntegrity(at: modelURL, format: ext)
+            let status = resolveRestoredStatus(
+                for: model,
+                modelURL: loadModelPath(forModelID: model.id),
+                tokenizerURL: loadTokenizerPath(forModelID: model.id)
+            )
 
-                switch integrityResult {
-                case .intact:
-                    if !model.checksum.isEmpty {
-                        if let storedHash = fileSystem.loadChecksum(forModelID: model.id), storedHash == model.checksum {
-                            modelStatuses[model.id] = .ready
-                        } else if fileSystem.loadChecksum(forModelID: model.id) == nil {
-                            modelStatuses[model.id] = .ready
-                        } else {
-                            modelStatuses[model.id] = .failed("Checksum mismatch. Delete and re-download.")
-                        }
-                    } else {
-                        modelStatuses[model.id] = .ready
-                    }
-                case .missing:
-                    modelStatuses[model.id] = .notDownloaded
-                    fileSystem.deleteModelAssets(forModelID: model.id)
-                case .corrupted(let reason):
-                    modelStatuses[model.id] = .failed("\(reason). Delete and re-download.")
-                case .checksumMismatch:
-                    modelStatuses[model.id] = .failed("Integrity check failed. Delete and re-download.")
-                }
+            if case .notDownloaded = status {
+                continue
             }
+
+            modelStatuses[model.id] = status
         }
     }
 
@@ -348,6 +422,7 @@ class ModelLoaderService {
               modelStatuses[modelID] != .some(.compiling) else { return }
 
         if case .downloading = modelStatuses[modelID] { return }
+        if case .some(.unsupported(_)) = modelStatuses[modelID] { return }
 
         if loadModelPath(forModelID: modelID) != nil {
             fileSystem.deleteModelAssets(forModelID: modelID)
@@ -400,9 +475,9 @@ class ModelLoaderService {
                 if let url = modelURL {
                     let ext = url.pathExtension
 
-                    let preIntegrity = fileSystem.verifyModelIntegrity(at: url, format: ext)
-                    if case .corrupted(let reason) = preIntegrity {
-                        throw ModelLoaderError.partialDownload("Downloaded asset is corrupted: \(reason)")
+                    let preIntegrity = fileSystem.verifyIntegrity(for: manifest, at: url)
+                    guard preIntegrity.isValid else {
+                        throw ModelLoaderError.integrityCheckFailed(statusForIntegrityResult(preIntegrity).displayMessage)
                     }
 
                     if ext == "mlmodelc" {
@@ -452,23 +527,19 @@ class ModelLoaderService {
 
                 try saveTokenizerPath(tokenizerDir, forModelID: modelID)
 
+                let tokenizerIntegrity = verifyTokenizerIntegrity(for: manifest, at: tokenizerDir)
+                guard tokenizerIntegrity.isValid else {
+                    throw ModelLoaderError.integrityCheckFailed(statusForIntegrityResult(tokenizerIntegrity).displayMessage)
+                }
+
+                if let hash = fileSystem.computeSHA256(for: modelURL ?? tokenizerDir) {
+                    fileSystem.saveChecksum(hash, forModelID: modelID)
+                }
+
                 if let savedURL = loadModelPath(forModelID: modelID) {
                     let postIntegrity = fileSystem.verifyModelIntegrity(at: savedURL, format: savedURL.pathExtension)
                     guard postIntegrity.isValid else {
                         throw ModelLoaderError.integrityCheckFailed("Post-save integrity check failed: \(postIntegrity.description)")
-                    }
-
-                    if !manifest.checksum.isEmpty {
-                        if let hash = fileSystem.computeSHA256(for: savedURL) {
-                            fileSystem.saveChecksum(hash, forModelID: modelID)
-                            if hash != manifest.checksum {
-                                throw ModelLoaderError.checksumMismatch(expected: manifest.checksum, actual: hash)
-                            }
-                        }
-                    } else {
-                        if let hash = fileSystem.computeSHA256(for: savedURL) {
-                            fileSystem.saveChecksum(hash, forModelID: modelID)
-                        }
                     }
                 }
 
@@ -555,9 +626,9 @@ class ModelLoaderService {
                     throw ModelLoaderError.noModelFound("No GGUF file found in downloaded repository.")
                 }
 
-                let ggufIntegrity = fileSystem.verifyModelIntegrity(at: url, format: "gguf")
+                let ggufIntegrity = fileSystem.verifyIntegrity(for: manifest, at: url)
                 guard ggufIntegrity.isValid else {
-                    throw ModelLoaderError.integrityCheckFailed("GGUF integrity failed: \(ggufIntegrity.description)")
+                    throw ModelLoaderError.integrityCheckFailed(statusForIntegrityResult(ggufIntegrity).displayMessage)
                 }
 
                 if manifest.sizeBytes > 0 {
@@ -572,17 +643,8 @@ class ModelLoaderService {
 
                 try saveModelPath(url, forModelID: modelID)
 
-                if !manifest.checksum.isEmpty {
-                    if let hash = fileSystem.computeStreamingSHA256(for: url) {
-                        fileSystem.saveChecksum(hash, forModelID: modelID)
-                        if hash != manifest.checksum {
-                            throw ModelLoaderError.checksumMismatch(expected: manifest.checksum, actual: hash)
-                        }
-                    }
-                } else {
-                    if let hash = fileSystem.computeStreamingSHA256(for: url) {
-                        fileSystem.saveChecksum(hash, forModelID: modelID)
-                    }
+                if let hash = fileSystem.computeStreamingSHA256(for: url) {
+                    fileSystem.saveChecksum(hash, forModelID: modelID)
                 }
 
                 modelStatuses[modelID] = .ready
@@ -848,23 +910,18 @@ class ModelLoaderService {
         guard let modelURL = loadModelPath(forModelID: modelID) else {
             return .missing
         }
-        let ext = modelURL.pathExtension
-        let structuralResult = fileSystem.verifyModelIntegrity(at: modelURL, format: ext)
-        guard structuralResult.isValid else { return structuralResult }
-
         guard let manifest = availableModels.first(where: { $0.id == modelID }) else {
-            return structuralResult
+            return fileSystem.verifyModelIntegrity(at: modelURL, format: modelURL.pathExtension)
         }
 
-        if !manifest.checksum.isEmpty {
-            if let storedHash = fileSystem.loadChecksum(forModelID: modelID) {
-                if storedHash != manifest.checksum {
-                    return .checksumMismatch(expected: manifest.checksum, actual: storedHash)
-                }
-            }
+        let modelResult = verifyRestoredModelIntegrity(for: manifest, at: modelURL)
+        guard modelResult.isValid else { return modelResult }
+
+        if let tokenizerURL = loadTokenizerPath(forModelID: modelID) {
+            return verifyTokenizerIntegrity(for: manifest, at: tokenizerURL)
         }
 
-        return .intact
+        return manifest.tokenizerRepoID == nil ? .intact : .missing
     }
 
     func initiateAssetRepair(forModelID modelID: String) {

@@ -315,8 +315,11 @@ nonisolated final class FileSystemService: @unchecked Sendable {
             if let pathData = relativePath.data(using: .utf8) {
                 hasher.update(data: pathData)
             }
-            guard let data = try? Data(contentsOf: fileURL) else { continue }
-            hasher.update(data: data)
+            guard let fileHash = computeStreamingSHA256(for: fileURL),
+                  let hashData = fileHash.data(using: .utf8) else {
+                return nil
+            }
+            hasher.update(data: hashData)
         }
 
         let digest = hasher.finalize()
@@ -402,8 +405,8 @@ nonisolated final class FileSystemService: @unchecked Sendable {
             return structuralResult
         }
 
-        guard !manifest.checksum.isEmpty else {
-            return .intact
+        guard !manifest.checksum.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .corrupted("Missing required SHA-256 checksum")
         }
 
         let actual: String?
