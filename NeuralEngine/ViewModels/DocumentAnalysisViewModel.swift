@@ -1,5 +1,6 @@
 import SwiftUI
 import PDFKit
+import NaturalLanguage
 
 @Observable
 @MainActor
@@ -23,7 +24,7 @@ class DocumentAnalysisViewModel {
     private var analysisTask: Task<Void, Never>?
     private var activeTaskID: UUID?
 
-init(service: DocumentAnalysisServicing? = nil) {
+    init(service: DocumentAnalysisServicing? = nil) {
         self.service = service ?? DocumentAnalysisService()
     }
 
