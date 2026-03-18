@@ -527,7 +527,6 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
             return ZeroTokenProbeResult(passed: false, state: currentState, latencyMS: 0)
         }
         let inName = inputName
-        let outName = outputName
         let currentState = mlState
         let currentUsesState = usesState
         lock.unlock()
@@ -697,24 +696,26 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
     }
 
     func switchToCPUOnly() async throws {
-        lock.lock()
-        guard let url = modelURL else {
-            lock.unlock()
+        let url = withLock { () -> URL? in
+            guard let modelURL else {
+                return nil
+            }
+            state = .recovering
+            return modelURL
+        }
+
+        guard let url else {
             throw CoreMLRunnerError.modelNotLoaded
         }
-        state = .recovering
-        lock.unlock()
 
         do {
             try await loadWithFallback(at: url, preferredUnits: .cpuOnly)
-            lock.lock()
-            consecutiveFailures = 0
-            totalRecoveries += 1
-            lock.unlock()
+            withLock {
+                consecutiveFailures = 0
+                totalRecoveries += 1
+            }
         } catch {
-            lock.lock()
-            state = .evicted
-            lock.unlock()
+            withLock { state = .evicted }
             throw error
         }
     }
