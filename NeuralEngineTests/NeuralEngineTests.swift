@@ -252,3 +252,126 @@ extension NeuralEngineTests {
     }
 
 }
+
+private final class PrefixSnapshotTestRunner {
+    private var processedTokens: [Int] = []
+    private var snapshots: [UUID: [Int]] = [:]
+
+    func resetState() {
+        processedTokens.removeAll()
+    }
+
+    func prefill(_ tokens: [Int]) {
+        processedTokens.append(contentsOf: tokens)
+    }
+
+    func exportPrefillState(for prefixTokens: [Int]) -> PrefixStateSnapshotAvailability {
+        guard processedTokens == prefixTokens else {
+            return .unavailable(reason: "prefix not currently loaded")
+        }
+        let handleID = UUID()
+        snapshots[handleID] = processedTokens
+        return .available(.runnerOwned(handleID: handleID, createdAt: Date()))
+    }
+
+    func restorePrefillState(from snapshot: PrefixStateSnapshot, expectedPrefixTokens: [Int]) -> Bool {
+        switch snapshot {
+        case .unavailable:
+            return false
+        case .runnerOwned(let handleID, _):
+            guard let restored = snapshots[handleID], restored == expectedPrefixTokens else {
+                return false
+            }
+            processedTokens = restored
+            return true
+        }
+    }
+
+    func nextTokenProbabilities(for completionTokens: [Int]) -> [Double] {
+        let combined = processedTokens + completionTokens
+        let seed = combined.enumerated().reduce(0) { partial, item in
+            partial + ((item.offset + 1) * item.element)
+        }
+        return (0..<6).map { index in
+            Double(seed + ((index + 1) * 7)) / 100.0
+        }
+    }
+}
+
+extension NeuralEngineTests {
+    @Test func promptPrefixCache_restoredSnapshotMatchesColdPrefillProbabilities() async throws {
+        let cache = PromptPrefixCache()
+        let runner = PrefixSnapshotTestRunner()
+        let systemTokens = [11, 22, 33]
+        let promptTokens = systemTokens + [44, 55]
+        let prefixKey = PromptPrefixKey(modelID: "test-model", tokenizerID: "test-tokenizer", prefix: systemTokens)
+
+        runner.resetState()
+        runner.prefill(promptTokens)
+        let coldProbabilities = runner.nextTokenProbabilities(for: [])
+
+        runner.resetState()
+        runner.prefill(systemTokens)
+        let snapshot: PrefixStateSnapshot
+        switch runner.exportPrefillState(for: systemTokens) {
+        case .available(let exportedSnapshot):
+            snapshot = exportedSnapshot
+        case .unavailable(let reason):
+            Issue.record("Expected snapshot export to succeed: \(reason)")
+            return
+        }
+
+        await cache.store(prefix: CachedPrefix(
+            key: prefixKey,
+            tokenizedPrefix: systemTokens,
+            pageCount: 1,
+            sequencePosition: systemTokens.count,
+            stateSnapshot: snapshot,
+            timestamp: Date()
+        ))
+
+        guard let cached = await cache.lookup(key: prefixKey) else {
+            Issue.record("Expected cached prefix")
+            return
+        }
+
+        #expect(runner.restorePrefillState(from: cached.stateSnapshot, expectedPrefixTokens: systemTokens))
+        runner.prefill(Array(promptTokens.dropFirst(systemTokens.count)))
+        let restoredProbabilities = runner.nextTokenProbabilities(for: [])
+
+        #expect(restoredProbabilities == coldProbabilities)
+    }
+
+    @Test func promptPrefixCache_unavailableSnapshotFallsBackToColdPrefillProbabilities() async throws {
+        let cache = PromptPrefixCache()
+        let runner = PrefixSnapshotTestRunner()
+        let systemTokens = [5, 6, 7]
+        let promptTokens = systemTokens + [8, 9]
+        let prefixKey = PromptPrefixKey(modelID: "test-model", tokenizerID: "test-tokenizer", prefix: systemTokens)
+
+        runner.resetState()
+        runner.prefill(promptTokens)
+        let coldProbabilities = runner.nextTokenProbabilities(for: [])
+
+        await cache.store(prefix: CachedPrefix(
+            key: prefixKey,
+            tokenizedPrefix: systemTokens,
+            pageCount: 1,
+            sequencePosition: systemTokens.count,
+            stateSnapshot: .unavailable(reason: "snapshotting disabled"),
+            timestamp: Date()
+        ))
+
+        guard let cached = await cache.lookup(key: prefixKey) else {
+            Issue.record("Expected cached prefix")
+            return
+        }
+
+        #expect(!runner.restorePrefillState(from: cached.stateSnapshot, expectedPrefixTokens: systemTokens))
+        runner.resetState()
+        runner.prefill(promptTokens)
+        let fallbackProbabilities = runner.nextTokenProbabilities(for: [])
+
+        #expect(fallbackProbabilities == coldProbabilities)
+    }
+}

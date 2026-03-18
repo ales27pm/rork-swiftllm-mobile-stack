@@ -2,6 +2,11 @@ import Foundation
 import UIKit
 import CoreML
 
+nonisolated enum PrefixStateSnapshotAvailability: Sendable, Equatable {
+    case available(PrefixStateSnapshot)
+    case unavailable(reason: String)
+}
+
 nonisolated enum RunnerState: String, Sendable {
     case idle
     case loading
@@ -535,6 +540,45 @@ nonisolated final class CoreMLModelRunner: LogitsPredicting, @unchecked Sendable
         let desc = error.localizedDescription.lowercased()
         let ghostIndicators = ["evicted", "resource", "memory", "unavailable", "interrupted", "ane"]
         return ghostIndicators.contains { desc.contains($0) }
+    }
+
+    func exportPrefillState(for prefixTokens: [Int]) -> PrefixStateSnapshotAvailability {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !prefixTokens.isEmpty else {
+            return .unavailable(reason: "Prefix snapshot requires at least one token")
+        }
+
+        guard state == .ready else {
+            return .unavailable(reason: "Runner is not ready to export prefix state")
+        }
+
+        guard usesState, mlState != nil else {
+            return .unavailable(reason: "Core ML state snapshotting is unavailable for this model")
+        }
+
+        return .unavailable(reason: "Core ML prefill snapshots are not restorable on this runtime")
+    }
+
+    func restorePrefillState(from snapshot: PrefixStateSnapshot, expectedPrefixTokens _: [Int]) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard state == .ready || state == .recovering else {
+            return false
+        }
+
+        guard usesState, model != nil else {
+            return false
+        }
+
+        switch snapshot {
+        case .unavailable:
+            return false
+        case .runnerOwned:
+            return false
+        }
     }
 
     func resetState() {
