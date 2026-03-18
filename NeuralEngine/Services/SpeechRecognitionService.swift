@@ -3,15 +3,123 @@ import Speech
 import AVFoundation
 import os.log
 
+nonisolated enum SpeechRecognitionFailureReason: String, Sendable {
+    case permissionDenied
+    case microphonePermissionDenied
+    case recognizerUnavailable
+    case recognizerBusy
+    case offlineRecognizerUnavailable
+    case microphoneInputUnavailable
+    case noSpeechDetected
+    case transientServiceFailure
+    case unknown
+}
+
+nonisolated enum SpeechRecognizerAvailabilityState: String, Sendable {
+    case ready
+    case permissionDenied
+    case microphonePermissionDenied
+    case unavailable
+    case busy
+    case offlineUnavailable
+    case transientFailure
+}
+
+nonisolated struct TranscriptSegment: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let substring: String
+    let timestamp: TimeInterval
+    let duration: TimeInterval
+    let confidence: Float
+    let alternativeSubstrings: [String]
+
+    init(id: UUID = UUID(), substring: String, timestamp: TimeInterval, duration: TimeInterval, confidence: Float, alternativeSubstrings: [String] = []) {
+        self.id = id
+        self.substring = substring
+        self.timestamp = timestamp
+        self.duration = duration
+        self.confidence = confidence
+        self.alternativeSubstrings = alternativeSubstrings
+    }
+}
+
+nonisolated struct TranscriptUpdate: Equatable, Sendable {
+    let text: String
+    let segments: [TranscriptSegment]
+    let isFinal: Bool
+    let languageCode: String?
+    let averageConfidence: Float
+    let stablePrefix: String
+    let emittedAt: Date
+
+    var trailingDuration: TimeInterval {
+        guard let last = segments.last else { return 0 }
+        return last.timestamp + last.duration
+    }
+}
+
+nonisolated struct TranscriptStabilizationPolicy: Sendable {
+    let minimumAverageConfidence: Float
+    let silenceWindow: TimeInterval
+    let repeatedStableMatches: Int
+
+    static let `default` = TranscriptStabilizationPolicy(minimumAverageConfidence: 0.45, silenceWindow: 0.6, repeatedStableMatches: 2)
+}
+
+nonisolated struct TranscriptStabilizer: Sendable {
+    private(set) var lastText: String = ""
+    private(set) var stableCandidate: String = ""
+    private(set) var repeatCount: Int = 0
+    private(set) var lastUpdateAt: Date?
+
+    mutating func register(text: String, at date: Date = Date()) -> String {
+        if text == lastText {
+            repeatCount += 1
+            if stableCandidate.isEmpty {
+                stableCandidate = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        } else {
+            stableCandidate = Self.sharedPrefix(lhs: stableCandidate.isEmpty ? lastText : stableCandidate, rhs: text)
+            repeatCount = 1
+            lastText = text
+        }
+        lastUpdateAt = date
+        return stableCandidate
+    }
+
+    func shouldEmitPreview(update: TranscriptUpdate, now: Date = Date(), policy: TranscriptStabilizationPolicy = .default) -> Bool {
+        if update.isFinal { return !update.text.isEmpty }
+        guard !update.stablePrefix.isEmpty else { return false }
+        guard update.averageConfidence >= policy.minimumAverageConfidence else { return false }
+        guard repeatCount >= policy.repeatedStableMatches else { return false }
+        guard let lastUpdateAt else { return false }
+        return now.timeIntervalSince(lastUpdateAt) >= policy.silenceWindow
+    }
+
+    static func sharedPrefix(lhs: String, rhs: String) -> String {
+        let lhsChars = Array(lhs)
+        let rhsChars = Array(rhs)
+        let count = min(lhsChars.count, rhsChars.count)
+        var index = 0
+        while index < count, lhsChars[index] == rhsChars[index] {
+            index += 1
+        }
+        return String(lhsChars.prefix(index)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 @Observable
 class SpeechRecognitionService: NSObject {
     private enum SpeechRecognitionError: LocalizedError {
         case microphoneInputUnavailable
+        case recognizerUnavailable(String)
 
         var errorDescription: String? {
             switch self {
             case .microphoneInputUnavailable:
                 return "Microphone input unavailable"
+            case .recognizerUnavailable(let message):
+                return message
             }
         }
     }
@@ -26,12 +134,23 @@ class SpeechRecognitionService: NSObject {
     private static let supportedLocaleLookup: [String: String] = Dictionary(
         uniqueKeysWithValues: supportedLocales.map { ($0.normalizedIdentifier, $0.originalIdentifier) }
     )
+    static let appContextPhrases: [String] = [
+        "NEXUS", "Neural Engine", "Swift LLM", "Core ML", "GGUF", "tool call", "tool calls",
+        "open maps", "get current time", "send SMS", "send email", "create calendar event",
+        "speech mode", "voice mode", "Context Assembler", "Inference Engine", "KV cache"
+    ]
 
     var transcript: String = ""
+    var transcriptUpdate = TranscriptUpdate(text: "", segments: [], isFinal: false, languageCode: nil, averageConfidence: 0, stablePrefix: "", emittedAt: Date())
     var isListening: Bool = false
     var audioLevel: Float = 0
     var error: String?
     var isSpeechDetected: Bool = false
+    var detectedLanguageCode: String?
+    var availabilityState: SpeechRecognizerAvailabilityState = .ready
+    var failureReason: SpeechRecognitionFailureReason?
+
+    var onTranscriptUpdate: ((TranscriptUpdate) -> Void)?
 
     private var speechRecognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -44,6 +163,7 @@ class SpeechRecognitionService: NSObject {
     private var speechStartTime: Date?
     private let logger: Logger
     private var recognitionLanguageCode: String?
+    private var transcriptStabilizer = TranscriptStabilizer()
 
     private var recentLevels: [Float] = []
     private let levelHistorySize = 20
@@ -73,8 +193,8 @@ class SpeechRecognitionService: NSObject {
         super.init()
         recognitionLanguageCode = Locale.current.identifier
         speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: recognitionLanguageCode ?? Locale.current.identifier))
+        detectedLanguageCode = recognitionLanguageCode
     }
-
 
     @discardableResult
     func setRecognitionLanguage(code: String?) -> String? {
@@ -82,27 +202,30 @@ class SpeechRecognitionService: NSObject {
         let wasListening = isListening
         let existingOnSilenceDetected = onSilenceDetected
 
-        if wasListening {
-            stopListening()
-        }
+        if wasListening { stopListening() }
 
         recognitionLanguageCode = resolvedCode
+        detectedLanguageCode = resolvedCode
         speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: resolvedCode))
 
         if speechRecognizer == nil {
             logger.error("Failed to initialize recognizer for locale: \(resolvedCode, privacy: .public). Falling back to current locale.")
             let fallbackCode = Locale.current.identifier
             recognitionLanguageCode = fallbackCode
+            detectedLanguageCode = fallbackCode
             speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: fallbackCode))
         }
 
         guard let recognizer = speechRecognizer else {
-            error = "Speech recognizer unavailable for selected language"
+            updateAvailability(.unavailable, reason: .recognizerUnavailable, message: "Speech recognizer unavailable for selected language")
             return nil
         }
 
         if !recognizer.isAvailable {
             logger.warning("Speech recognizer currently unavailable for locale: \(recognizer.locale.identifier, privacy: .public)")
+            updateAvailability(.unavailable, reason: .recognizerUnavailable, message: "Speech recognizer temporarily unavailable")
+        } else {
+            updateAvailability(.ready, reason: nil, message: nil)
         }
 
         if wasListening {
@@ -148,28 +271,34 @@ class SpeechRecognitionService: NSObject {
             }
         }
         guard speechStatus == .authorized else {
-            error = "Speech recognition not authorized"
+            updateAvailability(.permissionDenied, reason: .permissionDenied, message: "Speech recognition permission was denied")
             return false
         }
 
         let audioStatus = await AVAudioApplication.requestRecordPermission()
         guard audioStatus else {
-            error = "Microphone access not granted"
+            updateAvailability(.microphonePermissionDenied, reason: .microphonePermissionDenied, message: "Microphone access was denied")
             return false
         }
 
+        updateAvailability(.ready, reason: nil, message: nil)
         return true
     }
 
     func startListening(onSilence: (() -> Void)? = nil) throws {
-        guard let speechRecognizer, speechRecognizer.isAvailable else {
-            error = "Speech recognizer unavailable"
-            return
+        guard let speechRecognizer else {
+            updateAvailability(.unavailable, reason: .recognizerUnavailable, message: "Speech recognizer unavailable")
+            throw SpeechRecognitionError.recognizerUnavailable("Speech recognizer unavailable")
+        }
+        guard speechRecognizer.isAvailable else {
+            updateAvailability(.busy, reason: .recognizerBusy, message: "Speech service is busy. Please try again.")
+            throw SpeechRecognitionError.recognizerUnavailable("Speech recognizer unavailable")
         }
 
         stopListening()
         onSilenceDetected = onSilence
         transcript = ""
+        transcriptUpdate = TranscriptUpdate(text: "", segments: [], isFinal: false, languageCode: recognitionLanguageCode, averageConfidence: 0, stablePrefix: "", emittedAt: Date())
         error = nil
         isSpeechDetected = false
         consecutiveSilenceFrames = 0
@@ -177,6 +306,8 @@ class SpeechRecognitionService: NSObject {
         recentLevels.removeAll()
         dynamicSilenceDuration = 1.8
         speechStartTime = nil
+        transcriptStabilizer = TranscriptStabilizer()
+        updateAvailability(.ready, reason: nil, message: nil)
 
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
@@ -190,7 +321,7 @@ class SpeechRecognitionService: NSObject {
             logger.error("Invalid hardware input format for speech recognition tap. Channels: \(hardwareFormat.channelCount), sample rate: \(hardwareFormat.sampleRate, privacy: .public)")
             stopListening()
             let microphoneError = SpeechRecognitionError.microphoneInputUnavailable
-            error = microphoneError.localizedDescription
+            updateAvailability(.unavailable, reason: .microphoneInputUnavailable, message: microphoneError.localizedDescription)
             throw microphoneError
         }
         let tapFormat = inputNode.outputFormat(forBus: 0)
@@ -200,6 +331,8 @@ class SpeechRecognitionService: NSObject {
 
         recognitionRequest.shouldReportPartialResults = true
         recognitionRequest.requiresOnDeviceRecognition = speechRecognizer.supportsOnDeviceRecognition
+        recognitionRequest.taskHint = .dictation
+        recognitionRequest.contextualStrings = Self.appContextPhrases
         if #available(iOS 18, *) {
             recognitionRequest.addsPunctuation = true
         }
@@ -209,34 +342,11 @@ class SpeechRecognitionService: NSObject {
                 guard let self else { return }
 
                 if let result {
-                    self.transcript = result.bestTranscription.formattedString
-                    self.lastSpeechTime = Date()
-
-                    if !self.isSpeechDetected {
-                        self.isSpeechDetected = true
-                        self.speechStartTime = Date()
-                    }
-
-                    self.updateDynamicSilenceDuration()
-
-                    if result.isFinal {
-                        self.stopListening()
-                        self.onSilenceDetected?()
-                    }
+                    self.handleRecognitionResult(result)
                 }
 
                 if let taskError {
-                    let nsError = taskError as NSError
-                    if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 1110 {
-                        if !self.transcript.isEmpty {
-                            self.onSilenceDetected?()
-                        } else {
-                            self.stopListening()
-                        }
-                    } else if nsError.code != 216 {
-                        self.error = taskError.localizedDescription
-                        self.stopListening()
-                    }
+                    self.handleRecognitionError(taskError)
                 }
             }
         }
@@ -255,8 +365,74 @@ class SpeechRecognitionService: NSObject {
         } catch {
             logger.error("Failed to start audio engine for speech recognition: \(error.localizedDescription, privacy: .public)")
             stopListening()
-            self.error = error.localizedDescription
+            updateAvailability(.transientFailure, reason: .transientServiceFailure, message: error.localizedDescription)
             throw error
+        }
+    }
+
+    private func handleRecognitionResult(_ result: SFSpeechRecognitionResult) {
+        transcript = result.bestTranscription.formattedString
+        lastSpeechTime = Date()
+        detectedLanguageCode = speechRecognizer?.locale.identifier ?? recognitionLanguageCode
+
+        if !isSpeechDetected {
+            isSpeechDetected = true
+            speechStartTime = Date()
+        }
+
+        updateDynamicSilenceDuration()
+
+        let segments = result.bestTranscription.segments.map {
+            TranscriptSegment(
+                substring: $0.substring,
+                timestamp: $0.timestamp,
+                duration: $0.duration,
+                confidence: $0.confidence,
+                alternativeSubstrings: $0.alternativeSubstrings
+            )
+        }
+        let avgConfidence = segments.isEmpty ? 0 : segments.reduce(0) { $0 + $1.confidence } / Float(segments.count)
+        let emittedAt = Date()
+        let stablePrefix = transcriptStabilizer.register(text: transcript, at: emittedAt)
+        let update = TranscriptUpdate(
+            text: transcript,
+            segments: segments,
+            isFinal: result.isFinal,
+            languageCode: detectedLanguageCode ?? recognitionLanguageCode,
+            averageConfidence: avgConfidence,
+            stablePrefix: stablePrefix,
+            emittedAt: emittedAt
+        )
+        transcriptUpdate = update
+        onTranscriptUpdate?(update)
+
+        if result.isFinal {
+            stopListening()
+            onSilenceDetected?()
+        }
+    }
+
+    private func handleRecognitionError(_ taskError: Error) {
+        let nsError = taskError as NSError
+        switch (nsError.domain, nsError.code) {
+        case ("kAFAssistantErrorDomain", 1110):
+            updateAvailability(.ready, reason: .noSpeechDetected, message: transcript.isEmpty ? "No speech detected" : nil)
+            if !transcript.isEmpty {
+                onSilenceDetected?()
+            } else {
+                stopListening()
+            }
+        case ("kAFAssistantErrorDomain", 203):
+            stopListening()
+            updateAvailability(.offlineUnavailable, reason: .offlineRecognizerUnavailable, message: "On-device speech recognition is unavailable for this language")
+        case ("kAFAssistantErrorDomain", 209):
+            stopListening()
+            updateAvailability(.busy, reason: .recognizerBusy, message: "Speech recognition service is busy")
+        case (_, 216):
+            break
+        default:
+            stopListening()
+            updateAvailability(.transientFailure, reason: .transientServiceFailure, message: taskError.localizedDescription)
         }
     }
 
@@ -279,34 +455,31 @@ class SpeechRecognitionService: NSObject {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
-    private func resetAudioEngine() {
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
+    private func updateAvailability(_ state: SpeechRecognizerAvailabilityState, reason: SpeechRecognitionFailureReason?, message: String?) {
+        availabilityState = state
+        failureReason = reason
+        error = message
+    }
 
+    private func resetAudioEngine() {
+        if audioEngine.isRunning { audioEngine.stop() }
         if isInputTapInstalled {
             audioEngine.inputNode.removeTap(onBus: 0)
             isInputTapInstalled = false
         }
-
         audioEngine.reset()
     }
 
     private func processAudioLevel(buffer: AVAudioPCMBuffer) {
         guard let channelData = buffer.floatChannelData?[0] else { return }
         let frameLength = Int(buffer.frameLength)
-
         var sumOfSquares: Float = 0
-        for i in 0..<frameLength {
-            sumOfSquares += channelData[i] * channelData[i]
-        }
+        for i in 0..<frameLength { sumOfSquares += channelData[i] * channelData[i] }
         let rms = sqrt(sumOfSquares / Float(frameLength))
         let db = 20 * log10(max(rms, 0.00001))
 
         recentLevels.append(db)
-        if recentLevels.count > levelHistorySize {
-            recentLevels.removeFirst()
-        }
+        if recentLevels.count > levelHistorySize { recentLevels.removeFirst() }
         updateAdaptiveThreshold()
 
         let isSpeechFrame = db > adaptiveThreshold
@@ -315,16 +488,11 @@ class SpeechRecognitionService: NSObject {
             consecutiveSilenceFrames = 0
         } else {
             consecutiveSilenceFrames += 1
-            if consecutiveSilenceFrames > speechOffsetFrames {
-                consecutiveSpeechFrames = 0
-            }
+            if consecutiveSilenceFrames > speechOffsetFrames { consecutiveSpeechFrames = 0 }
         }
 
         let normalized = max(0, min(1, (db + 50) / 50))
-
-        Task { @MainActor in
-            self.audioLevel = normalized
-        }
+        Task { @MainActor in self.audioLevel = normalized }
     }
 
     private func updateAdaptiveThreshold() {
@@ -336,7 +504,6 @@ class SpeechRecognitionService: NSObject {
 
     private func updateDynamicSilenceDuration() {
         let wordCount = transcript.split(separator: " ").count
-
         if wordCount <= 3 {
             dynamicSilenceDuration = minSilenceDuration
         } else if wordCount <= 10 {
@@ -345,21 +512,10 @@ class SpeechRecognitionService: NSObject {
             dynamicSilenceDuration = 2.0
         }
 
-        let endsWithConjunction = transcript.lowercased().hasSuffix(" and") ||
-            transcript.lowercased().hasSuffix(" but") ||
-            transcript.lowercased().hasSuffix(" or") ||
-            transcript.lowercased().hasSuffix(" because") ||
-            transcript.lowercased().hasSuffix(" so") ||
-            transcript.lowercased().hasSuffix(" then")
-
-        if endsWithConjunction {
-            dynamicSilenceDuration = maxSilenceDuration
-        }
-
-        let endsWithComma = transcript.hasSuffix(",")
-        if endsWithComma {
-            dynamicSilenceDuration = min(dynamicSilenceDuration + 0.5, maxSilenceDuration)
-        }
+        let lowered = transcript.lowercased()
+        let endsWithConjunction = lowered.hasSuffix(" and") || lowered.hasSuffix(" but") || lowered.hasSuffix(" or") || lowered.hasSuffix(" because") || lowered.hasSuffix(" so") || lowered.hasSuffix(" then")
+        if endsWithConjunction { dynamicSilenceDuration = maxSilenceDuration }
+        if transcript.hasSuffix(",") { dynamicSilenceDuration = min(dynamicSilenceDuration + 0.5, maxSilenceDuration) }
     }
 
     private func startAdaptiveSilenceDetection() {
@@ -386,7 +542,12 @@ class SpeechRecognitionService: NSObject {
         }
     }
 
+
+    func shouldEmitPreview(for update: TranscriptUpdate, policy: TranscriptStabilizationPolicy = .default, now: Date = Date()) -> Bool {
+        transcriptStabilizer.shouldEmitPreview(update: update, now: now, policy: policy)
+    }
+
     func detectBargeIn() -> Bool {
-        return consecutiveSpeechFrames >= speechOnsetFrames && audioLevel > 0.15
+        consecutiveSpeechFrames >= speechOnsetFrames && audioLevel > 0.15
     }
 }

@@ -10,7 +10,8 @@ struct ContextAssembler {
         conversationHistory: [Message],
         toolsEnabled: Bool,
         isVoiceMode: Bool,
-        preferredResponseLanguageCode: String?
+        preferredResponseLanguageCode: String?,
+        detectedRecognitionLanguageCode: String? = nil
     ) -> String {
         var sections: [String] = []
 
@@ -45,11 +46,22 @@ struct ContextAssembler {
             sections.append(buildVoiceModeAddendum())
         }
 
-        if let responseLanguageAddendum = buildResponseLanguageAddendum(preferredResponseLanguageCode) {
+        if let responseLanguageAddendum = buildResponseLanguageAddendum(preferredResponseLanguageCode, detectedRecognitionLanguageCode: detectedRecognitionLanguageCode) {
             sections.append(responseLanguageAddendum)
         }
 
         return sections.joined(separator: "\n\n")
+    }
+
+    static func synchronizedResponseLanguage(preferredResponseLanguageCode: String?, detectedRecognitionLanguageCode: String?) -> String? {
+        let preferred = normalizedLanguageIdentifier(preferredResponseLanguageCode)
+        let detected = normalizedLanguageIdentifier(detectedRecognitionLanguageCode)
+        return preferred ?? detected
+    }
+
+    private static func normalizedLanguageIdentifier(_ code: String?) -> String? {
+        guard let trimmed = code?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        return trimmed.replacingOccurrences(of: "_", with: "-")
     }
 
     private static func buildCoreIdentity() -> String {
@@ -274,6 +286,18 @@ struct ContextAssembler {
         return summary
     }
 
+    private static func buildResponseLanguageAddendum(_ preferredResponseLanguageCode: String?, detectedRecognitionLanguageCode: String?) -> String? {
+        guard let synchronizedCode = synchronizedResponseLanguage(preferredResponseLanguageCode: preferredResponseLanguageCode, detectedRecognitionLanguageCode: detectedRecognitionLanguageCode) else {
+            return nil
+        }
+
+        var lines = ["[Response Language]", "Respond in \(synchronizedCode). Keep the reply naturally aligned with the user's spoken or selected language."]
+        if let detected = normalizedLanguageIdentifier(detectedRecognitionLanguageCode), detected != synchronizedCode {
+            lines.append("Recognition input language detected as \(detected); preserve terminology and only switch languages if the user explicitly requests it.")
+        }
+        return lines.joined(separator: "\n")
+    }
+
     private static func buildUserProvidedLocationOverride(history: [Message]) -> String {
         let recentUserMessages = history
             .filter { $0.role == .user }
@@ -389,22 +413,6 @@ struct ContextAssembler {
         return freshGPSRequestRegex.firstMatch(in: message.content, options: [], range: range) != nil
     }
 
-
-    private static func buildResponseLanguageAddendum(_ languageCode: String?) -> String? {
-        guard let languageCode, !languageCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
-        }
-
-        let locale = Locale(identifier: languageCode)
-        let localizedLanguage = Locale.current.localizedString(forIdentifier: languageCode) ?? languageCode
-
-        return """
-        [Language Preference]
-        The user's preferred language is \(localizedLanguage) (locale code: \(locale.identifier)).
-        Always respond in this language unless the user explicitly asks to switch languages.
-        If you need clarification, ask your follow-up question in this language.
-        """
-    }
 
     private static func buildVoiceModeAddendum() -> String {
         return """
