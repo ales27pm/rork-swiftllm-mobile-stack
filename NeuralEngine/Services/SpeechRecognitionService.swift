@@ -26,6 +26,7 @@ class SpeechRecognitionService: NSObject {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
+    private var isInputTapInstalled = false
     private var silenceTimer: Timer?
     private var lastSpeechTime: Date = Date()
     private var onSilenceDetected: (() -> Void)?
@@ -170,6 +171,8 @@ class SpeechRecognitionService: NSObject {
         try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
 
+        resetAudioEngine()
+
         recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
         guard let recognitionRequest else { return }
 
@@ -215,18 +218,30 @@ class SpeechRecognitionService: NSObject {
         }
 
         let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
+        let inputFormat = inputNode.inputFormat(forBus: 0)
+        guard inputFormat.channelCount > 0, inputFormat.sampleRate > 0 else {
+            logger.error("Invalid input format for speech recognition tap. Channels: \(inputFormat.channelCount), sample rate: \(inputFormat.sampleRate, privacy: .public)")
+            stopListening()
+            error = "Microphone input unavailable"
+            return
+        }
 
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
             self?.recognitionRequest?.append(buffer)
             self?.processAudioLevel(buffer: buffer)
         }
+        isInputTapInstalled = true
 
-        audioEngine.prepare()
-        try audioEngine.start()
-        isListening = true
-
-        startAdaptiveSilenceDetection()
+        do {
+            audioEngine.prepare()
+            try audioEngine.start()
+            isListening = true
+            startAdaptiveSilenceDetection()
+        } catch {
+            logger.error("Failed to start audio engine for speech recognition: \(error.localizedDescription, privacy: .public)")
+            stopListening()
+            throw error
+        }
     }
 
     func stopListening() {
@@ -235,8 +250,14 @@ class SpeechRecognitionService: NSObject {
 
         if audioEngine.isRunning {
             audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
         }
+
+        if isInputTapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            isInputTapInstalled = false
+        }
+
+        audioEngine.reset()
 
         recognitionRequest?.endAudio()
         recognitionRequest = nil
@@ -249,6 +270,19 @@ class SpeechRecognitionService: NSObject {
         isSpeechDetected = false
 
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func resetAudioEngine() {
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+
+        if isInputTapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            isInputTapInstalled = false
+        }
+
+        audioEngine.reset()
     }
 
     private func processAudioLevel(buffer: AVAudioPCMBuffer) {
