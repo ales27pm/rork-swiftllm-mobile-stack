@@ -1,9 +1,21 @@
 import Foundation
 import Speech
 import AVFoundation
+import os.log
 
 @Observable
 class SpeechRecognitionService: NSObject {
+    private static let supportedLocales: [(originalIdentifier: String, normalizedIdentifier: String)] =
+        SFSpeechRecognizer.supportedLocales()
+            .map { locale in
+                let identifier = locale.identifier
+                return (identifier, normalizedLocaleIdentifier(identifier))
+            }
+            .sorted { $0.originalIdentifier < $1.originalIdentifier }
+    private static let supportedLocaleLookup: [String: String] = Dictionary(
+        uniqueKeysWithValues: supportedLocales.map { ($0.normalizedIdentifier, $0.originalIdentifier) }
+    )
+
     var transcript: String = ""
     var isListening: Bool = false
     var audioLevel: Float = 0
@@ -18,6 +30,8 @@ class SpeechRecognitionService: NSObject {
     private var lastSpeechTime: Date = Date()
     private var onSilenceDetected: (() -> Void)?
     private var speechStartTime: Date?
+    private let logger: Logger
+    private var recognitionLanguageCode: String?
 
     private var recentLevels: [Float] = []
     private let levelHistorySize = 20
@@ -31,9 +45,88 @@ class SpeechRecognitionService: NSObject {
     private let minSilenceDuration: TimeInterval = 1.2
     private let maxSilenceDuration: TimeInterval = 3.0
 
+    private static func normalizedLocaleIdentifier(_ identifier: String) -> String {
+        identifier.replacingOccurrences(of: "_", with: "-").lowercased()
+    }
+
+    private static func primaryLanguageCode(for identifier: String) -> String {
+        Locale(identifier: identifier).language.languageCode?.identifier.lowercased()
+            ?? normalizedLocaleIdentifier(identifier).split(separator: "-").first.map { String($0) }
+            ?? normalizedLocaleIdentifier(identifier)
+    }
+
     override init() {
+        let subsystem = Bundle.main.bundleIdentifier ?? "SpeechRecognitionService"
+        logger = Logger(subsystem: subsystem, category: "SpeechRecognitionService")
         super.init()
-        speechRecognizer = SFSpeechRecognizer(locale: Locale.current)
+        recognitionLanguageCode = Locale.current.identifier
+        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: recognitionLanguageCode ?? Locale.current.identifier))
+    }
+
+
+    @discardableResult
+    func setRecognitionLanguage(code: String?) -> String? {
+        let resolvedCode = resolveRecognitionLocaleCode(for: code)
+        let wasListening = isListening
+        let existingOnSilenceDetected = onSilenceDetected
+
+        if wasListening {
+            stopListening()
+        }
+
+        recognitionLanguageCode = resolvedCode
+        speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: resolvedCode))
+
+        if speechRecognizer == nil {
+            logger.error("Failed to initialize recognizer for locale: \(resolvedCode, privacy: .public). Falling back to current locale.")
+            let fallbackCode = Locale.current.identifier
+            recognitionLanguageCode = fallbackCode
+            speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: fallbackCode))
+        }
+
+        guard let recognizer = speechRecognizer else {
+            error = "Speech recognizer unavailable for selected language"
+            return nil
+        }
+
+        if !recognizer.isAvailable {
+            logger.warning("Speech recognizer currently unavailable for locale: \(recognizer.locale.identifier, privacy: .public)")
+        }
+
+        if wasListening {
+            do {
+                try startListening(onSilence: existingOnSilenceDetected)
+            } catch {
+                logger.error("Failed to restart speech recognition after locale change: \(error.localizedDescription, privacy: .public)")
+                self.error = error.localizedDescription
+            }
+        }
+
+        return recognizer.locale.identifier
+    }
+
+    private func resolveRecognitionLocaleCode(for code: String?) -> String {
+        guard let trimmedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmedCode.isEmpty else {
+            return Locale.current.identifier
+        }
+
+        let normalized = Self.normalizedLocaleIdentifier(trimmedCode)
+
+        if let exactMatch = Self.supportedLocaleLookup[normalized] {
+            return exactMatch
+        }
+
+        let targetLanguage = Self.primaryLanguageCode(for: normalized)
+
+        if let match = Self.supportedLocales.first(where: {
+            Self.primaryLanguageCode(for: $0.originalIdentifier) == targetLanguage
+        }) {
+            logger.warning("No exact speech recognition locale for \(trimmedCode, privacy: .public); using \(match.originalIdentifier, privacy: .public) instead.")
+            return match.originalIdentifier
+        }
+
+        logger.warning("No supported speech recognition locale for \(trimmedCode, privacy: .public); using current locale.")
+        return Locale.current.identifier
     }
 
     func requestAuthorization() async -> Bool {

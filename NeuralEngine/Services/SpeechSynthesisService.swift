@@ -13,11 +13,6 @@ class SpeechSynthesisService: NSObject {
         var id: String { identifier }
     }
 
-    private enum StorageKey {
-        static let selectedVoiceIdentifier = "SpeechSynthesisService.selectedVoiceIdentifier"
-        static let preferredLanguageCode = "SpeechSynthesisService.preferredLanguageCode"
-    }
-
     var isSpeaking: Bool = false
     var progress: Double = 0
     var currentWord: String = ""
@@ -25,7 +20,6 @@ class SpeechSynthesisService: NSObject {
     var spokenText: String = ""
 
     private let synthesizer = AVSpeechSynthesizer()
-    private let userDefaults: UserDefaults
     private var totalLength: Int = 0
     private var completion: (() -> Void)?
     private var sentences: [String] = []
@@ -41,25 +35,55 @@ class SpeechSynthesisService: NSObject {
     private let logger: Logger
 
     override init() {
-        userDefaults = .standard
         let subsystem = Bundle.main.bundleIdentifier ?? "SpeechSynthesisService"
         logger = Logger(subsystem: subsystem, category: "SpeechSynthesisService")
-        selectedVoiceIdentifier = userDefaults.string(forKey: StorageKey.selectedVoiceIdentifier)
-        preferredLanguageCode = userDefaults.string(forKey: StorageKey.preferredLanguageCode)
         super.init()
         synthesizer.delegate = self
         prepareVoice(availableVoices: loadAvailableVoices())
     }
 
+
+    @available(*, deprecated, message: "Use init() and apply persisted settings from the shared key-value flow instead.")
     init(userDefaults: UserDefaults) {
-        self.userDefaults = userDefaults
         let subsystem = Bundle.main.bundleIdentifier ?? "SpeechSynthesisService"
         logger = Logger(subsystem: subsystem, category: "SpeechSynthesisService")
-        selectedVoiceIdentifier = userDefaults.string(forKey: StorageKey.selectedVoiceIdentifier)
-        preferredLanguageCode = userDefaults.string(forKey: StorageKey.preferredLanguageCode)
         super.init()
         synthesizer.delegate = self
-        prepareVoice(availableVoices: loadAvailableVoices())
+        let persistedVoiceIdentifier = userDefaults.string(forKey: "SpeechSynthesisService.selectedVoiceIdentifier")
+        let persistedLanguageCode = userDefaults.string(forKey: "SpeechSynthesisService.preferredLanguageCode")
+        _ = applyPersistedSettings(voiceIdentifier: persistedVoiceIdentifier, languageCode: persistedLanguageCode)
+    }
+
+    @discardableResult
+    func applyPersistedSettings(voiceIdentifier: String?, languageCode: String?) -> (voiceIdentifier: String?, languageCode: String?) {
+        let hadPersistedVoiceIdentifier = voiceIdentifier != nil
+        let hadPersistedLanguageCode = languageCode != nil
+
+        selectedVoiceIdentifier = voiceIdentifier
+        preferredLanguageCode = languageCode
+
+        let availableVoices = loadAvailableVoices(forceRefresh: true)
+
+        if let voiceIdentifier, !availableVoices.contains(where: { $0.identifier == voiceIdentifier }) {
+            logger.warning("Previously selected voice no longer available: \(voiceIdentifier, privacy: .public). Falling back to best match.")
+            selectedVoiceIdentifier = nil
+        }
+
+        prepareVoice(availableVoices: availableVoices)
+
+        if hadPersistedVoiceIdentifier {
+            selectedVoiceIdentifier = selectedVoice?.identifier
+        } else {
+            selectedVoiceIdentifier = nil
+        }
+
+        if hadPersistedLanguageCode {
+            preferredLanguageCode = selectedVoice?.language
+        } else {
+            preferredLanguageCode = nil
+        }
+
+        return (selectedVoiceIdentifier, preferredLanguageCode)
     }
 
     private func loadAvailableVoices(forceRefresh: Bool = false) -> [AVSpeechSynthesisVoice] {
@@ -85,7 +109,6 @@ class SpeechSynthesisService: NSObject {
             }
 
             self.selectedVoiceIdentifier = nil
-            userDefaults.removeObject(forKey: StorageKey.selectedVoiceIdentifier)
         }
 
         if let preferredVoice {
@@ -138,7 +161,6 @@ class SpeechSynthesisService: NSObject {
     func setVoice(identifier: String?) {
         guard let identifier else {
             selectedVoiceIdentifier = nil
-            userDefaults.removeObject(forKey: StorageKey.selectedVoiceIdentifier)
             prepareVoice(availableVoices: loadAvailableVoices(forceRefresh: true))
             return
         }
@@ -155,23 +177,20 @@ class SpeechSynthesisService: NSObject {
 
         selectedVoice = voice
         selectedVoiceIdentifier = voice.identifier
+        preferredLanguageCode = voice.language
         autoSelectedVoiceIdentifier = voice.identifier
-        userDefaults.set(voice.identifier, forKey: StorageKey.selectedVoiceIdentifier)
     }
 
     func setLanguagePreferred(_ languageCode: String?) {
         guard let languageCode else {
             preferredLanguageCode = nil
-            userDefaults.removeObject(forKey: StorageKey.preferredLanguageCode)
             prepareVoice(availableVoices: loadAvailableVoices(forceRefresh: true))
             return
         }
 
         selectedVoiceIdentifier = nil
-        userDefaults.removeObject(forKey: StorageKey.selectedVoiceIdentifier)
 
         preferredLanguageCode = languageCode
-        userDefaults.set(languageCode, forKey: StorageKey.preferredLanguageCode)
 
         let availableVoices = loadAvailableVoices(forceRefresh: true)
         let preferredVoice = bestVoice(in: availableVoices, forLanguageCode: languageCode)

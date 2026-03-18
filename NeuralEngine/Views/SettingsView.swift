@@ -267,7 +267,7 @@ struct SettingsView: View {
         } header: {
             Label("Speech", systemImage: "waveform")
         } footer: {
-            Text("Language and voice changes apply to the next spoken response.")
+            Text("Language and voice changes apply to speech output, speech recognition input, and voice-mode replies.")
         }
     }
 
