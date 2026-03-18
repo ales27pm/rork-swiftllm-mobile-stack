@@ -30,7 +30,7 @@ struct SettingsView: View {
             speechSection
             aboutSection
         }
-        .navigationTitle("Settings")
+        .navigationTitle(AppStrings.settingsTitle)
         .navigationBarTitleDisplayMode(.large)
         .onAppear { loadConfig() }
     }
@@ -57,15 +57,15 @@ struct SettingsView: View {
 
     private var samplingSection: some View {
         Section {
-            sliderRow(title: "Temperature", value: $temperature, range: 0...2, step: 0.05, format: "%.2f")
-            sliderRow(title: "Top-K", value: $topK, range: 1...100, step: 1, format: "%.0f")
-            sliderRow(title: "Top-P", value: $topP, range: 0...1, step: 0.05, format: "%.2f")
-            sliderRow(title: "Repetition Penalty", value: $repetitionPenalty, range: 1...2, step: 0.05, format: "%.2f")
-            sliderRow(title: "Max Tokens", value: $maxTokens, range: 128...8192, step: 128, format: "%.0f")
+            sliderRow(title: AppStrings.temperature, value: $temperature, range: 0...2, step: 0.05, format: "%.2f")
+            sliderRow(title: AppStrings.topK, value: $topK, range: 1...100, step: 1, format: "%.0f")
+            sliderRow(title: AppStrings.topP, value: $topP, range: 0...1, step: 0.05, format: "%.2f")
+            sliderRow(title: AppStrings.repetitionPenalty, value: $repetitionPenalty, range: 1...2, step: 0.05, format: "%.2f")
+            sliderRow(title: AppStrings.maxTokens, value: $maxTokens, range: 128...8192, step: 128, format: "%.0f")
         } header: {
-            Label("Sampling", systemImage: "slider.horizontal.3")
+            Label(AppStrings.samplingTitle, systemImage: "slider.horizontal.3")
         } footer: {
-            Text("Controls the randomness and diversity of generated text. Lower temperature = more focused, higher = more creative.")
+            Text(AppStrings.samplingFooter)
         }
     }
 
@@ -90,22 +90,22 @@ struct SettingsView: View {
                 .font(.subheadline)
                 .frame(minHeight: 100)
         } header: {
-            Label("System Prompt", systemImage: "text.quote")
+            Label(AppStrings.systemPromptTitle, systemImage: "text.quote")
         } footer: {
-            Text("This prompt is prepended to every conversation. Cached via prompt prefix cache for fast repeated inference.")
+            Text(AppStrings.systemPromptFooter)
         }
     }
 
     private var runtimeSection: some View {
         Section {
-            runtimeRow(label: "Thermal State", icon: "thermometer.medium", value: thermalGovernor.thermalLevel.rawValue)
-            runtimeRow(label: "Runtime Mode", icon: thermalGovernor.currentMode.icon, value: thermalGovernor.currentMode.rawValue)
+            runtimeRow(label: AppStrings.thermalState, icon: "thermometer.medium", value: thermalGovernor.thermalLevel.rawValue)
+            runtimeRow(label: AppStrings.runtimeMode, icon: thermalGovernor.currentMode.icon, value: thermalGovernor.currentMode.rawValue)
             specRow
-            runtimeRow(label: "Max Draft Tokens", icon: "number", value: "\(thermalGovernor.currentMode.maxDraftTokens)")
+            runtimeRow(label: AppStrings.maxDraftTokens, icon: "number", value: "\(thermalGovernor.currentMode.maxDraftTokens)")
         } header: {
-            Label("Runtime", systemImage: "cpu")
+            Label(AppStrings.runtimeTitle, systemImage: "cpu")
         } footer: {
-            Text("Runtime mode adapts automatically based on device thermal state.")
+            Text(AppStrings.runtimeFooter)
         }
     }
 
@@ -120,9 +120,9 @@ struct SettingsView: View {
 
     private var specRow: some View {
         HStack {
-            Label("Speculative Decoding", systemImage: "bolt.fill")
+            Label(AppStrings.speculativeDecoding, systemImage: "bolt.fill")
             Spacer()
-            Text(thermalGovernor.currentMode.speculativeEnabled ? "Enabled" : "Disabled")
+            Text(thermalGovernor.currentMode.speculativeEnabled ? AppStrings.enabled : AppStrings.disabled)
                 .foregroundStyle(thermalGovernor.currentMode.speculativeEnabled ? .green : .secondary)
         }
     }

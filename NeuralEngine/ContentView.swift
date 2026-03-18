@@ -23,7 +23,7 @@ struct ContentView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            Tab("Nexus", systemImage: "sparkles", value: .agent) {
+            Tab(AppStrings.tabNexus, systemImage: "sparkles", value: .agent) {
                 if let chatVM = chatViewModel, let agent = assistantAgent {
                     AgentHubView(
                         chatViewModel: chatVM,
@@ -39,11 +39,11 @@ struct ContentView: View {
                         }
                     )
                 } else {
-                    ProgressView("Initializing Nexus...")
+                    ProgressView(AppStrings.initializingNexus)
                 }
             }
 
-            Tab("Models", systemImage: "square.stack.3d.up", value: .models) {
+            Tab(AppStrings.tabModels, systemImage: "square.stack.3d.up", value: .models) {
                 NavigationStack {
                     if let modelVM = modelManagerViewModel {
                         ModelManagerView(viewModel: modelVM)
@@ -53,7 +53,7 @@ struct ContentView: View {
                 }
             }
 
-            Tab("Settings", systemImage: "gearshape", value: .settings) {
+            Tab(AppStrings.tabSettings, systemImage: "gearshape", value: .settings) {
                 NavigationStack {
                     if let chatVM = chatViewModel {
                         SettingsView(chatViewModel: chatVM, speechViewModel: speechViewModel, thermalGovernor: thermalGovernor)
