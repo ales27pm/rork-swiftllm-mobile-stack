@@ -156,7 +156,7 @@ class InferenceEngine {
     }
 
 
-    func prepareVoiceContext(messages: [[String: String]], systemPrompt: String, detectedLanguageCode: String?) {
+    func prepareVoiceContext(messages: [[String: String]], systemPrompt: String) {
         guard !isGenerating else { return }
         guard let tokenizer else { return }
 
@@ -170,8 +170,6 @@ class InferenceEngine {
         _ = tokenizer.encode(systemPrompt)
         _ = tokenizer.encode(promptBody)
         currentText = ""
-        lastHealthStatus = lastHealthStatus
-        _ = detectedLanguageCode
     }
 
     func generate(

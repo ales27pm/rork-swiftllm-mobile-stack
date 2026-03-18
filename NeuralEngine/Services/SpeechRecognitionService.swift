@@ -97,6 +97,7 @@ nonisolated struct TranscriptStabilizer: Sendable {
     }
 
     static func sharedPrefix(lhs: String, rhs: String) -> String {
+        guard !lhs.isEmpty, !rhs.isEmpty else { return "" }
         let lhsChars = Array(lhs)
         let rhsChars = Array(rhs)
         let count = min(lhsChars.count, rhsChars.count)
@@ -416,6 +417,7 @@ class SpeechRecognitionService: NSObject {
         let nsError = taskError as NSError
         switch (nsError.domain, nsError.code) {
         case ("kAFAssistantErrorDomain", 1110):
+            logger.info("Speech recognizer reported no speech detected (1110). Transcript length: \(self.transcript.count, privacy: .public)")
             updateAvailability(.ready, reason: .noSpeechDetected, message: transcript.isEmpty ? "No speech detected" : nil)
             if !transcript.isEmpty {
                 onSilenceDetected?()
@@ -423,14 +425,19 @@ class SpeechRecognitionService: NSObject {
                 stopListening()
             }
         case ("kAFAssistantErrorDomain", 203):
+            logger.warning("Speech recognizer transient failure / timeout (203): \(taskError.localizedDescription, privacy: .public)")
             stopListening()
-            updateAvailability(.offlineUnavailable, reason: .offlineRecognizerUnavailable, message: "On-device speech recognition is unavailable for this language")
+            updateAvailability(.transientFailure, reason: .transientServiceFailure, message: taskError.localizedDescription)
         case ("kAFAssistantErrorDomain", 209):
+            logger.warning("Speech recognizer operation failed / contention (209): \(taskError.localizedDescription, privacy: .public)")
             stopListening()
-            updateAvailability(.busy, reason: .recognizerBusy, message: "Speech recognition service is busy")
+            updateAvailability(.transientFailure, reason: .transientServiceFailure, message: taskError.localizedDescription)
         case (_, 216):
-            break
+            logger.warning("Speech recognizer reported cancellation/interruption (216): \(taskError.localizedDescription, privacy: .public)")
+            stopListening()
+            updateAvailability(.transientFailure, reason: .transientServiceFailure, message: taskError.localizedDescription)
         default:
+            logger.error("Speech recognizer error \(nsError.domain, privacy: .public):\(nsError.code) - \(taskError.localizedDescription, privacy: .public)")
             stopListening()
             updateAvailability(.transientFailure, reason: .transientServiceFailure, message: taskError.localizedDescription)
         }

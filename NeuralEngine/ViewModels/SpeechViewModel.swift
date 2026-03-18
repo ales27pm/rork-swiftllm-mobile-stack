@@ -223,7 +223,7 @@ class SpeechViewModel {
             previewMessages.append(["role": msg.role.rawValue, "content": msg.content])
         }
         previewMessages.append(["role": MessageRole.user.rawValue, "content": text])
-        chatViewModel.inferenceEngine.prepareVoiceContext(messages: previewMessages, systemPrompt: prompt, detectedLanguageCode: synchronizedLanguage)
+        chatViewModel.inferenceEngine.prepareVoiceContext(messages: previewMessages, systemPrompt: prompt)
     }
 
     private func syncLanguageFromRecognitionUpdate(_ update: TranscriptUpdate?) {
@@ -247,7 +247,11 @@ class SpeechViewModel {
                 return WrappedError(domain: .speech, severity: .warning, userMessage: "Offline speech recognition is unavailable for this language.", technicalDetail: "On-device recognizer missing for locale \(currentRecognitionLanguageCode ?? "unknown")", recoveryAction: .retry, underlyingError: error)
             case .recognizerBusy:
                 return WrappedError(domain: .speech, severity: .warning, userMessage: "Speech service is busy. Please try again in a moment.", technicalDetail: "Recognizer contention / assistant service busy", recoveryAction: .retry, underlyingError: error)
-            case .recognizerUnavailable, .transientServiceFailure, .microphoneInputUnavailable, .noSpeechDetected, .unknown:
+            case .recognizerUnavailable:
+                return WrappedError(domain: .speech, severity: .warning, userMessage: "Speech service is unavailable.", technicalDetail: "Speech recognizer is not available for the requested locale or current device state", recoveryAction: .retry, underlyingError: error)
+            case .microphoneInputUnavailable:
+                return WrappedError(domain: .speech, severity: .error, userMessage: "Microphone input is unavailable.", technicalDetail: "Audio engine input format was invalid or no microphone input route was available", recoveryAction: .none, underlyingError: error)
+            case .transientServiceFailure, .noSpeechDetected, .unknown:
                 break
             }
         }

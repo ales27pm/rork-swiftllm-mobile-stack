@@ -159,6 +159,8 @@ class SpeechSynthesisService: NSObject {
         preferredLanguageCode
     }
 
+    // If the user has not explicitly locked a voice, a newly detected language will initialize
+    // preferredLanguageCode via setLanguagePreferred(_:), which refreshes voices and picks the best match.
     func syncDetectedLanguage(_ languageCode: String?) -> String? {
         guard let normalized = normalizedOptionalLanguageCode(languageCode) else {
             detectedInputLanguageCode = nil

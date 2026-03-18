@@ -17,6 +17,16 @@ struct SpeechPipelineTests {
         #expect(!stabilizer.shouldEmitPreview(update: lowConfidence, now: t1.addingTimeInterval(0.7)))
     }
 
+    @Test func transcriptStabilizer_initialRegisterLeavesStableCandidateEmpty() {
+        var stabilizer = TranscriptStabilizer()
+
+        let stablePrefix = stabilizer.register(text: "hello", at: Date())
+
+        #expect(stablePrefix == "")
+        #expect(stabilizer.stableCandidate == "")
+        #expect(stabilizer.lastText == "hello")
+    }
+
     @Test func contextAssembler_prefersSelectedLanguageButFallsBackToDetectedRecognitionLocale() {
         #expect(ContextAssembler.synchronizedResponseLanguage(preferredResponseLanguageCode: "fr-CA", detectedRecognitionLanguageCode: "en-US") == "fr-CA")
         #expect(ContextAssembler.synchronizedResponseLanguage(preferredResponseLanguageCode: nil, detectedRecognitionLanguageCode: "es_MX") == "es-MX")
@@ -45,7 +55,7 @@ struct SpeechPipelineTests {
         let effective = service.syncDetectedLanguage("de-DE")
 
         #expect(effective == service.effectiveSpeechLanguageCode())
-        #expect(service.effectiveSpeechLanguageCode() == "de-de" || service.effectiveSpeechLanguageCode() == "de-DE")
+        #expect(service.effectiveSpeechLanguageCode() == "de-de")
     }
 
     private func makeUpdate(text: String, stablePrefix: String, confidence: Float, emittedAt: Date) -> TranscriptUpdate {
