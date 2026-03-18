@@ -381,12 +381,27 @@ class SpeechViewModel {
         audioLevel = recognitionService.audioLevel
     }
 
+    private func normalizedSpeechLanguageCode(_ code: String?) -> String? {
+        guard let trimmed = code?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    @discardableResult
+    private func syncSpeechSettingsAndNotify() -> (voiceIdentifier: String?, languageCode: String?) {
+        let resolvedLanguageCode = normalizedSpeechLanguageCode(synthesisService.currentPreferredLanguageCode())
+        let recognitionLanguage = recognitionService.setRecognitionLanguage(code: resolvedLanguageCode)
+        let resolvedSettings = (synthesisService.currentVoiceIdentifier(), recognitionLanguage ?? resolvedLanguageCode)
+        onSpeechSettingsChanged?(resolvedSettings.0, resolvedSettings.1)
+        return resolvedSettings
+    }
+
     @discardableResult
     func initializeFromPersistedSettings(voiceIdentifier: String?, languageCode: String?) -> (voiceIdentifier: String?, languageCode: String?) {
-        let resolved = synthesisService.applyPersistedSettings(voiceIdentifier: voiceIdentifier, languageCode: languageCode)
-        let recognitionLanguage = recognitionService.setRecognitionLanguage(code: resolved.languageCode)
-        onSpeechSettingsChanged?(resolved.voiceIdentifier, recognitionLanguage ?? resolved.languageCode)
-        return (resolved.voiceIdentifier, recognitionLanguage ?? resolved.languageCode)
+        let normalizedLanguageCode = normalizedSpeechLanguageCode(languageCode)
+        _ = synthesisService.applyPersistedSettings(voiceIdentifier: voiceIdentifier, languageCode: normalizedLanguageCode)
+        return syncSpeechSettingsAndNotify()
     }
 
 
@@ -425,17 +440,13 @@ class SpeechViewModel {
     }
 
     func updateSpeechLanguage(code: String?) {
-        synthesisService.setLanguagePreferred(code)
-        let resolvedLanguageCode = synthesisService.currentPreferredLanguageCode()
-        let recognitionLanguage = recognitionService.setRecognitionLanguage(code: resolvedLanguageCode)
-        onSpeechSettingsChanged?(synthesisService.currentVoiceIdentifier(), recognitionLanguage ?? resolvedLanguageCode)
+        synthesisService.setLanguagePreferred(normalizedSpeechLanguageCode(code))
+        _ = syncSpeechSettingsAndNotify()
     }
 
     func updateSpeechVoice(identifier: String?) {
         synthesisService.setVoice(identifier: identifier)
-        let resolvedLanguageCode = synthesisService.currentPreferredLanguageCode()
-        let recognitionLanguage = recognitionService.setRecognitionLanguage(code: resolvedLanguageCode)
-        onSpeechSettingsChanged?(synthesisService.currentVoiceIdentifier(), recognitionLanguage ?? resolvedLanguageCode)
+        _ = syncSpeechSettingsAndNotify()
     }
 
     func clearTranscript() {

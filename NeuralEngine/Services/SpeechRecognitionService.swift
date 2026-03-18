@@ -5,6 +5,11 @@ import os.log
 
 @Observable
 class SpeechRecognitionService: NSObject {
+    private static let supportedLocaleIdentifiers: [String] = SFSpeechRecognizer.supportedLocales()
+        .map(\.identifier)
+        .sorted()
+    private static let supportedLocaleIdentifierSet = Set(supportedLocaleIdentifiers)
+
     var transcript: String = ""
     var isListening: Bool = false
     var audioLevel: Float = 0
@@ -74,7 +79,7 @@ class SpeechRecognitionService: NSObject {
         }
 
         let normalized = code.replacingOccurrences(of: "_", with: "-")
-        let supportedLocales = Set(SFSpeechRecognizer.supportedLocales().map { $0.identifier })
+        let supportedLocales = Self.supportedLocaleIdentifierSet
 
         if supportedLocales.contains(normalized) {
             return normalized
@@ -87,7 +92,7 @@ class SpeechRecognitionService: NSObject {
         let targetLanguage = Locale(identifier: normalized).language.languageCode?.identifier.lowercased() ?? normalized.split(separator: "-").first.map { String($0).lowercased() }
 
         if let targetLanguage,
-           let match = supportedLocales.sorted().first(where: {
+           let match = Self.supportedLocaleIdentifiers.first(where: {
                Locale(identifier: $0).language.languageCode?.identifier.lowercased() == targetLanguage
            }) {
             logger.warning("No exact speech recognition locale for \(normalized, privacy: .public); using \(match, privacy: .public) instead.")

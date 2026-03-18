@@ -42,6 +42,18 @@ class SpeechSynthesisService: NSObject {
         prepareVoice(availableVoices: loadAvailableVoices())
     }
 
+
+    @available(*, deprecated, message: "Use init() and apply persisted settings from the shared key-value flow instead.")
+    init(userDefaults: UserDefaults) {
+        let subsystem = Bundle.main.bundleIdentifier ?? "SpeechSynthesisService"
+        logger = Logger(subsystem: subsystem, category: "SpeechSynthesisService")
+        super.init()
+        synthesizer.delegate = self
+        let persistedVoiceIdentifier = userDefaults.string(forKey: "SpeechSynthesisService.selectedVoiceIdentifier")
+        let persistedLanguageCode = userDefaults.string(forKey: "SpeechSynthesisService.preferredLanguageCode")
+        _ = applyPersistedSettings(voiceIdentifier: persistedVoiceIdentifier, languageCode: persistedLanguageCode)
+    }
+
     @discardableResult
     func applyPersistedSettings(voiceIdentifier: String?, languageCode: String?) -> (voiceIdentifier: String?, languageCode: String?) {
         selectedVoiceIdentifier = voiceIdentifier
