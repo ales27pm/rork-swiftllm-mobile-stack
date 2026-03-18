@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import LocalAuthentication
 
 nonisolated final class SecureStore: Sendable {
     private let service: String
@@ -122,10 +123,15 @@ nonisolated final class SecureStore: Sendable {
     }
 
     func getStringWithBiometric(_ key: String) -> Data? {
+        let prompt = "Authenticate to access secure data"
+        let authenticationContext = LAContext()
+        authenticationContext.localizedReason = prompt
+
         var query = baseQuery(key: key)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
-        query[kSecUseOperationPrompt as String] = "Authenticate to access secure data"
+        query[kSecUseOperationPrompt as String] = prompt
+        query[kSecUseAuthenticationContext as String] = authenticationContext
 
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
