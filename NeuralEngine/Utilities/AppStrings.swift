@@ -41,7 +41,9 @@ enum AppStrings {
     static let screenCaptureFailed = localized("document.error.screenCaptureFailed", fallback: "Failed to capture screen")
 
     static func pdfAnalysisComplete(pageCount: Int) -> String {
-        localizedFormat("document.status.pdfAnalysisComplete %@", fallback: "PDF analysis complete %@ pages", argument: String(pageCount))
+        let key = pageCount == 1 ? "document.status.pdfAnalysisComplete.one" : "document.status.pdfAnalysisComplete.other"
+        let fallback = pageCount == 1 ? "PDF analysis complete %lld page" : "PDF analysis complete %lld pages"
+        return localizedFormat(key, fallback: fallback, argument: pageCount)
     }
 
     static func pdfAnalysisFailed() -> String {
@@ -49,15 +51,15 @@ enum AppStrings {
     }
 
     static func unsupportedFormat(_ ext: String) -> String {
-        localizedFormat("document.error.unsupportedFormat %@", fallback: "Unsupported file format: .%@", argument: ext)
+        localizedFormat("document.error.unsupportedFormat", fallback: "Unsupported file format: .%@", argument: ext)
     }
 
     private static func localized(_ key: String, fallback: String) -> String {
         Bundle.main.localizedString(forKey: key, value: fallback, table: nil)
     }
 
-    private static func localizedFormat(_ key: String, fallback: String, argument: String) -> String {
+    private static func localizedFormat(_ key: String, fallback: String, argument: CVarArg) -> String {
         let format = localized(key, fallback: fallback)
-        return String(format: format, locale: Locale.current, argument)
+        return String(format: format, locale: Locale.current, arguments: [argument])
     }
 }

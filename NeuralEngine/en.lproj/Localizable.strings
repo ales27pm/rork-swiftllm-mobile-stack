@@ -26,7 +26,8 @@
 "document.status.analysisComplete" = "Analysis complete";
 "document.status.analysisFailed" = "Analysis failed";
 "document.status.processingPDF" = "Processing PDF...";
-"document.status.pdfAnalysisComplete %@" = "PDF analysis complete %lld pages";
+"document.status.pdfAnalysisComplete.one" = "PDF analysis complete %lld page";
+"document.status.pdfAnalysisComplete.other" = "PDF analysis complete %lld pages";
 "document.status.pdfAnalysisFailed" = "PDF analysis failed";
 "document.status.loadingImage" = "Loading image...";
 "document.status.loadingTextFile" = "Loading text file...";
@@ -34,4 +35,4 @@
 "document.error.imageLoadFailed" = "Could not load image from file";
 "document.error.textFileReadFailed" = "Could not read text file";
 "document.error.screenCaptureFailed" = "Failed to capture screen";
-"document.error.unsupportedFormat %@" = "Unsupported file format: .%@";
+"document.error.unsupportedFormat" = "Unsupported file format: .%@";

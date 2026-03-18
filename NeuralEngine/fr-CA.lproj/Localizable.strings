@@ -26,7 +26,8 @@
 "document.status.analysisComplete" = "Analyse terminée";
 "document.status.analysisFailed" = "Échec de l’analyse";
 "document.status.processingPDF" = "Traitement du PDF...";
-"document.status.pdfAnalysisComplete %@" = "Analyse du PDF terminée : %lld pages";
+"document.status.pdfAnalysisComplete.one" = "Analyse du PDF terminée : %lld page";
+"document.status.pdfAnalysisComplete.other" = "Analyse du PDF terminée : %lld pages";
 "document.status.pdfAnalysisFailed" = "Échec de l’analyse du PDF";
 "document.status.loadingImage" = "Chargement de l’image...";
 "document.status.loadingTextFile" = "Chargement du fichier texte...";
@@ -34,4 +35,4 @@
 "document.error.imageLoadFailed" = "Impossible de charger l’image à partir du fichier";
 "document.error.textFileReadFailed" = "Impossible de lire le fichier texte";
 "document.error.screenCaptureFailed" = "Impossible de capturer l’écran";
-"document.error.unsupportedFormat %@" = "Format de fichier non pris en charge : .%@";
+"document.error.unsupportedFormat" = "Format de fichier non pris en charge : .%@";
