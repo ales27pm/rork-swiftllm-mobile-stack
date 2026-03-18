@@ -38,7 +38,7 @@ init(service: DocumentAnalysisServicing? = nil) {
         barcodeResults = []
         errorMessage = nil
         isProcessing = true
-        statusMessage = "Recognizing text..."
+        statusMessage = AppStrings.recognizingText
         progress = 0.1
 
         let taskID = registerTask()
@@ -55,7 +55,7 @@ init(service: DocumentAnalysisServicing? = nil) {
                 progress = 0.9
                 analysisResult = text
                 barcodeResults = codes
-                statusMessage = text.fullText.isEmpty ? "No text detected" : "Analysis complete"
+                statusMessage = text.fullText.isEmpty ? AppStrings.noTextDetected : AppStrings.analysisComplete
                 progress = 1.0
 
                 try? await Task.sleep(for: .milliseconds(500))
@@ -63,7 +63,7 @@ init(service: DocumentAnalysisServicing? = nil) {
             } catch is CancellationError {
                 finishCancelled(taskID)
             } catch {
-                finishFailure(taskID, errorMessage: error.localizedDescription, status: "Analysis failed")
+                finishFailure(taskID, errorMessage: error.localizedDescription, status: AppStrings.analysisFailed)
             }
         }
     }
@@ -80,7 +80,7 @@ init(service: DocumentAnalysisServicing? = nil) {
 
         if ext == "pdf" {
             isProcessing = true
-            statusMessage = "Processing PDF..."
+            statusMessage = AppStrings.processingPDF
             progress = 0.1
 
             let taskID = registerTask()
@@ -95,7 +95,7 @@ init(service: DocumentAnalysisServicing? = nil) {
                     let result = try await service.recognizeTextFromPDF(at: url)
                     progress = 0.9
                     analysisResult = result
-                    statusMessage = "PDF analysis complete (\(result.pageCount) pages)"
+                    statusMessage = AppStrings.pdfAnalysisComplete(pageCount: result.pageCount)
                     progress = 1.0
 
                     try? await Task.sleep(for: .milliseconds(500))
@@ -103,12 +103,12 @@ init(service: DocumentAnalysisServicing? = nil) {
                 } catch is CancellationError {
                     finishCancelled(taskID)
                 } catch {
-                    finishFailure(taskID, errorMessage: error.localizedDescription, status: "PDF analysis failed")
+                    finishFailure(taskID, errorMessage: error.localizedDescription, status: AppStrings.pdfAnalysisFailed())
                 }
             }
         } else if ["png", "jpg", "jpeg", "heic", "tiff", "bmp", "gif", "webp"].contains(ext) {
             isProcessing = true
-            statusMessage = "Loading image..."
+            statusMessage = AppStrings.loadingImage
             progress = 0.1
             let taskID = registerTask()
             analysisTask = Task {
@@ -123,12 +123,12 @@ init(service: DocumentAnalysisServicing? = nil) {
                 } catch is CancellationError {
                     finishCancelled(taskID)
                 } catch {
-                    finishFailure(taskID, errorMessage: "Could not load image from file")
+                    finishFailure(taskID, errorMessage: AppStrings.imageLoadFailed)
                 }
             }
         } else if ["txt", "rtf", "md"].contains(ext) {
             isProcessing = true
-            statusMessage = "Loading text file..."
+            statusMessage = AppStrings.loadingTextFile
             progress = 0.1
             let taskID = registerTask()
             analysisTask = Task {
@@ -146,17 +146,17 @@ init(service: DocumentAnalysisServicing? = nil) {
                         pageCount: 1,
                         languageHint: nil
                     )
-                    statusMessage = "Text file loaded"
+                    statusMessage = AppStrings.textFileLoaded
                     progress = 1.0
                     finishSuccess(taskID)
                 } catch is CancellationError {
                     finishCancelled(taskID)
                 } catch {
-                    finishFailure(taskID, errorMessage: "Could not read text file")
+                    finishFailure(taskID, errorMessage: AppStrings.textFileReadFailed)
                 }
             }
         } else {
-            errorMessage = "Unsupported file format: .\(ext)"
+            errorMessage = AppStrings.unsupportedFormat(ext)
             if shouldStopSecurityScope {
                 url.stopAccessingSecurityScopedResource()
             }
@@ -188,7 +188,7 @@ init(service: DocumentAnalysisServicing? = nil) {
 
     func captureViewShot() {
         guard let image = ViewShotService.captureScreen() else {
-            errorMessage = "Failed to capture screen"
+            errorMessage = AppStrings.screenCaptureFailed
             return
         }
         analyzeImage(image)
