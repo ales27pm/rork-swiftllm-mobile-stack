@@ -102,9 +102,40 @@ nonisolated final class FileSystemService: @unchecked Sendable {
         return fm.fileExists(atPath: url.path) ? url : nil
     }
 
+    func modelContainerDirectory(forModelID id: String) -> URL {
+        modelStorageDirectory.appendingPathComponent(id, isDirectory: true)
+    }
+
+    func tokenizerContainerDirectory(forModelID id: String) -> URL {
+        tokenizerStorageDirectory.appendingPathComponent(id, isDirectory: true)
+    }
+
+    func persistModelAsset(from sourceURL: URL, forModelID id: String) throws -> URL {
+        let containerURL = modelContainerDirectory(forModelID: id)
+        try replaceItem(at: containerURL, withDirectoryFrom: sourceURL)
+
+        let destinationURL = containerURL.appendingPathComponent(sourceURL.lastPathComponent, isDirectory: isDirectory(at: sourceURL))
+        excludeFromBackup(containerURL)
+        excludeFromBackup(destinationURL)
+        return destinationURL
+    }
+
+    func persistTokenizerAsset(from sourceURL: URL, forModelID id: String) throws -> URL {
+        let containerURL = tokenizerContainerDirectory(forModelID: id)
+        try replaceItem(at: containerURL, withDirectoryFrom: sourceURL)
+
+        let destinationURL = containerURL.appendingPathComponent(sourceURL.lastPathComponent, isDirectory: isDirectory(at: sourceURL))
+        excludeFromBackup(containerURL)
+        excludeFromBackup(destinationURL)
+        return destinationURL
+    }
+
     func deleteModelAssets(forModelID id: String) {
         try? fm.removeItem(at: modelPath(forModelID: id))
         try? fm.removeItem(at: tokenizerPath(forModelID: id))
+        try? fm.removeItem(at: checksumPath(forModelID: id))
+        try? fm.removeItem(at: modelContainerDirectory(forModelID: id))
+        try? fm.removeItem(at: tokenizerContainerDirectory(forModelID: id))
     }
 
     func modelStorageUsageBytes() -> Int64 {
@@ -456,6 +487,16 @@ nonisolated final class FileSystemService: @unchecked Sendable {
 
     func loadChecksum(forModelID id: String) -> String? {
         readString(at: checksumPath(forModelID: id))
+    }
+
+    private func replaceItem(at containerURL: URL, withDirectoryFrom sourceURL: URL) throws {
+        if fm.fileExists(atPath: containerURL.path) {
+            try fm.removeItem(at: containerURL)
+        }
+
+        try fm.createDirectory(at: containerURL, withIntermediateDirectories: true)
+        let destinationURL = containerURL.appendingPathComponent(sourceURL.lastPathComponent, isDirectory: isDirectory(at: sourceURL))
+        try fm.copyItem(at: sourceURL, to: destinationURL)
     }
 }
 
