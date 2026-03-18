@@ -260,14 +260,21 @@ nonisolated final class FileSystemService: @unchecked Sendable {
         return success
     }
 
-    func computeSHA256(for url: URL) -> String? {
-        let isDir = isDirectory(at: url)
-        if isDir {
-            return computeDirectorySHA256(at: url)
+    func computeSmallFileSHA256(for url: URL) -> String? {
+        guard !isDirectory(at: url),
+              let attributes = try? fm.attributesOfItem(atPath: url.path),
+              let size = attributes[.size] as? NSNumber,
+              size.int64Value <= 1_048_576,
+              let data = try? Data(contentsOf: url) else {
+            return nil
         }
-        guard let data = try? Data(contentsOf: url) else { return nil }
+
         let digest = SHA256.hash(data: data)
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    func computeAssetSHA256(for url: URL) -> String? {
+        isDirectory(at: url) ? computeDirectorySHA256(at: url) : computeStreamingSHA256(for: url)
     }
 
     func computeStreamingSHA256(for url: URL) -> String? {
@@ -291,7 +298,7 @@ nonisolated final class FileSystemService: @unchecked Sendable {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func computeDirectorySHA256(at directory: URL) -> String? {
+    func computeDirectorySHA256(at directory: URL) -> String? {
         guard let enumerator = fm.enumerator(
             at: directory,
             includingPropertiesForKeys: [.isRegularFileKey],
@@ -310,16 +317,33 @@ nonisolated final class FileSystemService: @unchecked Sendable {
 
         fileURLs.sort { $0.path < $1.path }
 
+        let bufferSize = 1_048_576
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+
         for fileURL in fileURLs {
             let relativePath = fileURL.path.replacingOccurrences(of: directory.path, with: "")
-            if let pathData = relativePath.data(using: .utf8) {
-                hasher.update(data: pathData)
-            }
-            guard let fileHash = computeStreamingSHA256(for: fileURL),
-                  let hashData = fileHash.data(using: .utf8) else {
+            guard let pathData = relativePath.data(using: .utf8) else {
                 return nil
             }
-            hasher.update(data: hashData)
+            hasher.update(data: pathData)
+
+            guard let stream = InputStream(url: fileURL) else {
+                return nil
+            }
+            stream.open()
+
+            while stream.hasBytesAvailable {
+                let bytesRead = stream.read(buffer, maxLength: bufferSize)
+                if bytesRead < 0 {
+                    stream.close()
+                    return nil
+                }
+                if bytesRead == 0 { break }
+                hasher.update(bufferPointer: UnsafeRawBufferPointer(start: buffer, count: bytesRead))
+            }
+
+            stream.close()
         }
 
         let digest = hasher.finalize()
@@ -409,12 +433,7 @@ nonisolated final class FileSystemService: @unchecked Sendable {
             return .corrupted("Missing required SHA-256 checksum")
         }
 
-        let actual: String?
-        if isDirectory(at: url) {
-            actual = computeDirectorySHA256(at: url)
-        } else {
-            actual = computeStreamingSHA256(for: url)
-        }
+        let actual = computeAssetSHA256(for: url)
 
         guard let actual else {
             return .corrupted("Unable to compute SHA-256 hash")
