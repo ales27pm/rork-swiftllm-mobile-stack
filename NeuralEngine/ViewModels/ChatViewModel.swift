@@ -215,7 +215,7 @@ class ChatViewModel {
             conversationHistory: messages,
             toolsEnabled: toolsEnabled,
             isVoiceMode: isVoiceMode,
-            preferredResponseLanguageCode: speechLanguageCode
+            preferredResponseLanguageCode: isVoiceMode ? speechLanguageCode : nil
         )
 
         var chatMessages: [[String: String]] = [

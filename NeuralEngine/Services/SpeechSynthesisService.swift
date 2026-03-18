@@ -56,6 +56,9 @@ class SpeechSynthesisService: NSObject {
 
     @discardableResult
     func applyPersistedSettings(voiceIdentifier: String?, languageCode: String?) -> (voiceIdentifier: String?, languageCode: String?) {
+        let hadPersistedVoiceIdentifier = voiceIdentifier != nil
+        let hadPersistedLanguageCode = languageCode != nil
+
         selectedVoiceIdentifier = voiceIdentifier
         preferredLanguageCode = languageCode
 
@@ -68,11 +71,16 @@ class SpeechSynthesisService: NSObject {
 
         prepareVoice(availableVoices: availableVoices)
 
-        if selectedVoiceIdentifier == nil, let selectedVoice {
-            selectedVoiceIdentifier = selectedVoice.identifier
+        if hadPersistedVoiceIdentifier {
+            selectedVoiceIdentifier = selectedVoice?.identifier
+        } else {
+            selectedVoiceIdentifier = nil
         }
-        if preferredLanguageCode == nil {
+
+        if hadPersistedLanguageCode {
             preferredLanguageCode = selectedVoice?.language
+        } else {
+            preferredLanguageCode = nil
         }
 
         return (selectedVoiceIdentifier, preferredLanguageCode)

@@ -391,8 +391,8 @@ class SpeechViewModel {
     @discardableResult
     private func syncSpeechSettingsAndNotify() -> (voiceIdentifier: String?, languageCode: String?) {
         let resolvedLanguageCode = normalizedSpeechLanguageCode(synthesisService.currentPreferredLanguageCode())
-        let recognitionLanguage = recognitionService.setRecognitionLanguage(code: resolvedLanguageCode)
-        let resolvedSettings = (synthesisService.currentVoiceIdentifier(), recognitionLanguage ?? resolvedLanguageCode)
+        _ = recognitionService.setRecognitionLanguage(code: resolvedLanguageCode)
+        let resolvedSettings = (synthesisService.currentVoiceIdentifier(), resolvedLanguageCode)
         onSpeechSettingsChanged?(resolvedSettings.0, resolvedSettings.1)
         return resolvedSettings
     }
