@@ -308,6 +308,38 @@ struct ModelCardView: View {
                 .buttonStyle(.bordered)
             }
 
+        case .checksumFailed(let error):
+            VStack(spacing: 6) {
+                Label(error, systemImage: "exclamationmark.shield.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+
+                HStack(spacing: 8) {
+                    Button(role: .destructive) {
+                        onDelete()
+                    } label: {
+                        Label("Delete corrupted files", systemImage: "trash")
+                            .font(.subheadline.weight(.medium))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        onDownload()
+                    } label: {
+                        Label("Re-download", systemImage: "arrow.clockwise")
+                            .font(.subheadline.weight(.medium))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+
+        case .unsupported(let error):
+            Label(error, systemImage: "nosign")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
         case .failed(let error):
             VStack(spacing: 6) {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
