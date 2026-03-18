@@ -323,19 +323,19 @@ nonisolated struct LSystemShapeGrammarSolver: ShapeGrammarSolver {
     }
 }
 
-private struct SeededGenerator: Sendable {
+private nonisolated struct SeededGenerator: Sendable {
     private(set) var state: UInt64
 
-    mutating func nextUInt32() -> UInt32 {
+    nonisolated mutating func nextUInt32() -> UInt32 {
         state = 6364136223846793005 &* state &+ 1442695040888963407
         return UInt32(truncatingIfNeeded: state >> 32)
     }
 
-    mutating func nextUnitFloat() -> Float {
+    nonisolated mutating func nextUnitFloat() -> Float {
         Float(nextUInt32()) / Float(UInt32.max)
     }
 
-    mutating func nextSignedUnitFloat() -> Float {
+    nonisolated mutating func nextSignedUnitFloat() -> Float {
         nextUnitFloat() * 2 - 1
     }
 }
