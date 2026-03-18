@@ -46,6 +46,9 @@ class SpeechViewModel {
     var sessionDuration: TimeInterval = 0
     var statusMessage: String = "Idle"
     var consecutiveTimeouts: Int = 0
+    var lastTranscriptUpdate: TranscriptUpdate?
+    var currentRecognitionLanguageCode: String?
+    var pendingPreviewTranscript: String = ""
 
     let recognitionService = SpeechRecognitionService()
     let synthesisService = SpeechSynthesisService()
@@ -71,6 +74,15 @@ class SpeechViewModel {
     ]
 
     private let silenceThresholdDB: Float = -35
+    private let previewPolicy = TranscriptStabilizationPolicy.default
+
+    init() {
+        recognitionService.onTranscriptUpdate = { [weak self] update in
+            Task { @MainActor [weak self] in
+                self?.handleTranscriptUpdate(update)
+            }
+        }
+    }
 
     func attach(to chatViewModel: ChatViewModel) {
         self.chatViewModel = chatViewModel
@@ -113,7 +125,11 @@ class SpeechViewModel {
         }
 
         synthesisService.stop()
-        _ = recognitionService.setRecognitionLanguage(code: synthesisService.currentPreferredLanguageCode())
+        let selectedLanguage = synthesisService.currentPreferredLanguageCode()
+        currentRecognitionLanguageCode = recognitionService.setRecognitionLanguage(code: selectedLanguage)
+        let synchronizedLanguage = ContextAssembler.synchronizedResponseLanguage(preferredResponseLanguageCode: selectedLanguage, detectedRecognitionLanguageCode: currentRecognitionLanguageCode)
+        synthesisService.syncDetectedLanguage(synchronizedLanguage)
+        chatViewModel?.speechLanguageCode = synchronizedLanguage
         startListening()
     }
 
@@ -143,12 +159,15 @@ class SpeechViewModel {
         stopBargeInMonitor()
         statusMessage = "Listening..."
         consecutiveTimeouts = 0
+        pendingPreviewTranscript = ""
+        lastTranscriptUpdate = nil
 
         do {
             try recognitionService.startListening { [weak self] in
                 guard let self else { return }
                 let transcript = self.recognitionService.transcript
                     .trimmingCharacters(in: .whitespacesAndNewlines)
+                self.syncLanguageFromRecognitionUpdate(self.recognitionService.transcriptUpdate)
                 guard !transcript.isEmpty else {
                     if self.isAutoListenEnabled && self.turnCount > 0 {
                         self.startListening()
@@ -162,12 +181,81 @@ class SpeechViewModel {
                 self.processTranscript(transcript)
             }
         } catch {
-            let wrapped = NativeErrorWrapper.synthesize(error)
+            let wrapped = wrappedSpeechError(error)
             lastError = wrapped
             errorMessage = wrapped.userMessage
             state = .error
             statusMessage = "Speech error"
         }
+    }
+
+
+    private func handleTranscriptUpdate(_ update: TranscriptUpdate) {
+        lastTranscriptUpdate = update
+        displayText = update.text
+        syncLanguageFromRecognitionUpdate(update)
+
+        if recognitionService.detectBargeIn() && state == .speaking {
+            interruptAndListen()
+            return
+        }
+
+        guard state == .listening else { return }
+
+        if recognitionService.shouldEmitPreview(for: update, policy: previewPolicy) {
+            let preview = update.stablePrefix.isEmpty ? update.text : update.stablePrefix
+            guard !preview.isEmpty, preview != pendingPreviewTranscript else { return }
+            pendingPreviewTranscript = preview
+            statusMessage = "Preparing response..."
+            prepareInferencePreview(for: preview, languageCode: update.languageCode)
+        }
+    }
+
+    private func prepareInferencePreview(for text: String, languageCode: String?) {
+        guard let chatViewModel else { return }
+        let synchronizedLanguage = ContextAssembler.synchronizedResponseLanguage(preferredResponseLanguageCode: chatViewModel.speechLanguageCode, detectedRecognitionLanguageCode: languageCode)
+        let frame = CognitionEngine.process(userText: text, conversationHistory: chatViewModel.messages, memoryService: chatViewModel.memoryService)
+        let memoryResults = chatViewModel.memoryService.searchMemories(query: text, maxResults: 4)
+        let associativeResults = chatViewModel.memoryService.getAssociativeMemories(query: text, directResults: memoryResults)
+        let prompt = ContextAssembler.assembleSystemPrompt(frame: frame, memoryResults: memoryResults + associativeResults, conversationHistory: chatViewModel.messages, toolsEnabled: chatViewModel.toolsEnabled, isVoiceMode: true, preferredResponseLanguageCode: synchronizedLanguage, detectedRecognitionLanguageCode: languageCode)
+        var previewMessages = [["role": "system", "content": prompt]]
+        for msg in chatViewModel.messages where msg.role != .system {
+            previewMessages.append(["role": msg.role.rawValue, "content": msg.content])
+        }
+        previewMessages.append(["role": MessageRole.user.rawValue, "content": text])
+        chatViewModel.inferenceEngine.prepareVoiceContext(messages: previewMessages, systemPrompt: prompt)
+    }
+
+    private func syncLanguageFromRecognitionUpdate(_ update: TranscriptUpdate?) {
+        guard let update else { return }
+        let synchronizedLanguage = ContextAssembler.synchronizedResponseLanguage(preferredResponseLanguageCode: synthesisService.currentPreferredLanguageCode(), detectedRecognitionLanguageCode: update.languageCode)
+        currentRecognitionLanguageCode = update.languageCode
+        if let synchronizedLanguage {
+            _ = synthesisService.syncDetectedLanguage(synchronizedLanguage)
+            chatViewModel?.speechLanguageCode = synchronizedLanguage
+        }
+    }
+
+    private func wrappedSpeechError(_ error: Error) -> WrappedError {
+        if let reason = recognitionService.failureReason {
+            switch reason {
+            case .permissionDenied:
+                return WrappedError(domain: .speech, severity: .warning, userMessage: "Speech recognition permission was denied.", technicalDetail: "SFSpeechRecognizer authorization denied", recoveryAction: .none, underlyingError: error)
+            case .microphonePermissionDenied:
+                return WrappedError(domain: .speech, severity: .warning, userMessage: "Microphone access is required for voice mode.", technicalDetail: "AVAudioSession record permission denied", recoveryAction: .none, underlyingError: error)
+            case .offlineRecognizerUnavailable:
+                return WrappedError(domain: .speech, severity: .warning, userMessage: "Offline speech recognition is unavailable for this language.", technicalDetail: "On-device recognizer missing for locale \(currentRecognitionLanguageCode ?? "unknown")", recoveryAction: .retry, underlyingError: error)
+            case .recognizerBusy:
+                return WrappedError(domain: .speech, severity: .warning, userMessage: "Speech service is busy. Please try again in a moment.", technicalDetail: "Recognizer contention / assistant service busy", recoveryAction: .retry, underlyingError: error)
+            case .recognizerUnavailable:
+                return WrappedError(domain: .speech, severity: .warning, userMessage: "Speech service is unavailable.", technicalDetail: "Speech recognizer is not available for the requested locale or current device state", recoveryAction: .retry, underlyingError: error)
+            case .microphoneInputUnavailable:
+                return WrappedError(domain: .speech, severity: .error, userMessage: "Microphone input is unavailable.", technicalDetail: "Audio engine input format was invalid or no microphone input route was available", recoveryAction: .none, underlyingError: error)
+            case .transientServiceFailure, .noSpeechDetected, .unknown:
+                break
+            }
+        }
+        return NativeErrorWrapper.synthesize(error)
     }
 
     func interruptAndListen() {
@@ -279,6 +367,10 @@ class SpeechViewModel {
         }
 
         consecutiveTimeouts = 0
+        if let synchronizedLanguage = ContextAssembler.synchronizedResponseLanguage(preferredResponseLanguageCode: chatViewModel.speechLanguageCode, detectedRecognitionLanguageCode: currentRecognitionLanguageCode) {
+            _ = synthesisService.syncDetectedLanguage(synchronizedLanguage)
+            chatViewModel.speechLanguageCode = synchronizedLanguage
+        }
         responseText = response
         state = .speaking
         statusMessage = "Speaking..."
@@ -390,8 +482,8 @@ class SpeechViewModel {
 
     @discardableResult
     private func syncSpeechSettingsAndNotify() -> (voiceIdentifier: String?, languageCode: String?) {
-        let resolvedLanguageCode = normalizedSpeechLanguageCode(synthesisService.currentPreferredLanguageCode())
-        _ = recognitionService.setRecognitionLanguage(code: resolvedLanguageCode)
+        let resolvedLanguageCode = ContextAssembler.synchronizedResponseLanguage(preferredResponseLanguageCode: normalizedSpeechLanguageCode(synthesisService.effectiveSpeechLanguageCode()), detectedRecognitionLanguageCode: currentRecognitionLanguageCode)
+        currentRecognitionLanguageCode = recognitionService.setRecognitionLanguage(code: resolvedLanguageCode)
         let resolvedSettings = (synthesisService.currentVoiceIdentifier(), resolvedLanguageCode)
         onSpeechSettingsChanged?(resolvedSettings.0, resolvedSettings.1)
         return resolvedSettings

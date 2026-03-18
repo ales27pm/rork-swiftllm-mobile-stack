@@ -30,6 +30,7 @@ class SpeechSynthesisService: NSObject {
     private var selectedVoice: AVSpeechSynthesisVoice?
     private var selectedVoiceIdentifier: String?
     private var preferredLanguageCode: String?
+    private var detectedInputLanguageCode: String?
     private var autoSelectedVoiceIdentifier: String?
     private var bargeInDetection: (() -> Bool)?
     private let logger: Logger
@@ -158,6 +159,25 @@ class SpeechSynthesisService: NSObject {
         preferredLanguageCode
     }
 
+    // If the user has not explicitly locked a voice, a newly detected language will initialize
+    // preferredLanguageCode via setLanguagePreferred(_:), which refreshes voices and picks the best match.
+    func syncDetectedLanguage(_ languageCode: String?) -> String? {
+        guard let normalized = normalizedOptionalLanguageCode(languageCode) else {
+            detectedInputLanguageCode = nil
+            return preferredLanguageCode
+        }
+
+        detectedInputLanguageCode = normalized
+        if selectedVoiceIdentifier == nil {
+            setLanguagePreferred(normalized)
+        }
+        return preferredLanguageCode ?? normalized
+    }
+
+    func effectiveSpeechLanguageCode() -> String? {
+        preferredLanguageCode ?? detectedInputLanguageCode
+    }
+
     func setVoice(identifier: String?) {
         guard let identifier else {
             selectedVoiceIdentifier = nil
@@ -242,6 +262,13 @@ class SpeechSynthesisService: NSObject {
     private func normalizedLanguageCode(_ identifier: String) -> String {
         let normalizedIdentifier = normalizedLocaleIdentifier(identifier)
         return normalizedIdentifier.split(separator: "-").first.map { String($0).lowercased() } ?? normalizedIdentifier.lowercased()
+    }
+
+    private func normalizedOptionalLanguageCode(_ identifier: String?) -> String? {
+        guard let raw = identifier?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+            return nil
+        }
+        return normalizedLocaleIdentifier(raw)
     }
 
     func speak(_ text: String, bargeInCheck: (() -> Bool)? = nil, onComplete: (() -> Void)? = nil) {

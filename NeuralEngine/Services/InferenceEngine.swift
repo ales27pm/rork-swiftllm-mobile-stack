@@ -155,6 +155,23 @@ class InferenceEngine {
         }
     }
 
+
+    func prepareVoiceContext(messages: [[String: String]], systemPrompt: String) {
+        guard !isGenerating else { return }
+        guard let tokenizer else { return }
+
+        let promptBody: String
+        if let templated = tokenizer.applyTemplate(messages: messages) {
+            promptBody = templated
+        } else {
+            promptBody = Self.buildChatMLPrompt(messages: messages)
+        }
+
+        _ = tokenizer.encode(systemPrompt)
+        _ = tokenizer.encode(promptBody)
+        currentText = ""
+    }
+
     func generate(
         messages: [[String: String]],
         systemPrompt: String,
