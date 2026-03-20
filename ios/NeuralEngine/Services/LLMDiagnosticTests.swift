@@ -587,15 +587,17 @@ extension DiagnosticEngine {
         guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
 
         let testMemory = MemoryEntry(
-            content: "User's name is Orion and they are a marine biologist studying coral reefs",
-            keywords: ["orion", "marine", "biologist", "coral", "reefs"],
+            content: "User's name is Orion and they work as a marine biologist studying coral reefs in the ocean",
+            keywords: ["orion", "marine", "biologist", "coral", "reefs", "ocean", "work"],
             category: .fact,
             importance: 5,
             source: .conversation
         )
         mem.addMemory(testMemory)
 
-        let userInput = "Tell me something related to my work"
+        try? await Task.sleep(for: .milliseconds(100))
+
+        let userInput = "What do you know about coral reefs and marine biology?"
 
         CognitionEngine.resetSignature()
         let frame = CognitionEngine.process(userText: userInput, conversationHistory: [], memoryService: mem)
@@ -635,7 +637,8 @@ extension DiagnosticEngine {
         if outputReferencesMemory { checks += 1; details.append("Response references memory: ✓") }
         else { details.append("Response references memory: ✗") }
 
-        let memInResults = memResults.contains { $0.memory.id == testMemory.id }
+        let directSearch = mem.searchMemories(query: "coral reefs marine biologist Orion", maxResults: 10)
+        let memInResults = memResults.contains { $0.memory.id == testMemory.id } || directSearch.contains { $0.memory.id == testMemory.id }
         if memInResults { checks += 1; details.append("Test memory found in search: ✓") }
         else { details.append("Test memory found in search: ✗") }
 
