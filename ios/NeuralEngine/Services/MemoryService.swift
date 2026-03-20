@@ -259,8 +259,8 @@ class MemoryService {
     }
 
     func shouldExtractMemory(userText: String, assistantText: String) -> Bool {
-        userText.trimmingCharacters(in: .whitespacesAndNewlines).count >= 20 &&
-        assistantText.trimmingCharacters(in: .whitespacesAndNewlines).count >= 20
+        userText.trimmingCharacters(in: .whitespacesAndNewlines).count >= 8 &&
+        assistantText.trimmingCharacters(in: .whitespacesAndNewlines).count >= 4
     }
 
     func extractAndStoreMemory(userText: String, assistantText: String) {
@@ -373,6 +373,7 @@ class MemoryService {
         let factPatterns = [
             #"(?i)i (?:work|live|study|am from|was born|am a|am an) (.+?)(?:\.|$|,|!)"#,
             #"(?i)i have (?:a |an )?(.+?)(?:\.|$|,|!)"#,
+            #"(?i)i'?m from (.+?)(?:\.|$|,|!)"#,
         ]
         for pattern in factPatterns {
             if let regex = try? NSRegularExpression(pattern: pattern),

@@ -22,6 +22,8 @@ struct EmotionAnalyzer {
         ("disappointed", -0.6, 0.4, "disappointment"), ("disgusted", -0.7, 0.6, "disgust"),
         ("embarrassed", -0.5, 0.6, "embarrassment"), ("ashamed", -0.7, 0.5, "shame"),
         ("jealous", -0.5, 0.6, "jealousy"), ("guilty", -0.6, 0.4, "guilt"),
+        ("panic", -0.7, 0.9, "fear"), ("panicking", -0.8, 1.0, "fear"), ("panicked", -0.7, 0.8, "fear"),
+        ("desperate", -0.7, 0.8, "stress"), ("hopeless", -0.8, 0.3, "sadness"),
         ("help", -0.2, 0.5, "need"), ("please", 0.1, 0.3, "politeness"), ("urgent", -0.2, 0.8, "urgency"),
         ("asap", -0.2, 0.9, "urgency"), ("emergency", -0.5, 1.0, "urgency"),
     ]
@@ -89,7 +91,8 @@ struct EmotionAnalyzer {
 
         let style = detectStyle(text: text, normalizedText: normalized)
         let trajectory = detectTrajectory(currentValence: avgValence, history: conversationHistory, languageHint: languageHint)
-        let empathyLevel = computeEmpathyLevel(valence: avgValence, arousal: avgArousal)
+        let intensityMod = detectIntensityModifier(text)
+        let empathyLevel = computeEmpathyLevel(valence: avgValence, arousal: avgArousal, intensityModifier: intensityMod)
 
         return EmotionalState(
             valence: valence,
@@ -141,14 +144,24 @@ struct EmotionAnalyzer {
         return "stable"
     }
 
-    private static func computeEmpathyLevel(valence: Double, arousal: Double) -> Double {
+    private static func computeEmpathyLevel(valence: Double, arousal: Double, intensityModifier: Double = 1.0) -> Double {
         if valence < -0.3 {
-            return min(1.0, 0.6 + abs(valence) * 0.3 + arousal * 0.2)
+            let base = 0.5 + abs(valence) * 0.35 + arousal * 0.25
+            return min(1.0, base * intensityModifier)
         }
         if valence > 0.5 && arousal > 0.6 {
             return 0.5
         }
         return 0.3
+    }
+
+    private static func detectIntensityModifier(_ text: String) -> Double {
+        let lower = text.lowercased()
+        let hedges = ["a bit", "a little", "slightly", "somewhat", "kind of", "kinda", "sort of", "sorta", "maybe", "mildly"]
+        let amplifiers = ["very", "really", "extremely", "so ", "incredibly", "absolutely", "completely", "totally"]
+        for hedge in hedges where lower.contains(hedge) { return 0.7 }
+        for amp in amplifiers where lower.contains(amp) { return 1.15 }
+        return 1.0
     }
 
     static func buildInjection(state: EmotionalState) -> ContextInjection {

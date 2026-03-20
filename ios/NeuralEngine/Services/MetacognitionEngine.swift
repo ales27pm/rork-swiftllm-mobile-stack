@@ -138,11 +138,26 @@ struct MetacognitionEngine {
         let wordCount = words.count
 
         if wordCount > 50 { score += 2 }
-        else if wordCount > 25 { score += 1 }
+        else if wordCount > 25 { score += 1.5 }
+        else if wordCount > 12 { score += 0.5 }
 
         let sentences = text.components(separatedBy: CharacterSet(charactersIn: ".!?"))
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         if sentences.count > 3 { score += 1 }
+
+        let moderatePatterns = [
+            #"(?i)\b(how does|how do|how is|how are|how can)\b"#,
+            #"(?i)\b(explain|describe|elaborate)\b"#,
+            #"(?i)\b(why does|why do|why is|why are)\b"#,
+            #"(?i)\b(difference|between|versus)\b"#,
+        ]
+
+        for pattern in moderatePatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
+                score += 0.5
+            }
+        }
 
         let complexPatterns = [
             #"(?i)\b(compare|contrast|analyze|evaluate|synthesize|assess)\b"#,
@@ -151,12 +166,29 @@ struct MetacognitionEngine {
             #"(?i)\b(step.by.step|first.*then.*finally|multiple|several)\b"#,
             #"(?i)\b(trade.?off|pros.and.cons|advantages.and.disadvantages)\b"#,
             #"(?i)\b(design|architect|implement|build|create.*system)\b"#,
+            #"(?i)\b(philosophical|implications|consciousness|intelligence)\b"#,
+            #"(?i)\b(considering|addressing|while|both.*and)\b"#,
         ]
 
         for pattern in complexPatterns {
             if let regex = try? NSRegularExpression(pattern: pattern),
                regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
                 score += 1
+            }
+        }
+
+        let domainSpecificPatterns = [
+            #"(?i)\b(photosynthesis|mitochondria|genome|protein|enzyme|metabolism)\b"#,
+            #"(?i)\b(algorithm|neural network|machine learning|compiler|runtime)\b"#,
+            #"(?i)\b(incompleteness|godel|turing|decidability|computability)\b"#,
+            #"(?i)\b(epistemology|ontology|metaphysics|phenomenology)\b"#,
+            #"(?i)\b(macroeconomic|geopolitical|socioeconomic)\b"#,
+        ]
+
+        for pattern in domainSpecificPatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
+                score += 1.5
             }
         }
 
@@ -177,8 +209,8 @@ struct MetacognitionEngine {
         if text.contains("?") && text.filter({ $0 == "?" }).count > 1 { score += 1 }
 
         if score >= 6 { return .expert }
-        if score >= 4 { return .complex }
-        if score >= 2 { return .moderate }
+        if score >= 3.5 { return .complex }
+        if score >= 1.5 { return .moderate }
         return .simple
     }
 

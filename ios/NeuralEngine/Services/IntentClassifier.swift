@@ -99,7 +99,7 @@ struct IntentClassifier {
     private static func detectUrgency(text: String, normalizedText: String) -> Double {
         var urgency: Double = 0
         let patterns: [(String, Double)] = [
-            (#"(?i)\b(urgent|asap|immediately|right now|emergency)\b"#, 0.9),
+            (#"(?i)\b(urgent\w*|asap|immediately|right now|emergency)\b"#, 0.9),
             (#"(?i)\b(quickly|fast|hurry|rush|deadline)\b"#, 0.7),
             (#"(?i)\b(soon|today|tonight|this hour)\b"#, 0.5),
             (#"(?i)[!]{2,}"#, 0.4),
