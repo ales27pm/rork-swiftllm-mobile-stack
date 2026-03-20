@@ -16,16 +16,16 @@ class DiagnosticEngine {
     var completionTime: Date?
     var reportURL: URL?
 
-    private var database: DatabaseService?
-    private var keyValueStore: KeyValueStore?
-    private var secureStore: SecureStore?
-    private var fileSystem: FileSystemService?
-    private var memoryService: MemoryService?
-    private var conversationService: ConversationService?
-    private var metricsLogger: MetricsLogger?
-    private var thermalGovernor: ThermalGovernor?
-    private var modelLoader: ModelLoaderService?
-    private var inferenceEngine: InferenceEngine?
+    var database: DatabaseService?
+    var keyValueStore: KeyValueStore?
+    var secureStore: SecureStore?
+    var fileSystem: FileSystemService?
+    var memoryService: MemoryService?
+    var conversationService: ConversationService?
+    var metricsLogger: MetricsLogger?
+    var thermalGovernor: ThermalGovernor?
+    var modelLoader: ModelLoaderService?
+    var inferenceEngine: InferenceEngine?
 
     func configure(
         database: DatabaseService,
@@ -314,12 +314,14 @@ class DiagnosticEngine {
             DiagnosticTestResult(name: "Emotion + Intent + Memory → Injection", category: .endToEnd),
         ])
 
+        tests.append(contentsOf: buildDeepTestSuite())
+
         return tests
     }
 
     // MARK: - Test Execution
 
-    private struct TestOutcome: Sendable {
+    struct TestOutcome: Sendable {
         let status: DiagnosticTestStatus
         let message: String
         let details: [String]
@@ -664,6 +666,12 @@ class DiagnosticEngine {
                 return testE2EConversation()
             case (.endToEnd, "Emotion + Intent + Memory → Injection"):
                 return testE2EInjection()
+
+            // MARK: Deep Diagnostic Tests
+            case (.emotionAccuracy, _), (.intentAccuracy, _), (.memoryQuality, _),
+                 (.cognitionQuality, _), (.contextQuality, _), (.stressTest, _),
+                 (.inferenceDeep, _), (.regressionE2E, _):
+                return await executeDeepTest(test)
 
             default:
                 return TestOutcome(status: .skipped, message: "No implementation", details: [])

@@ -32,6 +32,14 @@ nonisolated enum DiagnosticCategory: String, Sendable, CaseIterable {
     case inference = "Inference Engine"
     case proceduralSolvers = "Procedural Solvers"
     case endToEnd = "End-to-End"
+    case emotionAccuracy = "Emotion Accuracy"
+    case intentAccuracy = "Intent Accuracy"
+    case memoryQuality = "Memory Quality"
+    case cognitionQuality = "Cognition Quality"
+    case contextQuality = "Context Quality"
+    case stressTest = "Stress Test"
+    case inferenceDeep = "Inference Deep"
+    case regressionE2E = "Regression E2E"
 }
 
 struct DiagnosticTestResult: Identifiable, Sendable {
