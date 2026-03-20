@@ -5,6 +5,15 @@ struct SettingsView: View {
     @Bindable var chatViewModel: ChatViewModel
     @Bindable var speechViewModel: SpeechViewModel
     let thermalGovernor: ThermalGovernor
+    var metricsLogger: MetricsLogger?
+    var modelLoader: ModelLoaderService?
+    var inferenceEngine: InferenceEngine?
+    var keyValueStore: KeyValueStore?
+    var diagSecureStore: SecureStore?
+    var fileSystem: FileSystemService?
+    var database: DatabaseService?
+    var memoryService: MemoryService?
+    var conversationService: ConversationService?
 
     @State private var draftSampling = SamplingDraft()
     @State private var hfToken: String = ""
@@ -26,6 +35,7 @@ struct SettingsView: View {
             accessSection
             runtimeSection
             engineSection
+            diagnosticsSection
         }
         .navigationTitle(AppStrings.settingsTitle)
         .navigationBarTitleDisplayMode(.large)
@@ -366,6 +376,43 @@ struct SettingsView: View {
             Text(value)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private var diagnosticsSection: some View {
+        Section {
+            NavigationLink {
+                DiagnosticsView(
+                    database: database ?? DatabaseService(),
+                    keyValueStore: keyValueStore ?? KeyValueStore(),
+                    secureStore: diagSecureStore ?? SecureStore(),
+                    fileSystem: fileSystem ?? FileSystemService(),
+                    memoryService: memoryService,
+                    conversationService: conversationService,
+                    metricsLogger: metricsLogger ?? MetricsLogger(),
+                    thermalGovernor: thermalGovernor,
+                    modelLoader: modelLoader ?? ModelLoaderService(),
+                    inferenceEngine: inferenceEngine
+                )
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "stethoscope")
+                        .foregroundStyle(.purple)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Run Diagnostics")
+                            .font(.headline)
+                        Text("Test all subsystems, generate a downloadable report.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        } header: {
+            Label("Diagnostics", systemImage: "waveform.path.ecg")
+        } footer: {
+            Text("Runs exhaustive real tests on every subsystem and produces a shareable log file.")
         }
     }
 

@@ -59,7 +59,20 @@ struct ContentView: View {
             Tab(AppStrings.tabSettings, systemImage: "gearshape", value: .settings) {
                 NavigationStack {
                     if let chatVM = chatViewModel {
-                        SettingsView(chatViewModel: chatVM, speechViewModel: speechViewModel, thermalGovernor: thermalGovernor)
+                        SettingsView(
+                            chatViewModel: chatVM,
+                            speechViewModel: speechViewModel,
+                            thermalGovernor: thermalGovernor,
+                            metricsLogger: metricsLogger,
+                            modelLoader: modelLoader,
+                            inferenceEngine: inferenceEngine,
+                            keyValueStore: keyValueStore,
+                            diagSecureStore: secureStore,
+                            fileSystem: fileSystem,
+                            database: database,
+                            memoryService: memoryService,
+                            conversationService: conversationService
+                        )
                     } else {
                         ProgressView()
                     }
