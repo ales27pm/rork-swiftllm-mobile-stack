@@ -9,8 +9,10 @@ nonisolated struct Message: Identifiable, Sendable {
     var metrics: GenerationMetrics?
     var toolResults: [ToolResult]
     var isToolExecution: Bool
+    var reaction: MessageReaction?
+    var attachedImageData: Data?
 
-    init(id: UUID = UUID(), role: MessageRole, content: String, timestamp: Date = Date(), isStreaming: Bool = false, metrics: GenerationMetrics? = nil, toolResults: [ToolResult] = [], isToolExecution: Bool = false) {
+    init(id: UUID = UUID(), role: MessageRole, content: String, timestamp: Date = Date(), isStreaming: Bool = false, metrics: GenerationMetrics? = nil, toolResults: [ToolResult] = [], isToolExecution: Bool = false, reaction: MessageReaction? = nil, attachedImageData: Data? = nil) {
         self.id = id
         self.role = role
         self.content = content
@@ -19,6 +21,8 @@ nonisolated struct Message: Identifiable, Sendable {
         self.metrics = metrics
         self.toolResults = toolResults
         self.isToolExecution = isToolExecution
+        self.reaction = reaction
+        self.attachedImageData = attachedImageData
     }
 }
 

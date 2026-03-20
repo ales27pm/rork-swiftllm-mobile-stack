@@ -127,6 +127,13 @@ class MemoryService {
         associativeLinks.removeAll()
     }
 
+    func reinforceFromReaction(messageContent: String) {
+        let results = searchMemories(query: messageContent, maxResults: 3)
+        for result in results {
+            reinforceMemory(result.memory.id)
+        }
+    }
+
     func reinforceMemory(_ id: String) {
         guard let idx = memories.firstIndex(where: { $0.id == id }) else { return }
         memories[idx].accessCount += 1

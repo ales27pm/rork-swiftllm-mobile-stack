@@ -1,4 +1,5 @@
 import SwiftUI
+import Vision
 
 @Observable
 @MainActor
@@ -27,6 +28,10 @@ class ChatViewModel {
     var lastIntentClassification: IntentClassification?
 
     var currentConversationId: String?
+    var pendingImageData: Data?
+    var showImagePicker: Bool = false
+    var showExportSheet: Bool = false
+    var exportText: String = ""
 
     let inferenceEngine: InferenceEngine
     let metricsLogger: MetricsLogger
@@ -164,19 +169,105 @@ class ChatViewModel {
             currentConversationId = conv.id
         }
 
-        let userMessage = Message(role: .user, content: text)
+        let userMessage = Message(role: .user, content: text, attachedImageData: pendingImageData)
         messages.append(userMessage)
         inputText = ""
+
+        let capturedImageData = pendingImageData
+        pendingImageData = nil
 
         if let convId = currentConversationId {
             conversationService.saveMessage(userMessage, conversationId: convId)
         }
 
         statusMessage = statusForIntent(intent)
-        generateResponse(userText: text, toolIteration: 0)
+
+        if let imageData = capturedImageData {
+            Task {
+                let ocrText = await performOCR(on: imageData)
+                var effectiveText = text
+                if !ocrText.isEmpty {
+                    effectiveText += "\n\n[Attached image OCR text:]\n" + ocrText
+                }
+                generateResponse(userText: effectiveText, toolIteration: 0)
+            }
+        } else {
+            generateResponse(userText: text, toolIteration: 0)
+        }
+    }
+
+    func attachImage(_ image: UIImage) {
+        pendingImageData = image.jpegData(compressionQuality: 0.7)
+    }
+
+    func clearAttachment() {
+        pendingImageData = nil
+    }
+
+    nonisolated private func performOCR(on imageData: Data) async -> String {
+        await withCheckedContinuation { continuation in
+            guard let image = UIImage(data: imageData),
+                  let cgImage = image.cgImage else {
+                continuation.resume(returning: "")
+                return
+            }
+
+            let request = VNRecognizeTextRequest { req, _ in
+                let observations = req.results as? [VNRecognizedTextObservation] ?? []
+                let text = observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+                continuation.resume(returning: text)
+            }
+            request.recognitionLevel = .accurate
+
+            let handler = VNImageRequestHandler(cgImage: cgImage)
+            do {
+                try handler.perform([request])
+            } catch {
+                continuation.resume(returning: "")
+            }
+        }
+    }
+
+    func injectWebSearchContext(_ results: [WebSearchResult]) {
+        guard !results.isEmpty else { return }
+        let summary = results.prefix(5).enumerated().map { idx, r in
+            "\(idx + 1). \(r.title)\n   \(r.url)\n   \(r.snippet)"
+        }.joined(separator: "\n\n")
+
+        let contextNote = "[Web search results injected into context:]\n\(summary)"
+        let contextMsg = Message(role: .tool, content: contextNote, isToolExecution: true)
+        messages.append(contextMsg)
+    }
+
+    func reactToMessage(id: UUID, reaction: MessageReaction) {
+        guard let idx = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[idx].reaction = reaction
+
+        if reaction == .good {
+            memoryService.reinforceFromReaction(messageContent: messages[idx].content)
+        }
+    }
+
+    func prepareExport() {
+        let text = messages.filter { !$0.isToolExecution && $0.role != .system }.map { msg in
+            let role = msg.role == .user ? "You" : (msg.role == .tool ? "Tool" : "Nexus")
+            let time = msg.timestamp.formatted(date: .omitted, time: .shortened)
+            return "[\(time)] \(role):\n\(msg.content)"
+        }.joined(separator: "\n\n---\n\n")
+
+        let header = "Nexus Conversation Export\nDate: \(Date().formatted(date: .long, time: .shortened))\nModel: \(activeModelName)\nMessages: \(messages.filter { $0.role != .system }.count)\n\n" + String(repeating: "=", count: 40) + "\n\n"
+
+        exportText = header + text
+        showExportSheet = true
     }
 
     func sendMessage() {
+        sendIntent()
+    }
+
+    func sendWithWebContext(_ searchResults: [WebSearchResult]) {
+        guard !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        injectWebSearchContext(searchResults)
         sendIntent()
     }
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct AgentHubView: View {
     @Bindable var chatViewModel: ChatViewModel
@@ -13,6 +14,7 @@ struct AgentHubView: View {
 
     @State private var activeSheet: AgentCapability?
     @State private var showSpeechMode: Bool = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
@@ -75,6 +77,9 @@ struct AgentHubView: View {
                         if !chatViewModel.messages.isEmpty {
                             Button("Copy Conversation", systemImage: "doc.on.doc") {
                                 copyConversation()
+                            }
+                            Button("Export Conversation", systemImage: "square.and.arrow.up") {
+                                chatViewModel.prepareExport()
                             }
                         }
 
@@ -323,19 +328,8 @@ struct AgentHubView: View {
                             ToolResultBubbleView(message: message)
                                 .id(message.id)
                         } else if message.role != .tool {
-                            MessageBubbleView(message: message)
+                            messageBubble(message)
                                 .id(message.id)
-                                .contextMenu {
-                                    Button("Copy", systemImage: "doc.on.doc") {
-                                        UIPasteboard.general.string = message.content
-                                    }
-                                    if message.role == .assistant, let metrics = message.metrics {
-                                        Button("Copy Metrics", systemImage: "chart.bar") {
-                                            let text = "\(metrics.decodeTokensPerSecond.formatted(.number.precision(.fractionLength(1)))) tok/s · \(metrics.totalTokens) tokens · \(metrics.totalDuration.formatted(.number.precision(.fractionLength(2))))s"
-                                            UIPasteboard.general.string = text
-                                        }
-                                    }
-                                }
                         }
                     }
                 }
@@ -365,11 +359,74 @@ struct AgentHubView: View {
         .background(Color(.secondarySystemBackground).opacity(0.5))
     }
 
+    private func messageBubble(_ message: Message) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if message.role == .user, let imageData = message.attachedImageData, let uiImage = UIImage(data: imageData) {
+                HStack {
+                    Spacer(minLength: 48)
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxHeight: 160)
+                        .clipShape(.rect(cornerRadius: 14))
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 2)
+                }
+            }
+            MessageBubbleView(message: message) { reaction in
+                chatViewModel.reactToMessage(id: message.id, reaction: reaction)
+            }
+        }
+        .contextMenu {
+            Button("Copy", systemImage: "doc.on.doc") {
+                UIPasteboard.general.string = message.content
+            }
+            if message.role == .assistant, let metrics = message.metrics {
+                Button("Copy Metrics", systemImage: "chart.bar") {
+                    let text = "\(metrics.decodeTokensPerSecond.formatted(.number.precision(.fractionLength(1)))) tok/s · \(metrics.totalTokens) tokens · \(metrics.totalDuration.formatted(.number.precision(.fractionLength(2))))s"
+                    UIPasteboard.general.string = text
+                }
+            }
+            if message.role == .assistant {
+                Divider()
+                Button("Good Response", systemImage: "hand.thumbsup") {
+                    chatViewModel.reactToMessage(id: message.id, reaction: .good)
+                }
+                Button("Poor Response", systemImage: "hand.thumbsdown") {
+                    chatViewModel.reactToMessage(id: message.id, reaction: .bad)
+                }
+                Button("Insightful", systemImage: "lightbulb") {
+                    chatViewModel.reactToMessage(id: message.id, reaction: .insightful)
+                }
+            }
+        }
+    }
+
     private var inputBar: some View {
         VStack(spacing: 0) {
+            if chatViewModel.pendingImageData != nil {
+                attachmentPreview
+            }
+
             Divider()
 
             HStack(alignment: .bottom, spacing: 10) {
+                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                    Image(systemName: "photo.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(chatViewModel.pendingImageData != nil ? .orange : Color(.tertiaryLabel))
+                }
+                .onChange(of: selectedPhotoItem) { _, newItem in
+                    guard let newItem else { return }
+                    Task {
+                        if let data = try? await newItem.loadTransferable(type: Data.self),
+                           let image = UIImage(data: data) {
+                            chatViewModel.attachImage(image)
+                        }
+                        selectedPhotoItem = nil
+                    }
+                }
+
                 TextField("Message", text: $chatViewModel.inputText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1...6)
@@ -441,6 +498,62 @@ struct AgentHubView: View {
         .fullScreenCover(isPresented: $showSpeechMode) {
             SpeechModeView(viewModel: speechViewModel)
         }
+        .sheet(isPresented: $chatViewModel.showExportSheet) {
+            NavigationStack {
+                ScrollView {
+                    Text(chatViewModel.exportText)
+                        .font(.system(size: 13, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(16)
+                }
+                .navigationTitle("Export")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Done") { chatViewModel.showExportSheet = false }
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        ShareLink(item: chatViewModel.exportText) {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var attachmentPreview: some View {
+        HStack(spacing: 10) {
+            if let data = chatViewModel.pendingImageData, let uiImage = UIImage(data: data) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 48, height: 48)
+                    .clipShape(.rect(cornerRadius: 8))
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Image attached")
+                    .font(.caption.weight(.semibold))
+                Text("Will be analyzed via OCR")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button {
+                withAnimation { chatViewModel.clearAttachment() }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground))
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
     @ViewBuilder
@@ -458,7 +571,9 @@ struct AgentHubView: View {
                 MemoryView(viewModel: memoryVM)
             }
         case .browse:
-            WebSearchView()
+            WebSearchViewWithInjection(chatViewModel: chatViewModel) {
+                activeSheet = nil
+            }
         case .map:
             NavigationStack {
                 MapView()
