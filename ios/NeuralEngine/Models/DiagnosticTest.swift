@@ -40,6 +40,7 @@ nonisolated enum DiagnosticCategory: String, Sendable, CaseIterable {
     case stressTest = "Stress Test"
     case inferenceDeep = "Inference Deep"
     case regressionE2E = "Regression E2E"
+    case llmDiagnostic = "LLM Diagnostic"
 }
 
 struct DiagnosticTestResult: Identifiable, Sendable {

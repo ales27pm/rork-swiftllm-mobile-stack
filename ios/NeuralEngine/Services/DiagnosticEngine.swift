@@ -679,7 +679,7 @@ class DiagnosticEngine {
             // MARK: Deep Diagnostic Tests
             case (.emotionAccuracy, _), (.intentAccuracy, _), (.memoryQuality, _),
                  (.cognitionQuality, _), (.contextQuality, _), (.stressTest, _),
-                 (.inferenceDeep, _), (.regressionE2E, _):
+                 (.inferenceDeep, _), (.regressionE2E, _), (.llmDiagnostic, _):
                 return await executeDeepTest(test)
 
             default:

@@ -86,6 +86,19 @@ extension DiagnosticEngine {
             DiagnosticTestResult(name: "Associative Graph Traversal Integrity", category: .regressionE2E),
         ])
 
+        tests.append(contentsOf: [
+            DiagnosticTestResult(name: "LLM Instruction Following", category: .llmDiagnostic),
+            DiagnosticTestResult(name: "LLM Factual Recall", category: .llmDiagnostic),
+            DiagnosticTestResult(name: "LLM Coherence Under Context", category: .llmDiagnostic),
+            DiagnosticTestResult(name: "LLM Emotional Tone Compliance", category: .llmDiagnostic),
+            DiagnosticTestResult(name: "LLM Multi-Turn Consistency", category: .llmDiagnostic),
+            DiagnosticTestResult(name: "LLM Cognition→Prompt→Output Pipeline", category: .llmDiagnostic),
+            DiagnosticTestResult(name: "LLM Stop Sequence Compliance", category: .llmDiagnostic),
+            DiagnosticTestResult(name: "LLM Temperature Sensitivity", category: .llmDiagnostic),
+            DiagnosticTestResult(name: "LLM Latency Profile (5 prompts)", category: .llmDiagnostic),
+            DiagnosticTestResult(name: "LLM Memory-Aware Response", category: .llmDiagnostic),
+        ])
+
         return tests
     }
 
@@ -210,6 +223,27 @@ extension DiagnosticEngine {
             return deepTestMemoryExtractDedupSearch()
         case (.regressionE2E, "Associative Graph Traversal Integrity"):
             return deepTestAssociativeGraphIntegrity()
+
+        case (.llmDiagnostic, "LLM Instruction Following"):
+            return await llmTestInstructionFollowing()
+        case (.llmDiagnostic, "LLM Factual Recall"):
+            return await llmTestFactualRecall()
+        case (.llmDiagnostic, "LLM Coherence Under Context"):
+            return await llmTestCoherenceUnderContext()
+        case (.llmDiagnostic, "LLM Emotional Tone Compliance"):
+            return await llmTestEmotionalToneCompliance()
+        case (.llmDiagnostic, "LLM Multi-Turn Consistency"):
+            return await llmTestMultiTurnConsistency()
+        case (.llmDiagnostic, "LLM Cognition→Prompt→Output Pipeline"):
+            return await llmTestCognitionPromptOutput()
+        case (.llmDiagnostic, "LLM Stop Sequence Compliance"):
+            return await llmTestStopSequenceCompliance()
+        case (.llmDiagnostic, "LLM Temperature Sensitivity"):
+            return await llmTestTemperatureSensitivity()
+        case (.llmDiagnostic, "LLM Latency Profile (5 prompts)"):
+            return await llmTestLatencyProfile()
+        case (.llmDiagnostic, "LLM Memory-Aware Response"):
+            return await llmTestMemoryAwareResponse()
 
         default:
             return TestOutcome(status: .skipped, message: "No deep test implementation", details: [])
