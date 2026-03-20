@@ -5,14 +5,18 @@ import NaturalLanguage
 @Observable
 class MemoryService {
     private let database: DatabaseService
+    let vectorStore: VectorStore
     var memories: [MemoryEntry] = []
     var associativeLinks: [AssociativeLink] = []
 
     init(database: DatabaseService) {
         self.database = database
+        self.vectorStore = VectorStore(database: database)
         createTables()
         loadMemories()
         loadLinks()
+        vectorStore.loadIndex()
+        backfillVectorEmbeddings()
     }
 
     private func createTables() {
@@ -107,6 +111,8 @@ class MemoryService {
         } else {
             memories.insert(memory, at: 0)
         }
+        let embeddingText = memory.content + " " + memory.keywords.joined(separator: " ")
+        _ = vectorStore.upsert(id: memory.id, text: embeddingText)
         let newLinks = buildAssociativeLinks(newMemory: memory)
         for link in newLinks {
             saveLink(link)
@@ -116,6 +122,7 @@ class MemoryService {
     func deleteMemory(_ id: String) {
         _ = database.execute("DELETE FROM memories WHERE id = ?;", params: [id])
         _ = database.execute("DELETE FROM associative_links WHERE source_id = ? OR target_id = ?;", params: [id, id])
+        vectorStore.delete(id: id)
         memories.removeAll { $0.id == id }
         associativeLinks.removeAll { $0.sourceId == id || $0.targetId == id }
     }
@@ -123,6 +130,7 @@ class MemoryService {
     func clearAllMemories() {
         _ = database.execute("DELETE FROM memories;")
         _ = database.execute("DELETE FROM associative_links;")
+        vectorStore.clearAll()
         memories.removeAll()
         associativeLinks.removeAll()
     }
@@ -157,6 +165,12 @@ class MemoryService {
         let idf = buildIDF(filtered, languageHint: resolvedLanguageHint)
         let queryVec = computeTFIDF(tokens: queryTerms, idf: idf)
 
+        let vectorResults = vectorStore.search(query: query, maxResults: filtered.count, minScore: 0.01, languageHint: resolvedLanguageHint)
+        var vectorScoreMap: [String: Float] = [:]
+        for vr in vectorResults {
+            vectorScoreMap[vr.id] = vr.score
+        }
+
         var scored: [RetrievalResult] = filtered.map { memory in
             let docText = memory.content + " " + memory.keywords.joined(separator: " ") + " " + memory.category.rawValue
             let documentLanguageHint = resolvedLanguageHint ?? NLTextProcessing.detectLanguage(for: docText)?.rawValue
@@ -176,17 +190,19 @@ class MemoryService {
             }
             keywordBonus = min(keywordBonus, 0.4)
 
-            let rawEmbeddingScore = NLTextProcessing.embeddingSimilarity(
-                query: query,
-                document: memory.content,
-                languageHint: resolvedLanguageHint ?? documentLanguageHint
-            )
-            let keywordEmbeddingScore = NLTextProcessing.embeddingSimilarity(
-                query: query,
-                document: memory.keywords.joined(separator: " "),
-                languageHint: resolvedLanguageHint ?? documentLanguageHint
-            )
-            let embeddingScore = max(rawEmbeddingScore ?? 0, keywordEmbeddingScore ?? 0)
+            let vectorSimilarity = Double(vectorScoreMap[memory.id] ?? 0)
+
+            var fallbackEmbedding: Double = 0
+            if vectorSimilarity == 0 {
+                let rawEmbeddingScore = NLTextProcessing.embeddingSimilarity(
+                    query: query,
+                    document: memory.content,
+                    languageHint: resolvedLanguageHint ?? documentLanguageHint
+                )
+                fallbackEmbedding = rawEmbeddingScore ?? 0
+            }
+
+            let embeddingScore = max(vectorSimilarity, fallbackEmbedding)
 
             let decay = computeDecay(memory)
             let recencyScore = decay * 0.15
@@ -201,6 +217,9 @@ class MemoryService {
             let totalScore = hybridLexicalScore + semanticScore + recencyScore + importanceScore + activationBonus
 
             var matchType: RetrievalResult.MatchType = semanticScore > hybridLexicalScore ? .semantic : .keyword
+            if vectorSimilarity > 0.5 && semanticScore > hybridLexicalScore {
+                matchType = .vector
+            }
             if activationBonus > hybridLexicalScore && activationBonus > semanticScore {
                 matchType = .primed
             }
@@ -228,6 +247,21 @@ class MemoryService {
         }
 
         return selected
+    }
+
+    func vectorSearch(query: String, maxResults: Int = 5, languageHint: String? = nil) -> [VectorSearchResult] {
+        vectorStore.search(query: query, maxResults: maxResults, minScore: 0.1, languageHint: languageHint)
+    }
+
+    private func backfillVectorEmbeddings() {
+        var backfilled = 0
+        for memory in memories {
+            guard !vectorStore.hasVector(for: memory.id) else { continue }
+            let text = memory.content + " " + memory.keywords.joined(separator: " ")
+            if vectorStore.upsert(id: memory.id, text: text) {
+                backfilled += 1
+            }
+        }
     }
 
     func getAssociativeMemories(query: String, directResults: [RetrievalResult]) -> [RetrievalResult] {

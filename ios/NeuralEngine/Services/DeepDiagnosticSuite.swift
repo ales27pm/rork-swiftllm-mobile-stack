@@ -99,6 +99,19 @@ extension DiagnosticEngine {
             DiagnosticTestResult(name: "LLM Memory-Aware Response", category: .llmDiagnostic),
         ])
 
+        tests.append(contentsOf: [
+            DiagnosticTestResult(name: "Vector Embedding Generation", category: .vectorDatabase),
+            DiagnosticTestResult(name: "Vector Store Insert/Retrieve", category: .vectorDatabase),
+            DiagnosticTestResult(name: "Vector Cosine Similarity Accuracy", category: .vectorDatabase),
+            DiagnosticTestResult(name: "Vector Semantic Search (10 docs)", category: .vectorDatabase),
+            DiagnosticTestResult(name: "Vector HNSW Index Recall", category: .vectorDatabase),
+            DiagnosticTestResult(name: "Vector Cross-Domain Discrimination", category: .vectorDatabase),
+            DiagnosticTestResult(name: "Vector Memory Integration", category: .vectorDatabase),
+            DiagnosticTestResult(name: "Vector Batch Upsert/Delete Lifecycle", category: .vectorDatabase),
+            DiagnosticTestResult(name: "Vector Search Latency (100 vectors)", category: .vectorDatabase),
+            DiagnosticTestResult(name: "Vector Hybrid Ranking Boost", category: .vectorDatabase),
+        ])
+
         return tests
     }
 
@@ -244,6 +257,27 @@ extension DiagnosticEngine {
             return await llmTestLatencyProfile()
         case (.llmDiagnostic, "LLM Memory-Aware Response"):
             return await llmTestMemoryAwareResponse()
+
+        case (.vectorDatabase, "Vector Embedding Generation"):
+            return vectorTestEmbeddingGeneration()
+        case (.vectorDatabase, "Vector Store Insert/Retrieve"):
+            return vectorTestInsertRetrieve()
+        case (.vectorDatabase, "Vector Cosine Similarity Accuracy"):
+            return vectorTestCosineSimilarity()
+        case (.vectorDatabase, "Vector Semantic Search (10 docs)"):
+            return vectorTestSemanticSearch()
+        case (.vectorDatabase, "Vector HNSW Index Recall"):
+            return vectorTestHNSWRecall()
+        case (.vectorDatabase, "Vector Cross-Domain Discrimination"):
+            return vectorTestCrossDomain()
+        case (.vectorDatabase, "Vector Memory Integration"):
+            return vectorTestMemoryIntegration()
+        case (.vectorDatabase, "Vector Batch Upsert/Delete Lifecycle"):
+            return vectorTestBatchLifecycle()
+        case (.vectorDatabase, "Vector Search Latency (100 vectors)"):
+            return vectorTestSearchLatency()
+        case (.vectorDatabase, "Vector Hybrid Ranking Boost"):
+            return vectorTestHybridRanking()
 
         default:
             return TestOutcome(status: .skipped, message: "No deep test implementation", details: [])
@@ -2047,6 +2081,427 @@ extension DiagnosticEngine {
         return TestOutcome(
             status: checks >= 3 ? .passed : (checks >= 2 ? .warning : .failed),
             message: "Graph integrity: \(checks)/4 checks. Related linked=\(quantumLinked), unrelated isolated=\(!pastaLinkedToQuantum)",
+            details: details
+        )
+    }
+
+    // MARK: - Vector Database Tests
+
+    private func vectorTestEmbeddingGeneration() -> TestOutcome {
+        let embedder = VectorEmbeddingService.shared
+        let texts = [
+            "The cat sat on the mat",
+            "Machine learning is transforming industries",
+            "I love programming in Swift",
+            "",
+            "Bonjour le monde",
+        ]
+        var results: [String] = []
+        var generated = 0
+
+        for text in texts {
+            if let vec = embedder.embed(text) {
+                generated += 1
+                let mag = sqrtf(vec.reduce(0) { $0 + $1 * $1 })
+                results.append("'\(text.prefix(30))\u{2026}' \u{2192} \(vec.count)d, mag=\(String(format: "%.3f", mag))")
+            } else {
+                results.append("'\(text.prefix(30))\u{2026}' \u{2192} nil (expected for empty)")
+            }
+        }
+
+        let nonEmptyTexts = texts.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let expectedMin = nonEmptyTexts.count - 1
+
+        return TestOutcome(
+            status: generated >= expectedMin ? .passed : (generated >= 2 ? .warning : .failed),
+            message: "Generated \(generated)/\(texts.count) embeddings (\(VectorEmbeddingService.dimensions)d)",
+            details: results
+        )
+    }
+
+    private func vectorTestInsertRetrieve() -> TestOutcome {
+        guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
+        let store = mem.vectorStore
+        let testId = "vec_test_\(UUID().uuidString.prefix(8))"
+        let text = "Quantum computing uses qubits for parallel computation"
+
+        let inserted = store.upsert(id: testId, text: text)
+        let retrieved = store.getVector(for: testId)
+        let hasIt = store.hasVector(for: testId)
+        store.delete(id: testId)
+        let afterDelete = store.hasVector(for: testId)
+
+        var checks = 0
+        var details: [String] = []
+
+        if inserted { checks += 1; details.append("Insert: \u{2713}") } else { details.append("Insert: \u{2717}") }
+        if let vec = retrieved { checks += 1; details.append("Retrieve: \u{2713} (\(vec.count)d)") } else { details.append("Retrieve: \u{2717}") }
+        if hasIt { checks += 1; details.append("Has vector: \u{2713}") } else { details.append("Has vector: \u{2717}") }
+        if !afterDelete { checks += 1; details.append("Deleted: \u{2713}") } else { details.append("Deleted: \u{2717}") }
+
+        return TestOutcome(
+            status: checks == 4 ? .passed : (checks >= 2 ? .warning : .failed),
+            message: "Insert/Retrieve lifecycle: \(checks)/4 checks passed",
+            details: details
+        )
+    }
+
+    private func vectorTestCosineSimilarity() -> TestOutcome {
+        let embedder = VectorEmbeddingService.shared
+        let pairs: [(a: String, b: String, label: String, expectedMin: Float)] = [
+            ("I love dogs", "I adore puppies", "similar", 0.3),
+            ("Machine learning algorithms", "Deep neural networks", "related", 0.2),
+            ("The weather is sunny", "Quantum entanglement theory", "unrelated", -1.0),
+        ]
+
+        var details: [String] = []
+        var checks = 0
+
+        var scores: [Float] = []
+        for pair in pairs {
+            guard let va = embedder.embed(pair.a), let vb = embedder.embed(pair.b) else {
+                details.append("\(pair.label): embedding failed")
+                continue
+            }
+            let sim = embedder.cosineSimilarity(va, vb)
+            scores.append(sim)
+            let ok = sim >= pair.expectedMin
+            if ok { checks += 1 }
+            details.append("\(pair.label): cos=\(String(format: "%.3f", sim)) \(ok ? "\u{2713}" : "\u{2717}")")
+        }
+
+        if scores.count == 3 && scores[0] > scores[2] {
+            checks += 1
+            details.append("Similar > Unrelated: \u{2713}")
+        } else if scores.count == 3 {
+            details.append("Similar > Unrelated: \u{2717} (\(String(format: "%.3f", scores[0])) vs \(String(format: "%.3f", scores[2])))")
+        }
+
+        return TestOutcome(
+            status: checks >= 3 ? .passed : (checks >= 2 ? .warning : .failed),
+            message: "Cosine similarity: \(checks)/4 checks passed",
+            details: details
+        )
+    }
+
+    private func vectorTestSemanticSearch() -> TestOutcome {
+        guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
+        let store = mem.vectorStore
+
+        let docs: [(id: String, text: String)] = [
+            ("vs_1", "Python programming for data science and analytics"),
+            ("vs_2", "Italian pasta recipes with fresh tomato sauce"),
+            ("vs_3", "Machine learning neural network training techniques"),
+            ("vs_4", "Hiking trails in the Rocky Mountains of Colorado"),
+            ("vs_5", "Swift iOS mobile application development patterns"),
+            ("vs_6", "French cuisine cooking methods and traditions"),
+            ("vs_7", "Deep learning transformer architecture explained"),
+            ("vs_8", "Camping gear essentials for wilderness adventures"),
+            ("vs_9", "Rust systems programming memory safety features"),
+            ("vs_10", "Baking sourdough bread with natural yeast starter"),
+        ]
+
+        for doc in docs { _ = store.upsert(id: doc.id, text: doc.text) }
+
+        let queries: [(q: String, expectedTop: String, label: String)] = [
+            ("artificial intelligence and deep learning", "vs_7", "AI→DL"),
+            ("outdoor hiking and nature", "vs_4", "outdoor→hiking"),
+            ("writing code in programming languages", "vs_1", "code→programming"),
+        ]
+
+        var checks = 0
+        var details: [String] = []
+
+        for query in queries {
+            let results = store.search(query: query.q, maxResults: 3)
+            let topId = results.first?.id ?? "none"
+            let topScore = results.first?.score ?? 0
+            let foundInTop3 = results.prefix(3).contains { $0.id == query.expectedTop }
+            if foundInTop3 { checks += 1 }
+            details.append("\(query.label): top=\(topId)(\(String(format: "%.3f", topScore))), expected \(query.expectedTop) in top-3: \(foundInTop3 ? "\u{2713}" : "\u{2717}")")
+        }
+
+        for doc in docs { store.delete(id: doc.id) }
+
+        return TestOutcome(
+            status: checks >= 2 ? .passed : (checks >= 1 ? .warning : .failed),
+            message: "Semantic search: \(checks)/\(queries.count) correct top-3 retrievals",
+            details: details
+        )
+    }
+
+    private func vectorTestHNSWRecall() -> TestOutcome {
+        let embedder = VectorEmbeddingService.shared
+        guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
+        let store = mem.vectorStore
+
+        let texts = [
+            "The solar system has eight planets orbiting the sun",
+            "Photosynthesis converts light energy into chemical energy",
+            "The stock market fluctuated wildly during the pandemic",
+            "Mozart composed his first symphony at age eight",
+            "DNA contains the genetic instructions for all living organisms",
+            "The Great Wall of China stretches over 13000 miles",
+            "Artificial intelligence mimics human cognitive functions",
+            "Climate change is driven by greenhouse gas emissions",
+            "The human brain contains approximately 86 billion neurons",
+            "Quantum computers leverage superposition for parallel processing",
+        ]
+
+        var ids: [String] = []
+        var vectors: [[Float]] = []
+        for (i, text) in texts.enumerated() {
+            let id = "hnsw_\(i)"
+            ids.append(id)
+            _ = store.upsert(id: id, text: text)
+            if let vec = embedder.embed(text) { vectors.append(vec) }
+        }
+
+        guard let queryVec = embedder.embed("brain neurons neuroscience") else {
+            for id in ids { store.delete(id: id) }
+            return TestOutcome(status: .warning, message: "Could not generate query embedding", details: [])
+        }
+
+        let hnswResults = store.searchByVector(queryVec, maxResults: 3)
+
+        var bruteForce: [(id: String, score: Float)] = []
+        for (i, vec) in vectors.enumerated() {
+            bruteForce.append((ids[i], embedder.cosineSimilarity(queryVec, vec)))
+        }
+        bruteForce.sort { $0.score > $1.score }
+        let bruteTop3 = Set(bruteForce.prefix(3).map(\.id))
+        let hnswTop3 = Set(hnswResults.prefix(3).map(\.id))
+        let overlap = bruteTop3.intersection(hnswTop3).count
+
+        for id in ids { store.delete(id: id) }
+
+        let recall = Double(overlap) / Double(bruteTop3.count)
+
+        return TestOutcome(
+            status: recall >= 0.66 ? .passed : (recall >= 0.33 ? .warning : .failed),
+            message: "HNSW recall@3: \(String(format: "%.0f", recall * 100))% (\(overlap)/3 match brute-force)",
+            details: [
+                "HNSW top-3: \(hnswResults.prefix(3).map { "\($0.id)(\(String(format: "%.3f", $0.score)))" }.joined(separator: ", "))",
+                "Brute-force top-3: \(bruteForce.prefix(3).map { "\($0.id)(\(String(format: "%.3f", $0.score)))" }.joined(separator: ", "))",
+                "Overlap: \(overlap)/3"
+            ]
+        )
+    }
+
+    private func vectorTestCrossDomain() -> TestOutcome {
+        let embedder = VectorEmbeddingService.shared
+
+        let domains: [(label: String, texts: [String])] = [
+            ("tech", ["software engineering", "machine learning algorithms", "cloud computing infrastructure"]),
+            ("food", ["chocolate cake recipe", "Italian pasta carbonara", "sushi preparation techniques"]),
+            ("nature", ["mountain hiking trails", "ocean marine biology", "forest ecosystem diversity"]),
+        ]
+
+        var domainVectors: [String: [[Float]]] = [:]
+        for domain in domains {
+            let vecs = domain.texts.compactMap { embedder.embed($0) }
+            domainVectors[domain.label] = vecs
+        }
+
+        var intraSims: [Float] = []
+        var interSims: [Float] = []
+
+        for domain in domains {
+            guard let vecs = domainVectors[domain.label], vecs.count >= 2 else { continue }
+            for i in 0..<vecs.count {
+                for j in (i+1)..<vecs.count {
+                    intraSims.append(embedder.cosineSimilarity(vecs[i], vecs[j]))
+                }
+            }
+        }
+
+        let domainLabels = domains.map(\.label)
+        for i in 0..<domainLabels.count {
+            for j in (i+1)..<domainLabels.count {
+                guard let vecsA = domainVectors[domainLabels[i]], let vecsB = domainVectors[domainLabels[j]] else { continue }
+                for va in vecsA {
+                    for vb in vecsB {
+                        interSims.append(embedder.cosineSimilarity(va, vb))
+                    }
+                }
+            }
+        }
+
+        let avgIntra = intraSims.isEmpty ? 0 : intraSims.reduce(0, +) / Float(intraSims.count)
+        let avgInter = interSims.isEmpty ? 0 : interSims.reduce(0, +) / Float(interSims.count)
+        let separation = avgIntra - avgInter
+
+        return TestOutcome(
+            status: separation > 0.02 ? .passed : (separation > 0 ? .warning : .failed),
+            message: "Cross-domain: intra=\(String(format: "%.3f", avgIntra)), inter=\(String(format: "%.3f", avgInter)), separation=\(String(format: "%.3f", separation))",
+            details: [
+                "Intra-domain avg similarity: \(String(format: "%.3f", avgIntra)) (\(intraSims.count) pairs)",
+                "Inter-domain avg similarity: \(String(format: "%.3f", avgInter)) (\(interSims.count) pairs)",
+                "Separation margin: \(String(format: "%.3f", separation))",
+                "Discrimination: \(separation > 0 ? "\u{2713}" : "\u{2717}")"
+            ]
+        )
+    }
+
+    private func vectorTestMemoryIntegration() -> TestOutcome {
+        guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
+
+        let e1 = MemoryEntry(content: "User enjoys playing classical piano concertos by Chopin", keywords: ["piano", "chopin", "classical", "music"], category: .preference, importance: 4, source: .conversation)
+        let e2 = MemoryEntry(content: "User works as a backend engineer at a fintech company", keywords: ["engineer", "backend", "fintech"], category: .fact, importance: 4, source: .conversation)
+        let e3 = MemoryEntry(content: "User is learning to bake sourdough bread at home", keywords: ["baking", "sourdough", "bread"], category: .skill, importance: 3, source: .conversation)
+
+        mem.addMemory(e1)
+        mem.addMemory(e2)
+        mem.addMemory(e3)
+
+        let hasVec1 = mem.vectorStore.hasVector(for: e1.id)
+        let hasVec2 = mem.vectorStore.hasVector(for: e2.id)
+        let hasVec3 = mem.vectorStore.hasVector(for: e3.id)
+
+        let musicResults = mem.searchMemories(query: "classical music instruments piano", maxResults: 5)
+        let musicTop = musicResults.first
+        let musicFound = musicResults.contains { $0.memory.id == e1.id }
+
+        let techResults = mem.searchMemories(query: "software engineering programming", maxResults: 5)
+        let techFound = techResults.contains { $0.memory.id == e2.id }
+
+        mem.deleteMemory(e1.id)
+        mem.deleteMemory(e2.id)
+        mem.deleteMemory(e3.id)
+
+        let vecCleared1 = !mem.vectorStore.hasVector(for: e1.id)
+
+        var checks = 0
+        var details: [String] = []
+
+        if hasVec1 && hasVec2 && hasVec3 { checks += 1; details.append("Vectors auto-created on addMemory: \u{2713}") } else { details.append("Vectors auto-created: \u{2717} (\(hasVec1),\(hasVec2),\(hasVec3))") }
+        if musicFound { checks += 1; details.append("Music query found piano entry: \u{2713} (score=\(String(format: "%.3f", musicTop?.score ?? 0)))") } else { details.append("Music query missed piano entry: \u{2717}") }
+        if techFound { checks += 1; details.append("Tech query found engineer entry: \u{2713}") } else { details.append("Tech query missed engineer entry: \u{2717}") }
+        if vecCleared1 { checks += 1; details.append("Vector deleted on deleteMemory: \u{2713}") } else { details.append("Vector not cleaned up: \u{2717}") }
+
+        return TestOutcome(
+            status: checks >= 3 ? .passed : (checks >= 2 ? .warning : .failed),
+            message: "Memory integration: \(checks)/4 checks passed",
+            details: details
+        )
+    }
+
+    private func vectorTestBatchLifecycle() -> TestOutcome {
+        guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
+        let store = mem.vectorStore
+
+        let countBefore = store.count
+        var testIds: [String] = []
+
+        for i in 0..<20 {
+            let id = "batch_\(i)_\(UUID().uuidString.prefix(4))"
+            testIds.append(id)
+            _ = store.upsert(id: id, text: "Batch test document number \(i) about topic \(["science", "cooking", "sports", "music", "travel"][i % 5])")
+        }
+
+        let afterInsert = store.count
+        let insertedCount = afterInsert - countBefore
+
+        let searchResults = store.search(query: "scientific research", maxResults: 5)
+
+        for id in testIds { store.delete(id: id) }
+        let afterDelete = store.count
+        let cleanedUp = afterDelete == countBefore
+
+        var details: [String] = [
+            "Before: \(countBefore), After insert: \(afterInsert), After delete: \(afterDelete)",
+            "Inserted: \(insertedCount)/20",
+            "Search returned: \(searchResults.count) results",
+            "Cleanup correct: \(cleanedUp)",
+        ]
+
+        let allInserted = insertedCount == 20
+        var checks = 0
+        if allInserted { checks += 1 }
+        if !searchResults.isEmpty { checks += 1 }
+        if cleanedUp { checks += 1 }
+
+        return TestOutcome(
+            status: checks == 3 ? .passed : (checks >= 2 ? .warning : .failed),
+            message: "Batch lifecycle: \(checks)/3 (insert=\(insertedCount), search=\(searchResults.count), cleanup=\(cleanedUp))",
+            details: details
+        )
+    }
+
+    private func vectorTestSearchLatency() -> TestOutcome {
+        guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
+        let store = mem.vectorStore
+        let embedder = VectorEmbeddingService.shared
+
+        let topics = ["science", "history", "cooking", "sports", "music", "technology", "nature", "art", "medicine", "finance"]
+        var testIds: [String] = []
+        for i in 0..<100 {
+            let id = "latency_\(i)"
+            testIds.append(id)
+            _ = store.upsert(id: id, text: "Document about \(topics[i % topics.count]) topic number \(i) with various content")
+        }
+
+        let queries = ["machine learning", "classical music", "financial markets", "outdoor hiking", "medical research"]
+        var totalMs: Double = 0
+        var queryDetails: [String] = []
+
+        for q in queries {
+            let start = CFAbsoluteTimeGetCurrent()
+            let results = store.search(query: q, maxResults: 10)
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            totalMs += elapsed
+            queryDetails.append("'\(q)': \(String(format: "%.1f", elapsed))ms, \(results.count) results")
+        }
+
+        for id in testIds { store.delete(id: id) }
+
+        let avgMs = totalMs / Double(queries.count)
+
+        return TestOutcome(
+            status: avgMs < 100 ? .passed : (avgMs < 500 ? .warning : .failed),
+            message: "Search latency (100 vectors): avg=\(String(format: "%.1f", avgMs))ms, total=\(String(format: "%.0f", totalMs))ms",
+            details: queryDetails + ["Avg per query: \(String(format: "%.1f", avgMs))ms"]
+        )
+    }
+
+    private func vectorTestHybridRanking() -> TestOutcome {
+        guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
+
+        let semanticOnly = MemoryEntry(content: "Canines are wonderful companion animals that bring joy", keywords: ["pets", "animals"], category: .preference, importance: 4, source: .conversation)
+        let keywordOnly = MemoryEntry(content: "I love dogs and have two golden retrievers at home", keywords: ["dogs", "golden retriever", "pets"], category: .fact, importance: 4, source: .conversation)
+        let both = MemoryEntry(content: "My favorite dog breed is the golden retriever puppy", keywords: ["dog", "golden retriever", "favorite", "puppy"], category: .preference, importance: 4, source: .conversation)
+
+        mem.addMemory(semanticOnly)
+        mem.addMemory(keywordOnly)
+        mem.addMemory(both)
+
+        let results = mem.searchMemories(query: "dogs golden retriever", maxResults: 5)
+
+        let semanticScore = results.first(where: { $0.memory.id == semanticOnly.id })?.score ?? 0
+        let keywordScore = results.first(where: { $0.memory.id == keywordOnly.id })?.score ?? 0
+        let bothScore = results.first(where: { $0.memory.id == both.id })?.score ?? 0
+
+        mem.deleteMemory(semanticOnly.id)
+        mem.deleteMemory(keywordOnly.id)
+        mem.deleteMemory(both.id)
+
+        var checks = 0
+        var details: [String] = [
+            "Semantic-only score: \(String(format: "%.3f", semanticScore))",
+            "Keyword-only score: \(String(format: "%.3f", keywordScore))",
+            "Both (keyword+semantic) score: \(String(format: "%.3f", bothScore))",
+        ]
+
+        if bothScore >= keywordScore { checks += 1; details.append("Both >= Keyword: \u{2713}") } else { details.append("Both >= Keyword: \u{2717}") }
+        if bothScore >= semanticScore { checks += 1; details.append("Both >= Semantic: \u{2713}") } else { details.append("Both >= Semantic: \u{2717}") }
+        if keywordScore > 0 || semanticScore > 0 { checks += 1; details.append("Non-zero retrieval: \u{2713}") } else { details.append("Non-zero retrieval: \u{2717}") }
+
+        let vectorResults = mem.vectorSearch(query: "dogs golden retriever", maxResults: 3)
+        if !vectorResults.isEmpty { checks += 1; details.append("Vector search direct: \u{2713} (\(vectorResults.count) results)") } else { details.append("Vector search direct: \u{2717}") }
+
+        return TestOutcome(
+            status: checks >= 3 ? .passed : (checks >= 2 ? .warning : .failed),
+            message: "Hybrid ranking: \(checks)/4. Both=\(String(format: "%.3f", bothScore)), KW=\(String(format: "%.3f", keywordScore)), Sem=\(String(format: "%.3f", semanticScore))",
             details: details
         )
     }

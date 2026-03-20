@@ -87,6 +87,7 @@ nonisolated struct RetrievalResult: Sendable {
     nonisolated enum MatchType: String, Sendable {
         case semantic
         case keyword
+        case vector
         case primed
         case associative
     }
