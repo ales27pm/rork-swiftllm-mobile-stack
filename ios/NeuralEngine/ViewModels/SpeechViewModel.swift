@@ -150,6 +150,7 @@ class SpeechViewModel {
         sessionDuration = 0
         consecutiveTimeouts = 0
         statusMessage = "Idle"
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     func startListening() {

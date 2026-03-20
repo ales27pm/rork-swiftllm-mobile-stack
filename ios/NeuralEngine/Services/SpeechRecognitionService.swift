@@ -311,7 +311,7 @@ class SpeechRecognitionService: NSObject {
         updateAvailability(.ready, reason: nil, message: nil)
 
         let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
+        try audioSession.setCategory(.playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .duckOthers, .allowBluetooth])
         try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
 
         resetAudioEngine()
@@ -458,8 +458,6 @@ class SpeechRecognitionService: NSObject {
         isListening = false
         audioLevel = 0
         isSpeechDetected = false
-
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     private func updateAvailability(_ state: SpeechRecognizerAvailabilityState, reason: SpeechRecognitionFailureReason?, message: String?) {

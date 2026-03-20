@@ -284,11 +284,19 @@ class SpeechSynthesisService: NSObject {
 
         do {
             let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playback, mode: .voicePrompt, options: .duckOthers)
+            try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .duckOthers, .allowBluetooth])
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
-            onComplete?()
-            return
+            logger.warning("Primary audio session setup failed: \(error.localizedDescription, privacy: .public). Retrying with fallback.")
+            do {
+                let audioSession = AVAudioSession.sharedInstance()
+                try audioSession.setCategory(.playback, mode: .default, options: .duckOthers)
+                try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            } catch {
+                logger.error("Fallback audio session setup also failed: \(error.localizedDescription, privacy: .public). Cannot speak.")
+                onComplete?()
+                return
+            }
         }
 
         sentences = splitIntoSentences(cleaned)
@@ -326,7 +334,6 @@ class SpeechSynthesisService: NSObject {
         isSpeaking = false
         progress = 1.0
         currentWord = ""
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         let cb = completion
         completion = nil
         cb?()
