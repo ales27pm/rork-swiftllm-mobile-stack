@@ -24,8 +24,11 @@ struct EmotionAnalyzer {
         ("jealous", -0.5, 0.6, "jealousy"), ("guilty", -0.6, 0.4, "guilt"),
         ("panic", -0.7, 0.9, "fear"), ("panicking", -0.8, 1.0, "fear"), ("panicked", -0.7, 0.8, "fear"),
         ("desperate", -0.7, 0.8, "stress"), ("hopeless", -0.8, 0.3, "sadness"),
-        ("help", -0.2, 0.5, "need"), ("please", 0.1, 0.3, "politeness"), ("urgent", -0.2, 0.8, "urgency"),
-        ("asap", -0.2, 0.9, "urgency"), ("emergency", -0.5, 1.0, "urgency"),
+        ("help", -0.3, 0.6, "need"), ("please", 0.1, 0.3, "politeness"), ("urgent", -0.4, 0.8, "urgency"),
+        ("asap", -0.4, 0.9, "urgency"), ("emergency", -0.6, 1.0, "urgency"),
+        ("need", -0.2, 0.5, "need"), ("struggling", -0.5, 0.6, "frustration"),
+        ("can't", -0.3, 0.5, "frustration"), ("broken", -0.5, 0.5, "sadness"),
+        ("falling apart", -0.8, 0.7, "grief"), ("everything is", -0.1, 0.3, "neutral"),
     ]
 
     private static let stylePatterns: [(pattern: String, style: String)] = [
@@ -145,8 +148,9 @@ struct EmotionAnalyzer {
     }
 
     private static func computeEmpathyLevel(valence: Double, arousal: Double, intensityModifier: Double = 1.0) -> Double {
-        if valence < -0.3 {
-            let base = 0.5 + abs(valence) * 0.35 + arousal * 0.25
+        if valence < -0.15 {
+            let severityBoost = arousal > 0.7 ? 0.15 : 0
+            let base = 0.45 + abs(valence) * 0.4 + arousal * 0.25 + severityBoost
             return min(1.0, base * intensityModifier)
         }
         if valence > 0.5 && arousal > 0.6 {

@@ -176,11 +176,17 @@ class MemoryService {
             }
             keywordBonus = min(keywordBonus, 0.4)
 
-            let embeddingScore = NLTextProcessing.embeddingSimilarity(
+            let rawEmbeddingScore = NLTextProcessing.embeddingSimilarity(
                 query: query,
-                document: docText,
+                document: memory.content,
                 languageHint: resolvedLanguageHint ?? documentLanguageHint
-            ) ?? 0
+            )
+            let keywordEmbeddingScore = NLTextProcessing.embeddingSimilarity(
+                query: query,
+                document: memory.keywords.joined(separator: " "),
+                languageHint: resolvedLanguageHint ?? documentLanguageHint
+            )
+            let embeddingScore = max(rawEmbeddingScore ?? 0, keywordEmbeddingScore ?? 0)
 
             let decay = computeDecay(memory)
             let recencyScore = decay * 0.15
@@ -297,7 +303,9 @@ class MemoryService {
         "excited", "frustrated", "confused", "sorry", "sure", "fine", "good",
         "great", "ok", "okay", "here", "there", "just", "not", "also", "very",
         "really", "quite", "pretty", "currently", "still", "always", "never",
-        "wondering", "curious", "interested", "based", "located"
+        "wondering", "curious", "interested", "based", "located",
+        "so", "well", "and", "but", "the", "from", "that", "this",
+        "feeling", "honestly", "actually"
     ]
 
     private func normalizeApostrophes(_ text: String) -> String {
@@ -395,12 +403,14 @@ class MemoryService {
         }
 
         let factPatterns = [
-            #"(?i)i (?:work|live|study|am from|was born|am a|am an|grew up) (.+?)(?:[.,!]|$)"#,
-            #"(?i)i have (?:a |an )?(.+?)(?:[.,!]|$)"#,
+            #"(?i)i (?:work|live|study|am from|was born|grew up) (.+?)(?:[.,!]|$)"#,
+            #"(?i)i have (?:a |an )(.+?)(?:[.,!]|$)"#,
             #"(?i)i(?:'m| am) from (.+?)(?:[.,!]|$)"#,
             #"(?i)i(?:'m| am) (?:a |an )(.+?)(?:[.,!]|$)"#,
             #"(?i)i(?:'m| am) based (?:in|out of) (.+?)(?:[.,!]|$)"#,
             #"(?i)i (?:was raised|grew up) (?:in|near) (.+?)(?:[.,!]|$)"#,
+            #"(?i)i(?:'m| am) (?:currently |now )?(?:working|living|studying|based) (?:at|in|on|for) (.+?)(?:[.,!]|$)"#,
+            #"(?i)i (?:own|drive|speak|play) (.+?)(?:[.,!]|$)"#,
         ]
         for pattern in factPatterns {
             if let regex = try? NSRegularExpression(pattern: pattern),
@@ -423,21 +433,31 @@ class MemoryService {
     }
 
     private func addMemoryWithDedup(_ memory: MemoryEntry) {
-        for existing in memories {
+        var bestMatch: (index: Int, similarity: Double)?
+        for (idx, existing) in memories.enumerated() {
             let similarity = contentSimilarity(memory.content, existing.content)
-            if similarity > 0.85 {
-                if memory.importance > existing.importance {
-                    var updated = existing
-                    updated.content = memory.content
-                    updated.keywords = Array(Set(existing.keywords + memory.keywords))
-                    updated.importance = max(existing.importance, memory.importance)
-                    updated.lastAccessed = Date().timeIntervalSince1970 * 1000
-                    addMemory(updated)
-                } else {
-                    reinforceMemory(existing.id)
+            let categorySame = memory.category == existing.category
+            let threshold: Double = categorySame ? 0.65 : 0.85
+            if similarity > threshold {
+                if bestMatch == nil || similarity > bestMatch!.similarity {
+                    bestMatch = (idx, similarity)
                 }
-                return
             }
+        }
+
+        if let match = bestMatch {
+            let existing = memories[match.index]
+            if memory.importance >= existing.importance || memory.content.count > existing.content.count {
+                var updated = existing
+                updated.content = memory.content
+                updated.keywords = Array(Set(existing.keywords + memory.keywords))
+                updated.importance = max(existing.importance, memory.importance)
+                updated.lastAccessed = Date().timeIntervalSince1970 * 1000
+                addMemory(updated)
+            } else {
+                reinforceMemory(existing.id)
+            }
+            return
         }
         addMemory(memory)
     }
@@ -448,7 +468,17 @@ class MemoryService {
         guard !tokensA.isEmpty || !tokensB.isEmpty else { return 0 }
         let intersection = tokensA.intersection(tokensB).count
         let union = tokensA.union(tokensB).count
-        return union > 0 ? Double(intersection) / Double(union) : 0
+        let jaccardScore = union > 0 ? Double(intersection) / Double(union) : 0
+
+        let normA = a.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let normB = b.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if normA == normB { return 1.0 }
+        if normA.contains(normB) || normB.contains(normA) {
+            let ratio = Double(min(normA.count, normB.count)) / Double(max(normA.count, normB.count))
+            return max(jaccardScore, ratio)
+        }
+
+        return jaccardScore
     }
 
     private func consolidateMemories() {

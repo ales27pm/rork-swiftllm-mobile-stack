@@ -141,6 +141,17 @@ struct MetacognitionEngine {
         else if wordCount > 25 { score += 1.5 }
         else if wordCount > 12 { score += 0.5 }
 
+        let emotionalComplexityPatterns = [
+            #"(?i)\b(stressed|frustrated|confused|struggling|can'?t figure|overwhelmed|stuck on)\b"#,
+            #"(?i)\b(complex|complicated|difficult|hard|challenging|tricky)\b"#,
+        ]
+        for pattern in emotionalComplexityPatterns {
+            if let regex = try? NSRegularExpression(pattern: pattern),
+               regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil {
+                score += 0.75
+            }
+        }
+
         let sentences = text.components(separatedBy: CharacterSet(charactersIn: ".!?"))
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         if sentences.count > 3 { score += 1 }
@@ -208,9 +219,9 @@ struct MetacognitionEngine {
 
         if text.contains("?") && text.filter({ $0 == "?" }).count > 1 { score += 1 }
 
-        if score >= 6 { return .expert }
-        if score >= 3.5 { return .complex }
-        if score >= 1.5 { return .moderate }
+        if score >= 5.5 { return .expert }
+        if score >= 3.0 { return .complex }
+        if score >= 1.2 { return .moderate }
         return .simple
     }
 

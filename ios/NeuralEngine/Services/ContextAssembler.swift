@@ -1,7 +1,7 @@
 import Foundation
 
 struct ContextAssembler {
-    private static let injectionTokenBudget = 1500
+    private static let injectionTokenBudget = 2000
     private static let conversationSummaryThreshold = 12
 
     static func assembleSystemPrompt(
@@ -129,13 +129,21 @@ struct ContextAssembler {
             grouped[cat, default: []].append(result)
         }
 
+        let categoryOrder: [String] = ["fact", "preference", "instruction", "context", "emotion", "skill"]
+        let sortedCategories = grouped.keys.sorted { a, b in
+            let idxA = categoryOrder.firstIndex(of: a) ?? categoryOrder.count
+            let idxB = categoryOrder.firstIndex(of: b) ?? categoryOrder.count
+            return idxA < idxB
+        }
+
         var parts: [String] = ["[Relevant Memories]"]
-        for (category, results) in grouped.sorted(by: { $0.key < $1.key }) {
+        for category in sortedCategories {
+            guard let results = grouped[category] else { continue }
             parts.append("  \(category.capitalized):")
-            for result in results.prefix(3) {
+            for result in results.prefix(4) {
                 let tag = result.matchType == .associative ? "related" : "recall"
                 let score = Int(result.score * 100)
-                parts.append("    - [\(tag)|\(score)%] \(String(result.memory.content.prefix(150)))")
+                parts.append("    - [\(tag)|\(score)%] \(String(result.memory.content.prefix(180)))")
             }
         }
 
@@ -281,7 +289,8 @@ struct ContextAssembler {
         var summary = "[Conversation Context]\n"
         summary += "This is a long conversation (\(userMessages.count) user messages, \(assistantMessages.count) responses).\n"
         summary += "Early topics discussed: \(earlyTopics.joined(separator: "; "))\n"
-        summary += "Maintain consistency with earlier responses. If you contradicted yourself, acknowledge it."
+        summary += "Maintain consistency with earlier responses. If you contradicted yourself, acknowledge it.\n"
+        summary += "Recent focus: \(userMessages.suffix(3).map { String($0.content.prefix(40)) }.joined(separator: "; "))"
 
         return summary
     }

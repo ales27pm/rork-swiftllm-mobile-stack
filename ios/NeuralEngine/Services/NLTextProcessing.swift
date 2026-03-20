@@ -90,23 +90,48 @@ struct NLTextProcessing {
 
     static func embeddingSimilarity(query: String, document: String, languageHint: String? = nil) -> Double? {
         let language = detectLanguage(for: query + "\n" + document, preferredHint: languageHint)
-        guard let language, let embedding = NLEmbedding.sentenceEmbedding(for: language) ?? NLEmbedding.wordEmbedding(for: language) else {
-            return nil
+        guard let language else { return nil }
+
+        let sentenceEmbedding = NLEmbedding.sentenceEmbedding(for: language)
+        let wordEmbedding = NLEmbedding.wordEmbedding(for: language)
+        guard sentenceEmbedding != nil || wordEmbedding != nil else { return nil }
+
+        var bestScore: Double?
+
+        if let sentenceEmbedding {
+            let sentenceDistance = sentenceEmbedding.distance(between: query, and: document)
+            if sentenceDistance.isFinite {
+                bestScore = max(0, 1 - Double(sentenceDistance))
+            }
         }
 
-        let sentenceDistance = embedding.distance(between: query, and: document)
-        if sentenceDistance.isFinite {
-            return max(0, 1 - Double(sentenceDistance))
+        if let wordEmbedding {
+            let queryTerms = stemmedTerms(query, languageHint: language.rawValue, droppingStopWords: true)
+            let documentTerms = stemmedTerms(document, languageHint: language.rawValue, droppingStopWords: true)
+            if !queryTerms.isEmpty && !documentTerms.isEmpty {
+                let queryVectors = queryTerms.compactMap { wordEmbedding.vector(for: $0) }
+                let documentVectors = documentTerms.compactMap { wordEmbedding.vector(for: $0) }
+                if let queryMean = meanVector(queryVectors), let docMean = meanVector(documentVectors) {
+                    let wordScore = cosineSimilarity(queryMean, docMean)
+                    bestScore = max(bestScore ?? 0, wordScore)
+                }
+
+                var maxSimSum: Double = 0
+                for qVec in queryVectors {
+                    var maxSim: Double = 0
+                    for dVec in documentVectors {
+                        maxSim = max(maxSim, cosineSimilarity(qVec, dVec))
+                    }
+                    maxSimSum += maxSim
+                }
+                if !queryVectors.isEmpty {
+                    let softAlignScore = maxSimSum / Double(queryVectors.count)
+                    bestScore = max(bestScore ?? 0, softAlignScore)
+                }
+            }
         }
 
-        let queryTerms = stemmedTerms(query, languageHint: language.rawValue, droppingStopWords: true)
-        let documentTerms = stemmedTerms(document, languageHint: language.rawValue, droppingStopWords: true)
-        guard !queryTerms.isEmpty, !documentTerms.isEmpty else { return nil }
-
-        let queryVectors = queryTerms.compactMap { embedding.vector(for: $0) }
-        let documentVectors = documentTerms.compactMap { embedding.vector(for: $0) }
-        guard let queryMean = meanVector(queryVectors), let docMean = meanVector(documentVectors) else { return nil }
-        return cosineSimilarity(queryMean, docMean)
+        return bestScore
     }
 
     private static func tokenize(text: String, unit: NLTokenUnit) -> [String] {

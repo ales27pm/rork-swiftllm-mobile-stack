@@ -9,8 +9,9 @@ struct IntentClassifier {
 
         (#"(?i)^(what|who|where|when)\s+(is|are|was|were)\b"#, .questionFactual, 0.85),
         (#"(?i)\b(define|definition|meaning of)\b"#, .questionFactual, 0.9),
-        (#"(?i)\bhow\s+(does|do|did|is|are|can)\b"#, .questionHow, 0.85),
+        (#"(?i)\bhow\s+(does|do|did|is|are|can|could|would)\b"#, .questionHow, 0.85),
         (#"(?i)\bhow\s+to\b"#, .questionHow, 0.9),
+        (#"(?i)\bhow\s+come\b"#, .questionHow, 0.95),
         (#"(?i)\bwhy\s+(is|are|does|do|did|would|can)\b"#, .questionWhy, 0.85),
         (#"(?i)\b(compare|versus|vs\.?|difference between|better|worse)\b"#, .questionComparison, 0.85),
         (#"(?i)\b(think|opinion|feel about|believe|reckon)\b"#, .questionOpinion, 0.7),
@@ -19,22 +20,27 @@ struct IntentClassifier {
         (#"(?i)\b(story|poem|essay|article|blog|song|script)\b"#, .requestCreation, 0.75),
         (#"(?i)\b(analyze|analysis|examine|evaluate|assess|review|critique)\b"#, .requestAnalysis, 0.85),
         (#"(?i)\b(search|look up|find|google|browse)\b"#, .requestSearch, 0.85),
+        (#"(?i)\b(summarize|summary|summarise|key points|main points|takeaways|overview)\b"#, .requestAnalysis, 0.8),
         (#"(?i)\b(remember|recall|what did i|do you remember|my previous)\b"#, .requestMemory, 0.9),
         (#"(?i)\b(calculate|compute|math|equation|solve|formula)\b"#, .requestCalculation, 0.9),
         (#"(?i)\b(do|make|set|get|open|turn|start|stop|send|schedule|create)\b.*\b(for me|please|now)\b"#, .requestAction, 0.75),
 
         (#"(?i)\b(i feel|i'?m feeling|i am feeling|feeling)\b"#, .statementEmotion, 0.85),
         (#"(?i)\b(i think|in my opinion|i believe|personally)\b"#, .statementOpinion, 0.75),
-        (#"(?i)\b(always|never|don'?t|make sure|from now on|going forward)\b"#, .statementInstruction, 0.65),
-        (#"(?i)\b(did you know|fun fact|actually|the truth is)\b"#, .statementFact, 0.7),
+        (#"(?i)\b(always|never|don'?t|make sure|from now on|going forward)\b.*\b(remember|use|do|keep|with me|when)\b"#, .statementInstruction, 0.95),
+        (#"(?i)\b(did you know|fun fact|the truth is)\b"#, .statementFact, 0.7),
+        (#"(?i)^i\s+(work|live|study|am from|was born|have|am a|am an|grew up)\b"#, .statementFact, 0.85),
 
-        (#"(?i)\b(no|wrong|incorrect|that'?s not|you'?re wrong|actually)\b"#, .metaCorrection, 0.7),
+        (#"(?i)\b(no|wrong|incorrect|that'?s not|you'?re wrong)\b"#, .metaCorrection, 0.7),
         (#"(?i)\b(what do you mean|clarify|elaborate|more detail|be more specific)\b"#, .metaClarification, 0.85),
         (#"(?i)\b(good job|well done|that'?s great|perfect|exactly|not helpful|bad answer|improve)\b"#, .metaFeedback, 0.8),
 
-        (#"(?i)\b(brainstorm|ideas|suggest|what if|imagine|suppose)\b"#, .explorationBrainstorm, 0.8),
+        (#"(?i)\b(brainstorm|ideas|suggest|imagine|suppose)\b"#, .explorationBrainstorm, 0.8),
         (#"(?i)\b(debate|argue|devil'?s advocate|counter|challenge)\b"#, .explorationDebate, 0.8),
-        (#"(?i)\b(hypothetical|scenario|what would happen|if.*then)\b"#, .explorationHypothetical, 0.8),
+        (#"(?i)\bwhat\s+if\b(?!.*\bthen\b)"#, .explorationHypothetical, 0.9),
+        (#"(?i)\b(hypothetical|scenario|what would happen)\b"#, .explorationHypothetical, 0.85),
+        (#"(?i)\bwhat\s+if\b.*\bthen\b"#, .explorationHypothetical, 0.9),
+        (#"(?i)\b(?:what if|imagine if|suppose)\b.+\b(?:didn'?t|didn t|doesn'?t|doesn t|weren'?t|wasn'?t|couldn'?t|wouldn'?t)\s+exist"#, .explorationHypothetical, 1.0),
     ]
 
     static func classify(text: String, conversationHistory: [Message], languageHint: String? = nil) -> IntentClassification {
@@ -73,7 +79,10 @@ struct IntentClassifier {
         let confidence = min(1.0, topScore / 2.0)
 
         let urgency = detectUrgency(text: text, normalizedText: processed.normalizedText)
-        let isMultiIntent = sorted.count >= 2 && (sorted[1].value / max(sorted[0].value, 0.01)) > 0.6
+        let secondScore = sorted.count >= 2 ? sorted[1].value : 0
+        let firstScore = max(sorted.first?.value ?? 0, 0.01)
+        let hasMultipleVerbs = detectMultipleActionVerbs(text: text)
+        let isMultiIntent = (sorted.count >= 2 && (secondScore / firstScore) > 0.6) || (sorted.count >= 2 && hasMultipleVerbs && secondScore > 0.3)
         let subIntents = isMultiIntent ? sorted.prefix(3).map(\.key) : [primary]
 
         let requiresAction = [.requestAction, .requestSearch, .requestCalculation, .requestMemory].contains(primary)
@@ -113,7 +122,28 @@ struct IntentClassifier {
         return urgency
     }
 
+    private static func detectMultipleActionVerbs(text: String) -> Bool {
+        let actionVerbs = ["search", "find", "summarize", "summarise", "analyze", "write", "create", "calculate", "remember", "compare", "explain", "list", "translate", "review"]
+        let lower = text.lowercased()
+        var count = 0
+        for verb in actionVerbs where lower.contains(verb) { count += 1 }
+        let hasConjunction = lower.contains(" and ") || lower.contains(" then ") || lower.contains(", ")
+        return count >= 2 && hasConjunction
+    }
+
     private static func determineResponseLength(intent: IntentType, text: String) -> ResponseLength {
+        let complexIndicators = [
+            #"(?i)\b(philosophical|implications|societal|ethical|moral|existential|paradigm)\b"#,
+            #"(?i)\b(analyze|examine|evaluate|discuss|explore)\b.*\b(implications|impact|consequences|effects|relationship)\b"#,
+            #"(?i)\b(relationship between|interplay|intersection)\b"#,
+        ]
+        let hasComplexIndicator = complexIndicators.contains { pattern in
+            (try? NSRegularExpression(pattern: pattern))?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+        }
+        if hasComplexIndicator && text.count > 40 {
+            return .comprehensive
+        }
+
         switch intent {
         case .socialGreeting, .socialFarewell, .socialGratitude, .socialApology:
             return .brief
@@ -122,13 +152,13 @@ struct IntentClassifier {
         case .questionFactual:
             return text.count > 50 ? .moderate : .brief
         case .questionHow, .questionWhy, .questionComparison:
-            return .detailed
+            return text.count > 80 ? .comprehensive : .detailed
         case .requestAnalysis, .explorationDebate:
             return .comprehensive
         case .requestCreation:
             return .detailed
         case .explorationBrainstorm, .explorationHypothetical:
-            return .detailed
+            return text.count > 60 ? .comprehensive : .detailed
         default:
             return .moderate
         }

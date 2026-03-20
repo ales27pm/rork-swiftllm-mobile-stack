@@ -90,9 +90,12 @@ struct CuriosityDetector {
         let extractionPatterns: [(pattern: String, group: Int)] = [
             (#"(?i)(?:what|who|where)\s+(?:is|are|was|were)\s+(.+?)(?:\?|$)"#, 1),
             (#"(?i)(?:tell\s+me\s+about|explain)\s+(.+?)(?:\?|$)"#, 1),
-            (#"(?i)(?:how\s+does|how\s+do|how\s+to)\s+(.+?)(?:\?|$)"#, 1),
-            (#"(?i)(?:why\s+(?:is|are|does|do))\s+(.+?)(?:\?|$)"#, 1),
+            (#"(?i)(?:how\s+does|how\s+do|how\s+to|how\s+come)\s+(.+?)(?:\?|$)"#, 1),
+            (#"(?i)(?:why\s+(?:is|are|does|do|did|would|can))\s+(.+?)(?:\?|$)"#, 1),
             (#"(?i)(?:difference\s+between)\s+(.+?)(?:\?|$)"#, 1),
+            (#"(?i)(?:what\s+if)\s+(.+?)(?:\?|$)"#, 1),
+            (#"(?i)(?:can\s+you\s+explain|teach\s+me\s+about)\s+(.+?)(?:\?|$)"#, 1),
+            (#"(?i)(?:interested\s+in|curious\s+about|wondering\s+about)\s+(.+?)(?:\?|$)"#, 1),
         ]
 
         for (pattern, group) in extractionPatterns {
@@ -104,6 +107,13 @@ struct CuriosityDetector {
                 if topic.count > 2 && topic.count < 100 {
                     topics.append(topic)
                 }
+            }
+        }
+
+        let processed = NLTextProcessing.process(text: text)
+        if !processed.namedEntities.isEmpty {
+            for entity in processed.namedEntities where !topics.contains(where: { $0.lowercased().contains(entity.lowercased()) }) {
+                topics.append(entity)
             }
         }
 
@@ -121,7 +131,9 @@ struct CuriosityDetector {
                 .map(String.init)
                 .filter { $0.count > 2 && !stopWords.contains($0) }
 
-            topics = Array(Set(words).prefix(3))
+            var freq: [String: Int] = [:]
+            for w in words { freq[w, default: 0] += 1 }
+            topics = freq.sorted { $0.value > $1.value }.prefix(3).map(\.key)
         }
 
         return topics
@@ -150,15 +162,35 @@ struct CuriosityDetector {
 
         if memoryResults.isEmpty { return 0.9 }
 
+        let topicLower = Set(topics.map { $0.lowercased() })
+        var topicCovered = 0
+        for result in memoryResults {
+            let contentLower = result.memory.content.lowercased()
+            for topic in topicLower {
+                if contentLower.contains(topic) || topic.split(separator: " ").allSatisfy({ contentLower.contains($0) }) {
+                    topicCovered += 1
+                    break
+                }
+            }
+        }
+
+        let coverageRatio = Double(topicCovered) / Double(max(memoryResults.count, 1))
         let avgScore = memoryResults.map(\.score).reduce(0, +) / Double(memoryResults.count)
-        let gap = 1.0 - min(1.0, avgScore * 1.5)
-        return max(0.1, gap)
+        let scoreGap = 1.0 - min(1.0, avgScore * 1.5)
+        let coverageGap = 1.0 - coverageRatio
+        return max(0.1, scoreGap * 0.6 + coverageGap * 0.4)
     }
 
     private static func generateSuggestedQueries(topics: [String]) -> [String] {
         guard !topics.isEmpty else { return [] }
+        let templates: [(String, String)] = [
+            ("Learn more about", "Related concepts to"),
+            ("Deep dive into", "Practical applications of"),
+            ("History of", "Latest developments in"),
+        ]
+        let template = templates[min(topics.count - 1, templates.count - 1)]
         return topics.prefix(2).flatMap { topic -> [String] in
-            ["Learn more about \(topic)", "Related concepts to \(topic)"]
+            ["\(template.0) \(topic)", "\(template.1) \(topic)"]
         }
     }
 
