@@ -572,6 +572,7 @@ class ModelLoaderService {
                 }
 
                 modelStatuses[modelID] = .ready
+                autoActivateIfNeeded(modelID)
             } catch {
                 if !Task.isCancelled {
                     modelStatuses[modelID] = .failed(error.localizedDescription)
@@ -580,6 +581,11 @@ class ModelLoaderService {
         }
 
         downloadTasks[modelID] = task
+    }
+
+    private func autoActivateIfNeeded(_ modelID: String) {
+        guard activeModelID == nil else { return }
+        activateModel(modelID)
     }
 
     private func buildModelDownloadPatterns(for manifest: ModelManifest) -> [[String]] {
@@ -677,6 +683,7 @@ class ModelLoaderService {
                 }
 
                 modelStatuses[modelID] = .ready
+                autoActivateIfNeeded(modelID)
             } catch {
                 if !Task.isCancelled {
                     modelStatuses[modelID] = .failed(error.localizedDescription)

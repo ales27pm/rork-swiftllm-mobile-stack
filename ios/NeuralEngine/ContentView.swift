@@ -21,6 +21,7 @@ struct ContentView: View {
     @State private var speechViewModel = SpeechViewModel()
     @State private var assistantAgent: AssistantAgent?
     @State private var permissionCoordinator = FirstRunPermissionCoordinator()
+    @State private var showOnboarding: Bool = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -67,6 +68,9 @@ struct ContentView: View {
         .task {
             setupViewModels()
             await permissionCoordinator.requestAllPermissionsIfNeeded(using: keyValueStore)
+            if !keyValueStore.has("onboarding_completed") {
+                showOnboarding = true
+            }
         }
         .sheet(isPresented: $toolExecutor.showInAppBrowser) {
             if let url = toolExecutor.browserURL {
@@ -75,6 +79,12 @@ struct ContentView: View {
         }
         .onChange(of: modelLoader.activeModelID) { _, _ in
             chatViewModel?.syncEngineFormat()
+        }
+        .fullScreenCover(isPresented: $showOnboarding) {
+            OnboardingView(modelLoader: modelLoader) {
+                keyValueStore.setBool(true, forKey: "onboarding_completed")
+                showOnboarding = false
+            }
         }
     }
 

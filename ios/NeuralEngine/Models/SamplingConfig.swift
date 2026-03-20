@@ -1,6 +1,6 @@
 import Foundation
 
-struct SamplingConfig: Sendable {
+nonisolated struct SamplingConfig: Sendable {
     var temperature: Float = 0.8
     var topK: Int = 40
     var topP: Float = 0.95

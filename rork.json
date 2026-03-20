@@ -2,7 +2,7 @@
   "apps": [
     {
       "name": "NeuralEngine",
-      "path": ".",
+      "path": "ios",
       "framework": "swift"
     }
   ]
