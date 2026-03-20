@@ -193,7 +193,11 @@ class MemoryService {
             let importanceScore = Double(memory.importance) / 5.0 * 0.2
             let activationBonus = memory.activationLevel * 0.15
             let hybridLexicalScore = (tfidfScore * 0.5) + (lexicalOverlap * 0.25) + (keywordBonus * 0.25)
-            let semanticScore = embeddingScore * 0.35
+            var semanticWeight: Double = 0.35
+            if hybridLexicalScore < 0.05 && embeddingScore > 0.2 {
+                semanticWeight = 0.65
+            }
+            let semanticScore = embeddingScore * semanticWeight
             let totalScore = hybridLexicalScore + semanticScore + recencyScore + importanceScore + activationBonus
 
             var matchType: RetrievalResult.MatchType = semanticScore > hybridLexicalScore ? .semantic : .keyword
@@ -305,7 +309,9 @@ class MemoryService {
         "really", "quite", "pretty", "currently", "still", "always", "never",
         "wondering", "curious", "interested", "based", "located",
         "so", "well", "and", "but", "the", "from", "that", "this",
-        "feeling", "honestly", "actually"
+        "feeling", "honestly", "actually",
+        "i", "or", "who", "which", "at", "in", "on", "for", "with", "my",
+        "work", "have", "am", "was", "been", "it", "we", "they", "a", "an"
     ]
 
     private func normalizeApostrophes(_ text: String) -> String {
@@ -331,7 +337,14 @@ class MemoryService {
             if let regex = try? NSRegularExpression(pattern: pattern),
                let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)),
                let range = Range(match.range(at: 1), in: normalized) {
-                let name = String(normalized[range]).trimmingCharacters(in: .whitespaces)
+                let rawCapture = String(normalized[range]).trimmingCharacters(in: .whitespaces)
+                let nameWords = rawCapture.split(separator: " ").map(String.init)
+                var cleanWords: [String] = []
+                for word in nameWords {
+                    if Self.nonNameWords.contains(word.lowercased()) { break }
+                    cleanWords.append(word)
+                }
+                let name = cleanWords.joined(separator: " ")
                 if name.count > 1 && name.count < 30 && !Self.nonNameWords.contains(name.lowercased()) {
                     entries.append(MemoryEntry(
                         content: "User's name is \(name)",

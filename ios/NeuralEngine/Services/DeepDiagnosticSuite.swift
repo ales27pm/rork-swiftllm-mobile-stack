@@ -33,6 +33,8 @@ extension DiagnosticEngine {
             DiagnosticTestResult(name: "Consolidation Under Pressure (50 entries)", category: .memoryQuality),
             DiagnosticTestResult(name: "Memory Extraction Accuracy (10 patterns)", category: .memoryQuality),
             DiagnosticTestResult(name: "Cross-Category Search Diversity", category: .memoryQuality),
+            DiagnosticTestResult(name: "Name Extraction Robustness (8 patterns)", category: .memoryQuality),
+            DiagnosticTestResult(name: "Hybrid Search Score Distribution", category: .memoryQuality),
         ])
 
         tests.append(contentsOf: [
@@ -80,6 +82,8 @@ extension DiagnosticEngine {
             DiagnosticTestResult(name: "Emotion→Intent→Metacognition Coherence", category: .regressionE2E),
             DiagnosticTestResult(name: "NLP Cross-Language Pipeline (EN/FR)", category: .regressionE2E),
             DiagnosticTestResult(name: "Voice Pipeline: Cognition → Prompt → Voice Format", category: .regressionE2E),
+            DiagnosticTestResult(name: "Memory Extract → Dedup → Search Round-Trip", category: .regressionE2E),
+            DiagnosticTestResult(name: "Associative Graph Traversal Integrity", category: .regressionE2E),
         ])
 
         return tests
@@ -129,6 +133,10 @@ extension DiagnosticEngine {
             return deepTestMemoryExtraction()
         case (.memoryQuality, "Cross-Category Search Diversity"):
             return deepTestSearchDiversity()
+        case (.memoryQuality, "Name Extraction Robustness (8 patterns)"):
+            return deepTestNameExtractionRobustness()
+        case (.memoryQuality, "Hybrid Search Score Distribution"):
+            return deepTestHybridSearchScoreDistribution()
 
         case (.cognitionQuality, "Complexity Gradient (5 levels)"):
             return deepTestComplexityGradient()
@@ -198,6 +206,10 @@ extension DiagnosticEngine {
             return deepTestCrossLanguage()
         case (.regressionE2E, "Voice Pipeline: Cognition → Prompt → Voice Format"):
             return deepTestVoicePipeline()
+        case (.regressionE2E, "Memory Extract → Dedup → Search Round-Trip"):
+            return deepTestMemoryExtractDedupSearch()
+        case (.regressionE2E, "Associative Graph Traversal Integrity"):
+            return deepTestAssociativeGraphIntegrity()
 
         default:
             return TestOutcome(status: .skipped, message: "No deep test implementation", details: [])
@@ -857,6 +869,84 @@ extension DiagnosticEngine {
             status: categories.count >= 2 ? .passed : .warning,
             message: "Search diversity: \(categories.count) categories in results (\(results.count) total results)",
             details: results.map { "[\($0.memory.category.rawValue)] \($0.memory.content.prefix(50))… score=\(String(format: "%.3f", $0.score))" }
+        )
+    }
+
+    private func deepTestNameExtractionRobustness() -> TestOutcome {
+        guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
+
+        let testCases: [(user: String, expectedName: String)] = [
+            ("My name is Sarah", "Sarah"),
+            ("I'm Alex and I love coding", "Alex"),
+            ("Call me Viktor", "Viktor"),
+            ("People call me Zara", "Zara"),
+            ("My name is Jordan and I work at Google", "Jordan"),
+            ("I'm Mei from Tokyo", "Mei"),
+            ("My name is Anna Marie", "Anna Marie"),
+            ("They call me Dex", "Dex"),
+        ]
+
+        let allTestNames = testCases.map(\.expectedName)
+        let residualIds = mem.memories.filter { m in allTestNames.contains(where: { m.content.localizedCaseInsensitiveContains($0) }) }.map(\.id)
+        for id in residualIds { mem.deleteMemory(id) }
+
+        var extracted = 0
+        var details: [String] = []
+
+        for tc in testCases {
+            let countBefore = mem.memories.count
+            mem.extractAndStoreMemory(userText: tc.user, assistantText: "Nice to meet you!")
+            let countAfter = mem.memories.count
+            let nameFound = mem.memories.contains { $0.content.localizedCaseInsensitiveContains(tc.expectedName) && $0.content.lowercased().contains("name") }
+            if nameFound { extracted += 1 }
+            details.append("'\(tc.user.prefix(40))\u{2026}' \u{2192} \(tc.expectedName): \(nameFound ? "\u{2713}" : "MISSED") (+\(countAfter - countBefore) entries)")
+        }
+
+        let cleanupIds = mem.memories.filter { m in allTestNames.contains(where: { m.content.localizedCaseInsensitiveContains($0) }) }.map(\.id)
+        for id in cleanupIds { mem.deleteMemory(id) }
+
+        return TestOutcome(
+            status: extracted >= 6 ? .passed : (extracted >= 4 ? .warning : .failed),
+            message: "Name extraction robustness: \(extracted)/\(testCases.count) patterns extracted",
+            details: details
+        )
+    }
+
+    private func deepTestHybridSearchScoreDistribution() -> TestOutcome {
+        guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
+
+        let keywordEntry = MemoryEntry(content: "User loves Python programming language for data science", keywords: ["python", "programming", "data science"], category: .preference, importance: 4, source: .conversation)
+        let semanticEntry = MemoryEntry(content: "User enjoys writing code and building software applications", keywords: ["coding", "software", "applications"], category: .preference, importance: 4, source: .conversation)
+        let irrelevantEntry = MemoryEntry(content: "User's favorite food is spaghetti carbonara", keywords: ["food", "spaghetti", "carbonara"], category: .preference, importance: 4, source: .conversation)
+
+        mem.addMemory(keywordEntry)
+        mem.addMemory(semanticEntry)
+        mem.addMemory(irrelevantEntry)
+
+        let results = mem.searchMemories(query: "Python programming", maxResults: 10)
+        let keywordScore = results.first(where: { $0.memory.id == keywordEntry.id })?.score ?? 0
+        let semanticScore = results.first(where: { $0.memory.id == semanticEntry.id })?.score ?? 0
+        let irrelevantScore = results.first(where: { $0.memory.id == irrelevantEntry.id })?.score ?? 0
+
+        mem.deleteMemory(keywordEntry.id)
+        mem.deleteMemory(semanticEntry.id)
+        mem.deleteMemory(irrelevantEntry.id)
+
+        var checks = 0
+        var details: [String] = [
+            "Keyword match score: \(String(format: "%.3f", keywordScore))",
+            "Semantic match score: \(String(format: "%.3f", semanticScore))",
+            "Irrelevant score: \(String(format: "%.3f", irrelevantScore))",
+        ]
+
+        if keywordScore > semanticScore { checks += 1; details.append("Keyword > Semantic: \u{2713}") } else { details.append("Keyword > Semantic: \u{2717}") }
+        if keywordScore > irrelevantScore { checks += 1; details.append("Keyword > Irrelevant: \u{2713}") } else { details.append("Keyword > Irrelevant: \u{2717}") }
+        if semanticScore > irrelevantScore { checks += 1; details.append("Semantic > Irrelevant: \u{2713}") } else { details.append("Semantic > Irrelevant: \u{2717}") }
+
+        return TestOutcome(
+            status: checks >= 2 ? .passed : (checks >= 1 ? .warning : .failed),
+            message: "Score distribution: \(checks)/3 ordering checks passed (K=\(String(format: "%.3f", keywordScore)), S=\(String(format: "%.3f", semanticScore)), I=\(String(format: "%.3f", irrelevantScore)))",
+            details: details
         )
     }
 
@@ -1841,6 +1931,89 @@ extension DiagnosticEngine {
             status: passed >= 3 ? .passed : .warning,
             message: "Voice pipeline: \(passed)/\(checks.count). Voice prompt: \(voicePrompt.count) chars, Text prompt: \(textPrompt.count) chars",
             details: checks.map { "\($0.0): \($0.1 ? "✓" : "✗")" }
+        )
+    }
+
+    private func deepTestMemoryExtractDedupSearch() -> TestOutcome {
+        guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
+
+        let tag = UUID().uuidString.prefix(6)
+        let before = mem.memories.count
+
+        mem.extractAndStoreMemory(userText: "I really love classical piano music and \(tag)", assistantText: "That's wonderful!")
+        let afterFirst = mem.memories.count
+        let firstAdded = afterFirst - before
+
+        mem.extractAndStoreMemory(userText: "I really love classical piano music and \(tag)", assistantText: "Yes, I know you enjoy piano!")
+        let afterSecond = mem.memories.count
+        let secondAdded = afterSecond - afterFirst
+
+        let searchResults = mem.searchMemories(query: "classical piano music \(tag)", maxResults: 5)
+        let foundInSearch = searchResults.contains { $0.memory.content.contains("piano") }
+
+        let cleanupIds = mem.memories.filter { $0.content.contains(String(tag)) || ($0.content.contains("piano") && $0.timestamp > Date().timeIntervalSince1970 * 1000 - 10000) }.map(\.id)
+        for id in cleanupIds { mem.deleteMemory(id) }
+
+        let extractOk = firstAdded > 0
+        let dedupOk = secondAdded == 0
+        let searchOk = foundInSearch
+
+        let checks = [
+            ("Extraction added entries", extractOk),
+            ("Dedup blocked repeat", dedupOk),
+            ("Search found extracted entry", searchOk),
+        ]
+        let passed = checks.filter(\.1).count
+
+        return TestOutcome(
+            status: passed == 3 ? .passed : (passed >= 2 ? .warning : .failed),
+            message: "Round-trip: \(passed)/3. Extract=\(firstAdded), Repeat=\(secondAdded), Found=\(foundInSearch)",
+            details: checks.map { "\($0.0): \($0.1 ? "\u{2713}" : "\u{2717}")" }
+        )
+    }
+
+    private func deepTestAssociativeGraphIntegrity() -> TestOutcome {
+        guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
+
+        let e1 = MemoryEntry(content: "User studies quantum physics at university", keywords: ["quantum", "physics", "university"], category: .fact, importance: 4, source: .conversation)
+        let e2 = MemoryEntry(content: "User reads quantum mechanics textbooks regularly", keywords: ["quantum", "mechanics", "textbooks"], category: .skill, importance: 4, source: .conversation)
+        let e3 = MemoryEntry(content: "User enjoys cooking Italian pasta dishes", keywords: ["cooking", "italian", "pasta"], category: .preference, importance: 4, source: .conversation)
+
+        mem.addMemory(e1)
+        mem.addMemory(e2)
+        mem.addMemory(e3)
+
+        let quantumLinked = mem.associativeLinks.contains {
+            ($0.sourceId == e1.id && $0.targetId == e2.id) ||
+            ($0.sourceId == e2.id && $0.targetId == e1.id)
+        }
+
+        let pastaLinkedToQuantum = mem.associativeLinks.contains {
+            ($0.sourceId == e3.id && $0.targetId == e1.id) ||
+            ($0.sourceId == e1.id && $0.targetId == e3.id)
+        }
+
+        let directResults = mem.searchMemories(query: "quantum physics", maxResults: 3)
+        let assocResults = mem.getAssociativeMemories(query: "quantum", directResults: directResults)
+        let assocIds = Set(assocResults.map(\.memory.id))
+
+        mem.deleteMemory(e1.id)
+        mem.deleteMemory(e2.id)
+        mem.deleteMemory(e3.id)
+
+        var checks = 0
+        var details: [String] = []
+
+        if quantumLinked { checks += 1; details.append("Quantum entries linked: \u{2713}") } else { details.append("Quantum entries linked: \u{2717}") }
+        if !pastaLinkedToQuantum { checks += 1; details.append("Pasta not linked to quantum: \u{2713}") } else { details.append("Pasta incorrectly linked to quantum: \u{2717}") }
+        if !assocResults.isEmpty { checks += 1; details.append("Associative traversal found results: \u{2713} (\(assocResults.count))") } else { details.append("Associative traversal empty: \u{2717}") }
+        let noIrrelevant = !assocIds.contains(e3.id)
+        if noIrrelevant { checks += 1; details.append("No irrelevant associative results: \u{2713}") } else { details.append("Irrelevant entry in associative results: \u{2717}") }
+
+        return TestOutcome(
+            status: checks >= 3 ? .passed : (checks >= 2 ? .warning : .failed),
+            message: "Graph integrity: \(checks)/4 checks. Related linked=\(quantumLinked), unrelated isolated=\(!pastaLinkedToQuantum)",
+            details: details
         )
     }
 }
