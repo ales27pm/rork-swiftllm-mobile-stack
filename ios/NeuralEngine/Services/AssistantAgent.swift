@@ -94,6 +94,9 @@ enum AgentCapability: String, CaseIterable, Identifiable {
     case scan = "Scan"
     case models = "Models"
     case metrics = "Metrics"
+    case reasoning = "Reasoning"
+    case personas = "Personas"
+    case context = "Context"
 
     var id: String { rawValue }
 
@@ -106,6 +109,9 @@ enum AgentCapability: String, CaseIterable, Identifiable {
         case .scan: return "doc.text.viewfinder"
         case .models: return "square.stack.3d.up"
         case .metrics: return "gauge.with.dots.needle.67percent"
+        case .reasoning: return "arrow.triangle.branch"
+        case .personas: return "theatermasks.fill"
+        case .context: return "circle.dashed"
         }
     }
 
@@ -118,6 +124,9 @@ enum AgentCapability: String, CaseIterable, Identifiable {
         case .scan: return "orange"
         case .models: return "indigo"
         case .metrics: return "teal"
+        case .reasoning: return "pink"
+        case .personas: return "mint"
+        case .context: return "yellow"
         }
     }
 }

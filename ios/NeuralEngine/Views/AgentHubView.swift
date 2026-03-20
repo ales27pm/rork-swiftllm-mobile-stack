@@ -91,6 +91,18 @@ struct AgentHubView: View {
                             activeSheet = .memory
                         }
 
+                        Button("Reasoning", systemImage: "arrow.triangle.branch") {
+                            activeSheet = .reasoning
+                        }
+
+                        Button("Personas", systemImage: "theatermasks.fill") {
+                            activeSheet = .personas
+                        }
+
+                        Button("Context Window", systemImage: "circle.dashed") {
+                            activeSheet = .context
+                        }
+
                         Button("Metrics", systemImage: "gauge.with.dots.needle.67percent") {
                             activeSheet = .metrics
                         }
@@ -242,17 +254,23 @@ struct AgentHubView: View {
             capabilityTile("Memory", icon: "brain", color: .purple, badge: agent.memoryCount > 0 ? "\(agent.memoryCount)" : nil) {
                 activeSheet = .memory
             }
+            capabilityTile("Reasoning", icon: "arrow.triangle.branch", color: .pink, badge: chatViewModel.lastCognitionFrame != nil ? "\(chatViewModel.reasoningReplayLog.count)" : nil) {
+                activeSheet = .reasoning
+            }
+            capabilityTile("Personas", icon: "theatermasks.fill", color: .mint, badge: nil) {
+                activeSheet = .personas
+            }
             capabilityTile("Browse", icon: "globe", color: .cyan, badge: nil) {
                 activeSheet = .browse
-            }
-            capabilityTile("Map", icon: "map", color: .green, badge: nil) {
-                activeSheet = .map
             }
             capabilityTile("Scan", icon: "doc.text.viewfinder", color: .orange, badge: nil) {
                 activeSheet = .scan
             }
             capabilityTile("Metrics", icon: "gauge.with.dots.needle.67percent", color: .teal, badge: agent.systemHealthStatus != .optimal ? "!" : nil) {
                 activeSheet = .metrics
+            }
+            capabilityTile("Context", icon: "circle.dashed", color: .yellow, badge: nil) {
+                activeSheet = .context
             }
         }
         .padding(.horizontal, 8)
@@ -616,6 +634,25 @@ struct AgentHubView: View {
                         ToolbarItem(placement: .topBarLeading) {
                             Button("Done") { activeSheet = nil }
                         }
+                    }
+                }
+            }
+        case .reasoning:
+            ReasoningReplayView(chatViewModel: chatViewModel)
+        case .personas:
+            SystemPromptTemplatesView(chatViewModel: chatViewModel)
+        case .context:
+            NavigationStack {
+                ScrollView {
+                    ContextWindowIndicator(chatViewModel: chatViewModel, inferenceEngine: inferenceEngine)
+                        .padding(.top, 16)
+                }
+                .background(Color(.systemGroupedBackground))
+                .navigationTitle("Context Window")
+                .navigationBarTitleDisplayMode(.large)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { activeSheet = nil }
                     }
                 }
             }

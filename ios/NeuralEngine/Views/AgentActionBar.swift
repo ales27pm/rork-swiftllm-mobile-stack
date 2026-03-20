@@ -54,6 +54,9 @@ struct AgentActionBar: View {
         case .scan: return .orange
         case .models: return .indigo
         case .metrics: return .teal
+        case .reasoning: return .pink
+        case .personas: return .mint
+        case .context: return .yellow
         }
     }
 

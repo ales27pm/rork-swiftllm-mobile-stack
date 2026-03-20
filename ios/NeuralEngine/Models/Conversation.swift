@@ -33,3 +33,12 @@ nonisolated struct Conversation: Identifiable, Codable, Sendable {
         return ts + rand
     }
 }
+
+nonisolated struct ConversationSearchResult: Identifiable, Sendable {
+    let id: String = Conversation.generateId()
+    let conversationId: String
+    let conversationTitle: String
+    let matchedContent: String
+    let role: String
+    let isFirstMatchInConversation: Bool
+}

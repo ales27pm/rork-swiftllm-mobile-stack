@@ -39,6 +39,12 @@ class ConversationService {
             );
         """)
         _ = database.execute("CREATE INDEX IF NOT EXISTS idx_conv_msgs ON conversation_messages(conversation_id, timestamp);")
+        _ = database.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS conversation_messages_fts USING fts5(
+                content, conversation_id UNINDEXED, role UNINDEXED,
+                content_rowid='rowid'
+            );
+        """)
     }
 
     func loadConversations() {
@@ -99,6 +105,10 @@ class ConversationService {
             "INSERT OR REPLACE INTO conversation_messages (id, conversation_id, role, content, timestamp, model_id) VALUES (?, ?, ?, ?, ?, ?);",
             params: [message.id.uuidString, conversationId, message.role.rawValue, message.content, message.timestamp.timeIntervalSince1970, ""]
         )
+        _ = database.execute(
+            "INSERT OR REPLACE INTO conversation_messages_fts (rowid, content, conversation_id, role) VALUES ((SELECT rowid FROM conversation_messages WHERE id = ?), ?, ?, ?);",
+            params: [message.id.uuidString, message.content, conversationId, message.role.rawValue]
+        )
     }
 
     func loadMessages(for conversationId: String) -> [Message] {
@@ -115,6 +125,38 @@ class ConversationService {
                   let timestamp = row["timestamp"] as? Double else { return nil }
             return Message(id: id, role: role, content: content, timestamp: Date(timeIntervalSince1970: timestamp))
         }
+    }
+
+    func searchMessages(query: String) -> [ConversationSearchResult] {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        let sanitized = query.replacingOccurrences(of: "\"", with: "")
+        let ftsQuery = sanitized.split(separator: " ").map { "\($0)*" }.joined(separator: " ")
+        let rows = database.query(
+            "SELECT conversation_messages_fts.content, conversation_messages_fts.conversation_id, conversation_messages_fts.role FROM conversation_messages_fts WHERE conversation_messages_fts MATCH ? ORDER BY rank LIMIT 30;",
+            params: [ftsQuery]
+        )
+
+        var results: [ConversationSearchResult] = []
+        var seenConversations: Set<String> = []
+
+        for row in rows {
+            guard let content = row["content"] as? String,
+                  let conversationId = row["conversation_id"] as? String,
+                  let role = row["role"] as? String else { continue }
+
+            let isNew = seenConversations.insert(conversationId).inserted
+            let conversation = conversations.first { $0.id == conversationId }
+
+            results.append(ConversationSearchResult(
+                conversationId: conversationId,
+                conversationTitle: conversation?.title ?? "Conversation",
+                matchedContent: String(content.prefix(200)),
+                role: role,
+                isFirstMatchInConversation: isNew
+            ))
+        }
+
+        return results
     }
 
     func generateTitle(from firstMessage: String) -> String {

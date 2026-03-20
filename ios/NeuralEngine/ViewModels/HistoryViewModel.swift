@@ -6,6 +6,8 @@ class HistoryViewModel {
     let conversationService: ConversationService
 
     var searchText: String = ""
+    var searchResults: [ConversationSearchResult] = []
+    var isDeepSearching: Bool = false
 
     init(conversationService: ConversationService) {
         self.conversationService = conversationService
@@ -20,6 +22,20 @@ class HistoryViewModel {
             $0.title.lowercased().contains(query) ||
             $0.lastMessage.lowercased().contains(query)
         }
+    }
+
+    var hasDeepSearchResults: Bool {
+        !searchText.isEmpty && !searchResults.isEmpty
+    }
+
+    func performDeepSearch() {
+        guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            searchResults = []
+            return
+        }
+        isDeepSearching = true
+        searchResults = conversationService.searchMessages(query: searchText)
+        isDeepSearching = false
     }
 
     func deleteConversation(_ id: String) {

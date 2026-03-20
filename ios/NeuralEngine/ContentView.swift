@@ -22,6 +22,7 @@ struct ContentView: View {
     @State private var assistantAgent: AssistantAgent?
     @State private var permissionCoordinator = FirstRunPermissionCoordinator()
     @State private var showOnboarding: Bool = false
+    @State private var memoryConsolidationScheduler: MemoryConsolidationScheduler?
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -140,6 +141,10 @@ struct ContentView: View {
         modelManagerViewModel = ModelManagerViewModel(modelLoader: modelLoader)
         historyViewModel = HistoryViewModel(conversationService: convService)
         memoryViewModel = MemoryViewModel(memoryService: memService)
+
+        let scheduler = MemoryConsolidationScheduler(memoryService: memService, keyValueStore: keyValueStore)
+        memoryConsolidationScheduler = scheduler
+        scheduler.startScheduledConsolidation()
 
         speechViewModel.attach(to: chatVM)
     }
