@@ -804,6 +804,12 @@ extension DiagnosticEngine {
             ("I'm from Montreal, Canada", "Beautiful city!", "fact"),
         ]
 
+        let residualMarkers = ["Sarah", "dark chocolate", "cold weather", "tech startup", "machine learning", "favorite color", "green", "greet me in French", "Swift programming", "golden retriever", "Max", "Montreal"]
+        let residualIds = mem.memories.filter { m in
+            residualMarkers.contains(where: { m.content.localizedCaseInsensitiveContains($0) })
+        }.map(\.id)
+        for id in residualIds { mem.deleteMemory(id) }
+
         var extracted = 0
         var details: [String] = []
         let before = mem.memories.count
@@ -818,12 +824,12 @@ extension DiagnosticEngine {
         }
 
         let after = mem.memories.count
-        for m in mem.memories where m.timestamp > Date().timeIntervalSince1970 * 1000 - 5000 && !mem.memories.prefix(before).contains(where: { $0.id == m.id }) {
+        for m in mem.memories where m.timestamp > Date().timeIntervalSince1970 * 1000 - 10000 && !mem.memories.prefix(before).contains(where: { $0.id == m.id }) {
             mem.deleteMemory(m.id)
         }
 
         return TestOutcome(
-            status: extracted >= 7 ? .passed : (extracted >= 5 ? .warning : .failed),
+            status: extracted >= 8 ? .passed : (extracted >= 6 ? .warning : .failed),
             message: "Extraction accuracy: \(extracted)/\(testCases.count) patterns extracted (\(after - before) total new memories)",
             details: details
         )

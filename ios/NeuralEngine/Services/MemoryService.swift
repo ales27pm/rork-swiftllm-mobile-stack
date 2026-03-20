@@ -289,22 +289,42 @@ class MemoryService {
         consolidateMemories()
     }
 
+    private static let nonNameWords: Set<String> = [
+        "learning", "working", "trying", "going", "doing", "feeling", "thinking",
+        "looking", "getting", "making", "coming", "running", "playing", "reading",
+        "writing", "living", "studying", "hoping", "planning", "building", "coding",
+        "developing", "designing", "testing", "debugging", "happy", "sad", "tired",
+        "excited", "frustrated", "confused", "sorry", "sure", "fine", "good",
+        "great", "ok", "okay", "here", "there", "just", "not", "also", "very",
+        "really", "quite", "pretty", "currently", "still", "always", "never",
+        "wondering", "curious", "interested", "based", "located"
+    ]
+
+    private func normalizeApostrophes(_ text: String) -> String {
+        text.replacingOccurrences(of: "\u{2019}", with: "'")
+            .replacingOccurrences(of: "\u{2018}", with: "'")
+            .replacingOccurrences(of: "\u{201C}", with: "\"")
+            .replacingOccurrences(of: "\u{201D}", with: "\"")
+    }
+
     private func extractMemorableContent(userText: String, assistantText: String) -> [MemoryEntry] {
         var entries: [MemoryEntry] = []
-        let lower = NLTextProcessing.normalizeForMatching(userText)
-        let processed = NLTextProcessing.process(text: userText)
+        let normalized = normalizeApostrophes(userText)
+        let lower = NLTextProcessing.normalizeForMatching(normalized)
+        let processed = NLTextProcessing.process(text: normalized)
 
         let namePatterns = [
             #"(?i)my name is ([\w\s]+)"#,
-            #"(?i)i'?m ([\w]+)\b"#,
+            #"(?i)(?:i'm|i am) ([A-Z][\w]+)\b"#,
             #"(?i)call me ([\w]+)"#,
+            #"(?i)(?:people |they |everyone )?calls? me ([\w]+)"#,
         ]
         for pattern in namePatterns {
             if let regex = try? NSRegularExpression(pattern: pattern),
-               let match = regex.firstMatch(in: userText, range: NSRange(userText.startIndex..., in: userText)),
-               let range = Range(match.range(at: 1), in: userText) {
-                let name = String(userText[range]).trimmingCharacters(in: .whitespaces)
-                if name.count > 1 && name.count < 30 {
+               let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)),
+               let range = Range(match.range(at: 1), in: normalized) {
+                let name = String(normalized[range]).trimmingCharacters(in: .whitespaces)
+                if name.count > 1 && name.count < 30 && !Self.nonNameWords.contains(name.lowercased()) {
                     entries.append(MemoryEntry(
                         content: "User's name is \(name)",
                         keywords: ["name", name.lowercased()] + processed.namedEntities.map { $0.lowercased() },
@@ -312,20 +332,23 @@ class MemoryService {
                         importance: 5,
                         source: .conversation
                     ))
+                    break
                 }
             }
         }
 
         let preferencePatterns: [(String, String)] = [
-            (#"(?i)i (?:really )?(?:like|love|enjoy|prefer|adore) (.+?)(?:\.|$|,|!)"#, "preference"),
-            (#"(?i)i (?:hate|dislike|can'?t stand|don'?t like) (.+?)(?:\.|$|,|!)"#, "dislike"),
-            (#"(?i)my favou?rite (?:is|are) (.+?)(?:\.|$|,|!)"#, "favorite"),
+            (#"(?i)i (?:really |absolutely |truly )?(?:like|love|enjoy|prefer|adore) (.+?)(?:[.,!]|$)"#, "preference"),
+            (#"(?i)i(?:'m| am) (?:a )?(?:big |huge )?fan of (.+?)(?:[.,!]|$)"#, "preference"),
+            (#"(?i)i (?:hate|dislike|can't stand|don't like|detest|loathe) (.+?)(?:[.,!]|$)"#, "dislike"),
+            (#"(?i)my favou?rite(?:s| \w+)? (?:is|are) (.+?)(?:[.,!]|$)"#, "favorite"),
+            (#"(?i)i favou?r (.+?) over (.+?)(?:[.,!]|$)"#, "preference"),
         ]
         for (pattern, kind) in preferencePatterns {
             if let regex = try? NSRegularExpression(pattern: pattern),
-               let match = regex.firstMatch(in: userText, range: NSRange(userText.startIndex..., in: userText)),
-               let range = Range(match.range(at: 1), in: userText) {
-                let subject = String(userText[range]).trimmingCharacters(in: .whitespaces)
+               let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)),
+               let range = Range(match.range(at: 1), in: normalized) {
+                let subject = String(normalized[range]).trimmingCharacters(in: .whitespaces)
                 if subject.count > 2 && subject.count < 100 {
                     entries.append(MemoryEntry(
                         content: "User \(kind): \(subject)",
@@ -339,15 +362,16 @@ class MemoryService {
         }
 
         let goalPatterns = [
-            #"(?i)i (?:want to|need to|plan to|am going to|will) (.+?)(?:\.|$|,|!)"#,
-            #"(?i)my goal is (.+?)(?:\.|$|,|!)"#,
-            #"(?i)i'?m (?:working on|trying to|learning) (.+?)(?:\.|$|,|!)"#,
+            #"(?i)i (?:want to|need to|plan to|am going to|will|aim to|wish to|hope to|intend to) (.+?)(?:[.,!]|$)"#,
+            #"(?i)my goal is (.+?)(?:[.,!]|$)"#,
+            #"(?i)i(?:'m| am) (?:working on|trying to|learning|studying|practicing|training for) (.+?)(?:[.,!]|$)"#,
+            #"(?i)i(?:'m| am) (?:hoping|planning|aiming) to (.+?)(?:[.,!]|$)"#,
         ]
         for pattern in goalPatterns {
             if let regex = try? NSRegularExpression(pattern: pattern),
-               let match = regex.firstMatch(in: userText, range: NSRange(userText.startIndex..., in: userText)),
-               let range = Range(match.range(at: 1), in: userText) {
-                let goal = String(userText[range]).trimmingCharacters(in: .whitespaces)
+               let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)),
+               let range = Range(match.range(at: 1), in: normalized) {
+                let goal = String(normalized[range]).trimmingCharacters(in: .whitespaces)
                 if goal.count > 3 && goal.count < 150 {
                     entries.append(MemoryEntry(
                         content: "User goal: \(goal)",
@@ -360,10 +384,10 @@ class MemoryService {
             }
         }
 
-        if lower.contains("remember") || lower.contains("always") || lower.contains("make sure") || lower.contains("never") || lower.contains("dont forget") {
+        if lower.contains("remember") || lower.contains("always") || lower.contains("make sure") || lower.contains("never") || lower.contains("dont forget") || lower.contains("don't forget") {
             entries.append(MemoryEntry(
-                content: String(userText.prefix(200)),
-                keywords: extractKeywords(from: userText) + ["instruction"],
+                content: String(normalized.prefix(200)),
+                keywords: extractKeywords(from: normalized) + ["instruction"],
                 category: .instruction,
                 importance: 5,
                 source: .conversation
@@ -371,15 +395,18 @@ class MemoryService {
         }
 
         let factPatterns = [
-            #"(?i)i (?:work|live|study|am from|was born|am a|am an) (.+?)(?:\.|$|,|!)"#,
-            #"(?i)i have (?:a |an )?(.+?)(?:\.|$|,|!)"#,
-            #"(?i)i'?m from (.+?)(?:\.|$|,|!)"#,
+            #"(?i)i (?:work|live|study|am from|was born|am a|am an|grew up) (.+?)(?:[.,!]|$)"#,
+            #"(?i)i have (?:a |an )?(.+?)(?:[.,!]|$)"#,
+            #"(?i)i(?:'m| am) from (.+?)(?:[.,!]|$)"#,
+            #"(?i)i(?:'m| am) (?:a |an )(.+?)(?:[.,!]|$)"#,
+            #"(?i)i(?:'m| am) based (?:in|out of) (.+?)(?:[.,!]|$)"#,
+            #"(?i)i (?:was raised|grew up) (?:in|near) (.+?)(?:[.,!]|$)"#,
         ]
         for pattern in factPatterns {
             if let regex = try? NSRegularExpression(pattern: pattern),
-               let match = regex.firstMatch(in: userText, range: NSRange(userText.startIndex..., in: userText)),
-               let range = Range(match.range(at: 1), in: userText) {
-                let fact = String(userText[range]).trimmingCharacters(in: .whitespaces)
+               let match = regex.firstMatch(in: normalized, range: NSRange(normalized.startIndex..., in: normalized)),
+               let range = Range(match.range(at: 1), in: normalized) {
+                let fact = String(normalized[range]).trimmingCharacters(in: .whitespaces)
                 if fact.count > 2 && fact.count < 100 {
                     entries.append(MemoryEntry(
                         content: "User fact: \(fact)",
