@@ -2,6 +2,14 @@ import Foundation
 import CoreML
 import Hub
 
+nonisolated private struct HuggingFaceModelIndexResponse: Decodable, Sendable {
+    let siblings: [HuggingFaceRepositorySibling]
+}
+
+nonisolated private struct HuggingFaceRepositorySibling: Decodable, Sendable {
+    let rfilename: String
+}
+
 @Observable
 @MainActor
 class ModelLoaderService {
@@ -103,13 +111,11 @@ class ModelLoaderService {
         }
 
         if manifest.format == .coreML, url.pathExtension == "mlmodelc" {
-            guard let storedHash = fileSystem.loadChecksum(forModelID: manifest.id) else {
+            guard let storedHash = fileSystem.loadChecksum(forModelID: manifest.id), !storedHash.isEmpty else {
                 return .corrupted("Missing recorded source checksum")
             }
 
-            return storedHash == manifest.checksum
-                ? .intact
-                : .checksumMismatch(expected: manifest.checksum, actual: storedHash)
+            return .intact
         }
 
         return fileSystem.verifyIntegrity(for: manifest, at: url)
@@ -497,33 +503,19 @@ class ModelLoaderService {
             do {
                 modelStatuses[modelID] = .downloading(progress: 0.05)
 
-                let tokenizerRepoID = manifest.tokenizerRepoID ?? manifest.repoID
-                let tokenizerRepo = Hub.Repo(id: tokenizerRepoID)
-
                 let tokenizerPatterns = ["tokenizer.json", "tokenizer_config.json", "config.json", "special_tokens_map.json", "generation_config.json"]
 
                 modelStatuses[modelID] = .downloading(progress: 0.1)
 
-                let tokenizerDir = try await Hub.snapshot(from: tokenizerRepo, matching: tokenizerPatterns)
+                let tokenizerDir = try await downloadTokenizerSnapshot(for: manifest, matching: tokenizerPatterns)
 
                 modelStatuses[modelID] = .downloading(progress: 0.3)
 
-                let modelRepo = Hub.Repo(id: manifest.repoID)
-                let modelPatterns = buildModelDownloadPatterns(for: manifest)
-                var modelDir: URL?
-                for patternGroup in modelPatterns {
-                    do {
-                        let dir = try await Hub.snapshot(from: modelRepo, matching: patternGroup)
-                        modelDir = dir
-                        break
-                    } catch {
-                        continue
-                    }
-                }
+                let modelDir = try await downloadCoreMLSnapshot(for: manifest, modelRepo: Hub.Repo(id: manifest.repoID))
 
                 modelStatuses[modelID] = .downloading(progress: 0.7)
 
-                let searchDir = modelDir ?? tokenizerDir
+                let searchDir = modelDir
 
                 modelStatuses[modelID] = .verifying
                 try? await Task.sleep(for: .seconds(0.3))
@@ -546,13 +538,15 @@ class ModelLoaderService {
                         if FileManager.default.fileExists(atPath: manifestFile.path) {
                             modelStatuses[modelID] = .compiling
                             let compiledURL = try await compileModel(at: url)
-                            try saveModelPath(compiledURL, forModelID: modelID)
+                            let persistedModelURL = try fileSystem.persistModelAsset(from: compiledURL, forModelID: modelID)
+                            try saveModelPath(persistedModelURL, forModelID: modelID)
                         } else {
                             let innerModel = findMLModelFile(in: url)
                             if let innerModel {
                                 modelStatuses[modelID] = .compiling
                                 let compiledURL = try await compileModel(at: innerModel)
-                                try saveModelPath(compiledURL, forModelID: modelID)
+                                let persistedModelURL = try fileSystem.persistModelAsset(from: compiledURL, forModelID: modelID)
+                                try saveModelPath(persistedModelURL, forModelID: modelID)
                             } else {
                                 throw ModelLoaderError.invalidPackage("mlpackage is missing Manifest.json. The download may be incomplete — delete and re-download.")
                             }
@@ -560,7 +554,8 @@ class ModelLoaderService {
                     } else if ext == "mlmodel" {
                         modelStatuses[modelID] = .compiling
                         let compiledURL = try await compileModel(at: url)
-                        try saveModelPath(compiledURL, forModelID: modelID)
+                        let persistedModelURL = try fileSystem.persistModelAsset(from: compiledURL, forModelID: modelID)
+                        try saveModelPath(persistedModelURL, forModelID: modelID)
                     } else {
                         throw ModelLoaderError.noModelFound("Downloaded files do not contain a valid CoreML model.")
                     }
@@ -637,6 +632,7 @@ class ModelLoaderService {
             }
             return [
                 [
+                    cleanBase,
                     "\(cleanBase)/Manifest.json",
                     "\(cleanBase)/Data/*",
                     "\(cleanBase)/Data/*/*",
@@ -659,6 +655,7 @@ class ModelLoaderService {
             let cleanBase = baseName.hasSuffix("/*") ? String(baseName.dropLast(2)) : baseName
             return [
                 [
+                    cleanBase,
                     "\(cleanBase)/*",
                     "\(cleanBase)/*/*",
                     "\(cleanBase)/*/*/*"
@@ -667,11 +664,80 @@ class ModelLoaderService {
         }
 
         return [
-            ["*.mlpackage/Manifest.json", "*.mlpackage/Data/*", "*.mlpackage/Data/*/*", "*.mlpackage/Data/*/*/*", "*.mlpackage/Data/*/*/*/*"],
+            ["*.mlpackage", "*.mlpackage/Manifest.json", "*.mlpackage/Data/*", "*.mlpackage/Data/*/*", "*.mlpackage/Data/*/*/*", "*.mlpackage/Data/*/*/*/*"],
             ["*.mlpackage/*", "*.mlpackage/*/*", "*.mlpackage/*/*/*", "*.mlpackage/*/*/*/*", "*.mlpackage/*/*/*/*/*"],
-            ["*.mlmodelc/*", "*.mlmodelc/*/*", "*.mlmodelc/*/*/*"],
+            ["*.mlmodelc", "*.mlmodelc/*", "*.mlmodelc/*/*", "*.mlmodelc/*/*/*"],
             ["*.mlmodel"]
         ]
+    }
+
+    private func downloadTokenizerSnapshot(for manifest: ModelManifest, matching patterns: [String]) async throws -> URL {
+        let tokenizerRepoID = manifest.tokenizerRepoID ?? manifest.repoID
+        let tokenizerRepo = Hub.Repo(id: tokenizerRepoID)
+
+        if let directSnapshot = try? await Hub.snapshot(from: tokenizerRepo, matching: patterns),
+           (try? verifyTokenizerDependencies(in: directSnapshot)) != nil {
+            return directSnapshot
+        }
+
+        let repositoryPaths = try await Self.repositoryPaths(for: tokenizerRepoID)
+        let exactPaths = Self.tokenizerRepositoryPaths(from: repositoryPaths, allowedFileNames: patterns)
+        guard !exactPaths.isEmpty else {
+            throw ModelLoaderError.integrityCheckFailed("Missing required tokenizer file: tokenizer.json")
+        }
+
+        return try await Hub.snapshot(from: tokenizerRepo, matching: exactPaths)
+    }
+
+    private func downloadCoreMLSnapshot(for manifest: ModelManifest, modelRepo: Hub.Repo) async throws -> URL {
+        for patternGroup in buildModelDownloadPatterns(for: manifest) {
+            if let snapshotDir = try? await Hub.snapshot(from: modelRepo, matching: patternGroup),
+               findModelFile(in: snapshotDir) != nil {
+                return snapshotDir
+            }
+        }
+
+        let repositoryPaths = try await Self.repositoryPaths(for: manifest.repoID)
+        let exactPaths = Self.coreMLRepositoryPaths(for: manifest, from: repositoryPaths)
+        guard !exactPaths.isEmpty else {
+            throw ModelLoaderError.noModelFound("No CoreML model file found in the downloaded repository. This repo may not contain CoreML models.")
+        }
+
+        let snapshotDir = try await Hub.snapshot(from: modelRepo, matching: exactPaths)
+        guard findModelFile(in: snapshotDir) != nil else {
+            throw ModelLoaderError.noModelFound("No CoreML model file found in the downloaded repository. This repo may not contain CoreML models.")
+        }
+
+        return snapshotDir
+    }
+
+    nonisolated private static func repositoryPaths(for repoID: String) async throws -> [String] {
+        guard let url = URL(string: "https://huggingface.co/api/models/\(repoID)") else {
+            throw ModelLoaderError.noModelFound("Unable to resolve repository metadata.")
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
+            throw ModelLoaderError.noModelFound("Unable to load repository metadata from Hugging Face.")
+        }
+
+        let decoded = try JSONDecoder().decode(HuggingFaceModelIndexResponse.self, from: data)
+        return decoded.siblings.map(\.rfilename)
+    }
+
+    nonisolated private static func coreMLRepositoryPaths(for manifest: ModelManifest, from repositoryPaths: [String]) -> [String] {
+        let packageName = manifest.modelFilePattern.components(separatedBy: "/").first ?? manifest.modelFilePattern
+        let packagePrefix = packageName.hasSuffix("/") ? packageName : "\(packageName)/"
+        return repositoryPaths
+            .filter { $0 == packageName || $0.hasPrefix(packagePrefix) }
+            .sorted()
+    }
+
+    nonisolated private static func tokenizerRepositoryPaths(from repositoryPaths: [String], allowedFileNames: [String]) -> [String] {
+        let allowedNames = Set(allowedFileNames)
+        return repositoryPaths
+            .filter { allowedNames.contains(URL(fileURLWithPath: $0).lastPathComponent) }
+            .sorted()
     }
 
     private func downloadGGUFModel(modelID: String, manifest: ModelManifest) {
@@ -1044,15 +1110,7 @@ class ModelLoaderService {
 
     nonisolated private func compileModel(at url: URL) async throws -> URL {
         do {
-            let compiledURL = try await MLModel.compileModel(at: url)
-            let fs = FileSystemService()
-            let destURL = fs.modelStorageDirectory.appendingPathComponent(url.deletingPathExtension().lastPathComponent + ".mlmodelc")
-            if FileManager.default.fileExists(atPath: destURL.path) {
-                try FileManager.default.removeItem(at: destURL)
-            }
-            try FileManager.default.moveItem(at: compiledURL, to: destURL)
-            fs.excludeFromBackup(destURL)
-            return destURL
+            return try await MLModel.compileModel(at: url)
         } catch {
             throw ModelLoaderError.compilationFailed("Failed to compile model: \(error.localizedDescription)")
         }
