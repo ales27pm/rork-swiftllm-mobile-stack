@@ -23,6 +23,7 @@ class InferenceEngine {
     private var healthMonitorTask: Task<Void, Never>?
     private var modelRunner: CoreMLModelRunner?
     private var llamaRunner: LlamaModelRunner?
+    private var draftLlamaRunner: LlamaModelRunner?
     private var tokenizer: TokenizerService?
     private var activeFormat: ModelFormat = .coreML
 
@@ -105,9 +106,16 @@ class InferenceEngine {
         }
     }
 
-    func attachRunner(_ runner: CoreMLModelRunner, llamaRunner: LlamaModelRunner, tokenizer: TokenizerService, format: ModelFormat) {
+    func attachRunner(
+        _ runner: CoreMLModelRunner,
+        llamaRunner: LlamaModelRunner,
+        draftLlamaRunner: LlamaModelRunner?,
+        tokenizer: TokenizerService,
+        format: ModelFormat
+    ) {
         self.modelRunner = runner
         self.llamaRunner = llamaRunner
+        self.draftLlamaRunner = draftLlamaRunner
         self.tokenizer = tokenizer
         self.activeFormat = format
         hasValidatedCurrentSession = false
@@ -585,6 +593,7 @@ class InferenceEngine {
                 activeFallbackMode = "none"
                 metricsLogger.currentMetrics.recoveryRetryCount = lastRecoveryRetryCount
                 metricsLogger.currentMetrics.fallbackMode = activeFallbackMode
+                metricsLogger.recordRecovery(success: true, newComputeUnits: computeUnitsLabel(runner))
                 thermalGovernor.markRecoveryCompleted(success: true)
                 thermalGovernor.clearEvictionFlag()
                 thermalGovernor.resetRecoveryState()
@@ -609,6 +618,57 @@ class InferenceEngine {
                 metadata: ["retryCount": "\(policy.maxRetries)", "fallbackMode": activeFallbackMode]
             ))
             notifyRecoverableWarning("Neural Engine retries exhausted. Running on CPU-only fallback; generation may be slower.")
+            thermalGovernor.recordDiagnosticCode(.cpuFallbackTriggered)
+            thermalGovernor.resetRecoveryState()
+            return true
+        } catch {
+            lastRecoveryRetryCount = policy.maxRetries
+            metricsLogger.currentMetrics.recoveryRetryCount = lastRecoveryRetryCount
+            return false
+        }
+    }
+
+    private func attemptInlineRecovery(runner: LlamaModelRunner, policy: BackoffPolicy) async -> Bool {
+        guard !recoveryInProgress else { return false }
+        recoveryInProgress = true
+        defer { recoveryInProgress = false }
+
+        for attempt in 0..<policy.maxRetries {
+            let backoff = policy.delay(forAttempt: attempt)
+            try? await Task.sleep(for: .seconds(backoff))
+            thermalGovernor.markRecoveryStarted()
+
+            do {
+                try await runner.attemptRecovery()
+                hasValidatedCurrentSession = true
+                lastRecoveryRetryCount = attempt + 1
+                activeFallbackMode = "none"
+                metricsLogger.currentMetrics.recoveryRetryCount = lastRecoveryRetryCount
+                metricsLogger.currentMetrics.fallbackMode = activeFallbackMode
+                metricsLogger.recordRecovery(success: true, newComputeUnits: computeUnitsLabel(runner.healthCheck().computeUnits))
+                thermalGovernor.markRecoveryCompleted(success: true)
+                thermalGovernor.resetRecoveryState()
+                return true
+            } catch {
+                thermalGovernor.markRecoveryCompleted(success: false)
+                continue
+            }
+        }
+
+        do {
+            try await runner.switchToCPUOnly()
+            hasValidatedCurrentSession = true
+            lastRecoveryRetryCount = policy.maxRetries
+            activeFallbackMode = "cpuOnly"
+            metricsLogger.currentMetrics.recoveryRetryCount = lastRecoveryRetryCount
+            metricsLogger.currentMetrics.fallbackMode = activeFallbackMode
+            metricsLogger.recordDiagnostic(DiagnosticEvent(
+                code: .cpuFallbackTriggered,
+                message: "GGUF recovery exhausted. Using CPU-only fallback path.",
+                severity: .warning,
+                metadata: ["retryCount": "\(policy.maxRetries)", "fallbackMode": activeFallbackMode]
+            ))
+            notifyRecoverableWarning("GGUF retries exhausted. Running on CPU-only fallback; generation may be slower.")
             thermalGovernor.recordDiagnosticCode(.cpuFallbackTriggered)
             thermalGovernor.resetRecoveryState()
             return true
@@ -645,18 +705,38 @@ class InferenceEngine {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(15))
                 guard let self else { return }
-                guard self.activeFormat == .coreML, let runner = self.modelRunner else { continue }
+                guard !self.isGenerating else { continue }
 
-                let status = runner.healthCheck()
-                self.lastHealthStatus = status
+                switch self.activeFormat {
+                case .coreML:
+                    guard let runner = self.modelRunner else { continue }
+                    let status = runner.healthCheck()
+                    self.lastHealthStatus = status
 
-                if !status.isHealthy && status.state == .evicted && !self.isGenerating {
-                    self.metricsLogger.recordDiagnostic(DiagnosticEvent(
-                        code: .healthCheckFailed,
-                        message: "Health check: \(status.diagnosticSummary)",
-                        severity: .warning
-                    ))
-                    let _ = await self.attemptInlineRecovery(runner: runner, policy: BackoffPolicy.exponential)
+                    if !status.isHealthy && status.state == .evicted {
+                        self.metricsLogger.recordDiagnostic(DiagnosticEvent(
+                            code: .healthCheckFailed,
+                            message: "Health check: \(status.diagnosticSummary)",
+                            severity: .warning
+                        ))
+                        let _ = await self.attemptInlineRecovery(runner: runner, policy: BackoffPolicy.exponential)
+                    }
+                case .gguf:
+                    guard let runner = self.llamaRunner else { continue }
+                    let status = runner.healthCheck()
+                    self.lastHealthStatus = status
+
+                    if !status.isHealthy && status.state == .evicted {
+                        self.metricsLogger.recordDiagnostic(DiagnosticEvent(
+                            code: .healthCheckFailed,
+                            message: "GGUF health check: \(status.diagnosticSummary)",
+                            severity: .warning
+                        ))
+                        let recovered = await self.attemptInlineRecovery(runner: runner, policy: BackoffPolicy.exponential)
+                        if !recovered {
+                            self.notifyRecoveryNeeded()
+                        }
+                    }
                 }
             }
         }
@@ -680,11 +760,22 @@ class InferenceEngine {
 
         isGenerating = true
         currentText = ""
+        lastProbeLatencyMS = 0
         metricsLogger.beginGeneration()
+        metricsLogger.currentMetrics.zeroTokenProbeLatencyMS = 0
 
         let prompt = Self.buildChatMLPrompt(messages: messages)
         let mode = thermalGovernor.currentMode
-        let maxTokens = min(samplingConfig.maxTokens, mode.maxContextLength)
+        var thermalAdjustedConfig = samplingConfig
+        let tempBoost = thermalGovernor.adaptiveTemperatureBoost
+        if tempBoost > 0 {
+            thermalAdjustedConfig.temperature = min(samplingConfig.temperature + tempBoost, 2.0)
+        }
+        thermalAdjustedConfig.maxTokens = min(thermalAdjustedConfig.maxTokens, mode.maxContextLength)
+        let shouldProbe = !hasValidatedCurrentSession || thermalGovernor.shouldRunZeroTokenProbe
+        let probeLatencyThreshold = zeroTokenProbeLatencyThresholdMS
+        let speculativeDraftRunner = mode.speculativeEnabled ? draftLlamaRunner : nil
+        let speculativeDraftCount = mode.speculativeEnabled ? speculationPolicy.k : 0
 
         if thermalGovernor.shouldSuspendInference {
             isGenerating = false
@@ -700,14 +791,43 @@ class InferenceEngine {
         generationTask = Task.detached { [weak self] in
             guard let self else { return }
 
+            if shouldProbe {
+                let probeResult = llamaRunner.runZeroTokenProbe()
+                await MainActor.run {
+                    self.lastProbeLatencyMS = probeResult.latencyMS
+                    self.metricsLogger.currentMetrics.zeroTokenProbeLatencyMS = probeResult.latencyMS
+                }
+
+                let exceededLatency = probeResult.latencyMS > probeLatencyThreshold
+                let evictedState = probeResult.state == .evicted
+                if !probeResult.passed || exceededLatency || evictedState {
+                    let recovered = await self.attemptInlineRecovery(runner: llamaRunner, policy: BackoffPolicy.exponential)
+                    if !recovered {
+                        await MainActor.run {
+                            self.isGenerating = false
+                            self.notifyRecoverableWarning("GGUF recovery failed. Please reload the model.")
+                            self.notifyRecoveryNeeded()
+                            onComplete(self.failedMetrics(since: Date()))
+                        }
+                        return
+                    }
+                } else {
+                    await MainActor.run {
+                        self.hasValidatedCurrentSession = true
+                        self.lastRecoveryRetryCount = 0
+                        self.activeFallbackMode = "none"
+                        self.metricsLogger.currentMetrics.recoveryRetryCount = 0
+                        self.metricsLogger.currentMetrics.fallbackMode = "none"
+                    }
+                }
+            }
+
             do {
-                let result = try llamaRunner.generate(
+                let result = try llamaRunner.generateWithDraft(
                     prompt: prompt,
-                    maxTokens: maxTokens,
-                    temperature: samplingConfig.temperature,
-                    topK: Int32(samplingConfig.topK),
-                    topP: samplingConfig.topP,
-                    repetitionPenalty: samplingConfig.repetitionPenalty,
+                    samplingConfig: thermalAdjustedConfig,
+                    draftRunner: speculativeDraftRunner,
+                    draftCount: speculativeDraftCount,
                     onToken: { token in
                         Task { @MainActor [weak self] in
                             guard let self else { return }
@@ -724,8 +844,28 @@ class InferenceEngine {
                 await MainActor.run { [weak self] in
                     guard let self else { return }
                     self.metricsLogger.recordFirstToken()
-                    self.metricsLogger.recordPrefill(tokens: result.promptTokenCount, duration: 0.001)
+                    let prefillDuration = Double(result.promptTokenCount) / max(result.prefillTokensPerSecond, 0.001)
+                    self.metricsLogger.recordPrefill(tokens: result.promptTokenCount, duration: prefillDuration)
+                    self.metricsLogger.recordSpeculative(
+                        accepted: result.acceptedSpeculativeTokens,
+                        rejected: result.rejectedSpeculativeTokens
+                    )
+
+                    if result.acceptedSpeculativeTokens + result.rejectedSpeculativeTokens > 0 {
+                        self.speculationPolicy.recordVerification(
+                            draftCount: result.acceptedSpeculativeTokens + result.rejectedSpeculativeTokens,
+                            acceptedCount: result.acceptedSpeculativeTokens,
+                            rejectedCount: result.rejectedSpeculativeTokens,
+                            correctionCount: result.rejectedSpeculativeTokens > 0 ? 1 : 0,
+                            draftLatencyMS: result.speculativeDraftLatencyMS,
+                            verifyLatencyMS: result.speculativeVerifyLatencyMS,
+                            committedCount: result.acceptedSpeculativeTokens + min(result.rejectedSpeculativeTokens, 1),
+                            mismatchIndex: result.rejectedSpeculativeTokens > 0 ? result.acceptedSpeculativeTokens : nil
+                        )
+                    }
+
                     self.metricsLogger.endGeneration()
+                    self.hasValidatedCurrentSession = true
 
                     let metrics = GenerationMetrics(
                         timeToFirstToken: result.timeToFirstTokenMS,
@@ -733,8 +873,11 @@ class InferenceEngine {
                         decodeTokensPerSecond: result.decodeTokensPerSecond,
                         totalTokens: result.generatedTokenCount,
                         totalDuration: result.totalDuration,
-                        acceptedSpeculativeTokens: 0,
-                        rejectedSpeculativeTokens: 0
+                        acceptedSpeculativeTokens: result.acceptedSpeculativeTokens,
+                        rejectedSpeculativeTokens: result.rejectedSpeculativeTokens,
+                        zeroTokenProbeLatencyMS: self.lastProbeLatencyMS,
+                        recoveryRetryCount: self.lastRecoveryRetryCount,
+                        fallbackMode: self.activeFallbackMode
                     )
                     onComplete(metrics)
                     self.isGenerating = false
@@ -747,7 +890,10 @@ class InferenceEngine {
                         timeToFirstToken: 0, prefillTokensPerSecond: 0,
                         decodeTokensPerSecond: 0, totalTokens: 0,
                         totalDuration: 0, acceptedSpeculativeTokens: 0,
-                        rejectedSpeculativeTokens: 0
+                        rejectedSpeculativeTokens: 0,
+                        zeroTokenProbeLatencyMS: self.lastProbeLatencyMS,
+                        recoveryRetryCount: self.lastRecoveryRetryCount,
+                        fallbackMode: self.activeFallbackMode
                     ))
                 }
             }
@@ -771,6 +917,7 @@ class InferenceEngine {
         currentText = ""
         modelRunner?.resetState()
         llamaRunner?.resetContext()
+        draftLlamaRunner?.resetContext()
         draftEngine.resetDraftState()
         Task {
             if let seqID = oldSequenceID {
@@ -786,8 +933,11 @@ class InferenceEngine {
     }
 
     private func computeUnitsLabel(_ runner: CoreMLModelRunner) -> String {
-        let health = runner.healthCheck()
-        switch health.computeUnits {
+        computeUnitsLabel(runner.healthCheck().computeUnits)
+    }
+
+    private func computeUnitsLabel(_ computeUnits: MLComputeUnits) -> String {
+        switch computeUnits {
         case .all: return "All"
         case .cpuAndNeuralEngine: return "CPU+ANE"
         case .cpuOnly: return "CPU"

@@ -63,7 +63,13 @@ class ChatViewModel {
         self.conversationService = conversationService
         self.memoryService = memoryService
         self.toolExecutor = toolExecutor
-        inferenceEngine.attachRunner(modelLoader.modelRunner, llamaRunner: modelLoader.llamaRunner, tokenizer: modelLoader.tokenizer, format: modelLoader.activeFormat)
+        inferenceEngine.attachRunner(
+            modelLoader.modelRunner,
+            llamaRunner: modelLoader.llamaRunner,
+            draftLlamaRunner: modelLoader.draftLlamaRunner,
+            tokenizer: modelLoader.tokenizer,
+            format: modelLoader.activeFormat
+        )
         inferenceEngine.setRecoverableWarningHandler { [weak self] warning in
             guard let self else { return }
             self.statusMessage = warning
@@ -138,6 +144,7 @@ class ChatViewModel {
             inferenceEngine.attachRunner(
                 modelLoader.modelRunner,
                 llamaRunner: modelLoader.llamaRunner,
+                draftLlamaRunner: modelLoader.draftLlamaRunner,
                 tokenizer: modelLoader.tokenizer,
                 format: modelLoader.activeFormat
             )

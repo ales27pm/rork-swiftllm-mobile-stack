@@ -12,8 +12,10 @@ class ModelLoaderService {
 
     let modelRunner = CoreMLModelRunner()
     let llamaRunner = LlamaModelRunner()
+    let draftLlamaRunner = LlamaModelRunner()
     let tokenizer = TokenizerService()
     var activeFormat: ModelFormat = .coreML
+    var activeDraftModelID: String?
 
     private var downloadTasks: [String: Task<Void, Never>] = [:]
     private let fileSystem = FileSystemService()
@@ -283,7 +285,7 @@ class ModelLoaderService {
             ModelManifest(
                 id: "smollm2-360m-gguf",
                 name: "SmolLM2",
-                variant: "360M Q8 GGUF",
+                variant: "360M Q8 GGUF (Draft)",
                 parameterCount: "360M",
                 quantization: "Q8_0",
                 sizeBytes: 386_000_000,
@@ -293,7 +295,7 @@ class ModelLoaderService {
                 tokenizerRepoID: nil,
                 modelFilePattern: "smollm2-360m-instruct-q8_0.gguf",
                 checksum: "48ab3034d0dd401fbc721eb1df3217902fee7dab9078992d66431f09b7750201",
-                isDraft: false,
+                isDraft: true,
                 format: .gguf
             ),
             ModelManifest(
@@ -717,10 +719,15 @@ class ModelLoaderService {
 
         if activeModelID == modelID {
             activeModelID = nil
+            activeDraftModelID = nil
             modelRunner.unload()
             llamaRunner.unload()
+            draftLlamaRunner.unload()
             tokenizer.unloadTokenizer()
             activeFormat = .coreML
+        } else if activeDraftModelID == modelID {
+            activeDraftModelID = nil
+            draftLlamaRunner.unload()
         }
 
         fileSystem.deleteModelAssets(forModelID: modelID)
@@ -789,6 +796,7 @@ class ModelLoaderService {
                 guard let modelURL = loadModelPath(forModelID: modelID) else {
                     modelStatuses[modelID] = .failed("GGUF model file not found.")
                     activeModelID = nil
+                    activeDraftModelID = nil
                     return
                 }
 
@@ -797,13 +805,62 @@ class ModelLoaderService {
                     at: modelURL.path,
                     nCtx: Int32(manifest.contextLength)
                 )
+                loadDraftRunnerIfPossible(for: manifest)
             } catch {
                 print("GGUF model load failed: \(error)")
                 modelStatuses[modelID] = .failed("Failed to load: \(error.localizedDescription)")
                 activeModelID = nil
+                activeDraftModelID = nil
+                draftLlamaRunner.unload()
                 activeFormat = .coreML
             }
         }
+    }
+
+    private func loadDraftRunnerIfPossible(for targetManifest: ModelManifest) {
+        guard !targetManifest.isDraft else {
+            activeDraftModelID = nil
+            draftLlamaRunner.unload()
+            return
+        }
+
+        guard let draftManifest = compatibleDraftManifest(for: targetManifest),
+              let draftURL = loadModelPath(forModelID: draftManifest.id) else {
+            activeDraftModelID = nil
+            draftLlamaRunner.unload()
+            return
+        }
+
+        do {
+            try draftLlamaRunner.loadModel(
+                at: draftURL.path,
+                nCtx: Int32(min(draftManifest.contextLength, targetManifest.contextLength)),
+                nGPULayers: 0
+            )
+            activeDraftModelID = draftManifest.id
+        } catch {
+            print("Draft GGUF load failed: \(error)")
+            activeDraftModelID = nil
+            draftLlamaRunner.unload()
+        }
+    }
+
+    private func compatibleDraftManifest(for targetManifest: ModelManifest) -> ModelManifest? {
+        availableModels
+            .filter { manifest in
+                manifest.format == .gguf &&
+                manifest.isDraft &&
+                manifest.id != targetManifest.id &&
+                manifest.architecture == targetManifest.architecture &&
+                modelStatuses[manifest.id] == .ready
+            }
+            .sorted { lhs, rhs in
+                if lhs.sizeBytes != rhs.sizeBytes {
+                    return lhs.sizeBytes < rhs.sizeBytes
+                }
+                return lhs.contextLength < rhs.contextLength
+            }
+            .first
     }
 
     var activeModel: ModelManifest? {

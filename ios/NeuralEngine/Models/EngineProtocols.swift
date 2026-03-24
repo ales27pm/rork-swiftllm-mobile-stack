@@ -18,6 +18,11 @@ nonisolated struct VerificationResult: Sendable {
     let correctedToken: Int
 }
 
+nonisolated protocol DraftLogitsPredicting: LogitsPredicting {
+    var isLoaded: Bool { get }
+    func resetState()
+}
+
 protocol PrefillEngineProtocol: Sendable {
     func prefill(inputIDs: [Int], cache: SessionCache) async throws -> (PrefillPhaseResult, SessionCache)
 }
