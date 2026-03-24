@@ -24,10 +24,29 @@ class VectorStore {
                 id TEXT PRIMARY KEY,
                 vector BLOB NOT NULL,
                 dimensions INTEGER NOT NULL,
+                source_text TEXT NOT NULL DEFAULT '',
+                augmentation_text TEXT,
+                provider TEXT NOT NULL DEFAULT 'natural_language',
                 created_at REAL NOT NULL,
                 updated_at REAL NOT NULL
             );
         """)
+        migrateTableIfNeeded()
+    }
+
+    private func migrateTableIfNeeded() {
+        let rows = database.query("PRAGMA table_info(vector_embeddings);")
+        let columns = Set(rows.compactMap { $0["name"] as? String })
+
+        if !columns.contains("source_text") {
+            _ = database.execute("ALTER TABLE vector_embeddings ADD COLUMN source_text TEXT NOT NULL DEFAULT '';")
+        }
+        if !columns.contains("augmentation_text") {
+            _ = database.execute("ALTER TABLE vector_embeddings ADD COLUMN augmentation_text TEXT;")
+        }
+        if !columns.contains("provider") {
+            _ = database.execute("ALTER TABLE vector_embeddings ADD COLUMN provider TEXT NOT NULL DEFAULT 'natural_language';")
+        }
     }
 
     func loadIndex() {
@@ -46,16 +65,43 @@ class VectorStore {
     }
 
     func upsert(id: String, text: String, languageHint: String? = nil) -> Bool {
+        upsert(
+            id: id,
+            sourceText: text,
+            augmentationText: nil,
+            provider: .naturalLanguage,
+            languageHint: languageHint
+        )
+    }
+
+    func upsert(
+        id: String,
+        sourceText: String,
+        augmentationText: String?,
+        provider: EmbeddingProvider,
+        languageHint: String? = nil
+    ) -> Bool {
         ensureLoaded()
-        guard let embedded = embedder.embed(text, languageHint: languageHint),
+
+        let compositeText = [sourceText, augmentationText]
+            .compactMap { part -> String? in
+                guard let part else { return nil }
+                let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            .joined(separator: " ")
+
+        guard let embedded = embedder.embed(compositeText, languageHint: languageHint),
               let vector = sanitizedVector(embedded) else { return false }
+
         let blob = floatsToBlob(vector)
         let now = Date().timeIntervalSince1970 * 1000
         let success = database.execute(
-            "INSERT OR REPLACE INTO vector_embeddings (id, vector, dimensions, created_at, updated_at) VALUES (?, ?, ?, ?, ?);",
-            params: [id, blob, VectorEmbeddingService.dimensions, now, now]
+            "INSERT OR REPLACE INTO vector_embeddings (id, vector, dimensions, source_text, augmentation_text, provider, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
+            params: [id, blob, VectorEmbeddingService.dimensions, sourceText, augmentationText ?? NSNull(), provider.rawValue, now, now]
         )
         guard success else { return false }
+
         if idToVector[id] != nil {
             index.remove(id: id)
         }
@@ -70,8 +116,8 @@ class VectorStore {
         let blob = floatsToBlob(normalizedVector)
         let now = Date().timeIntervalSince1970 * 1000
         let success = database.execute(
-            "INSERT OR REPLACE INTO vector_embeddings (id, vector, dimensions, created_at, updated_at) VALUES (?, ?, ?, ?, ?);",
-            params: [id, blob, VectorEmbeddingService.dimensions, now, now]
+            "INSERT OR REPLACE INTO vector_embeddings (id, vector, dimensions, source_text, augmentation_text, provider, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
+            params: [id, blob, VectorEmbeddingService.dimensions, "", NSNull(), EmbeddingProvider.externalVector.rawValue, now, now]
         )
         guard success else { return false }
         if idToVector[id] != nil {
@@ -121,6 +167,36 @@ class VectorStore {
     func getVector(for id: String) -> [Float]? {
         ensureLoaded()
         return idToVector[id]
+    }
+
+    func metadata(for id: String) -> StoredEmbeddingMetadata? {
+        ensureLoaded()
+        guard let row = database.query(
+            "SELECT id, source_text, augmentation_text, provider, updated_at FROM vector_embeddings WHERE id = ? LIMIT 1;",
+            params: [id]
+        ).first,
+        let rowID = row["id"] as? String,
+        let sourceText = row["source_text"] as? String,
+        let providerRaw = row["provider"] as? String,
+        let provider = EmbeddingProvider(rawValue: providerRaw) else {
+            return nil
+        }
+
+        let augmentationText: String?
+        if let rawValue = row["augmentation_text"] as? String, !rawValue.isEmpty {
+            augmentationText = rawValue
+        } else {
+            augmentationText = nil
+        }
+
+        let updatedAt = row["updated_at"] as? Double ?? 0
+        return StoredEmbeddingMetadata(
+            id: rowID,
+            sourceText: sourceText,
+            augmentationText: augmentationText,
+            provider: provider,
+            updatedAt: updatedAt
+        )
     }
 
     func hasVector(for id: String) -> Bool {

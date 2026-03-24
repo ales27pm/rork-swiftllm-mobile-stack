@@ -125,6 +125,79 @@ struct AdvancedMemoryVectorLogicTests {
         #expect((links.first?.reinforcements ?? 0) >= 1)
     }
 
+    @Test @MainActor
+    func memoryService_refreshSemanticEmbeddingStoresLLMAugmentedMetadata() async {
+        let database = DatabaseService(name: "memory-llm-embedding-\(UUID().uuidString).sqlite3")
+        defer { _ = database.deleteDatabase() }
+
+        let llmService = EmbeddingLLMService { input in
+            "\(input.category), coral reef, marine biology, ocean conservation, reef ecosystems, scuba ecology"
+        }
+        let memoryService = MemoryService(database: database, embeddingLLMService: llmService)
+        memoryService.clearAllMemories()
+
+        let entry = MemoryEntry(
+            content: "User fact: studies scleractinian habitat resilience",
+            keywords: ["scleractinian", "habitat", "resilience"],
+            category: .fact,
+            importance: 4,
+            source: .conversation
+        )
+
+        memoryService.addMemory(entry)
+        let refreshed = await memoryService.refreshSemanticEmbedding(for: entry.id)
+        let metadata = memoryService.vectorStore.metadata(for: entry.id)
+
+        #expect(refreshed)
+        #expect(memoryService.vectorStore.hasVector(for: entry.id))
+        #expect(metadata?.provider == .llmAugmented)
+        #expect(metadata?.sourceText.contains("scleractinian") == true)
+        #expect(metadata?.augmentationText?.contains("coral reef") == true)
+    }
+
+    @Test @MainActor
+    func memoryService_llmAugmentedEmbeddingBoostsSemanticVectorRecall() async {
+        let database = DatabaseService(name: "memory-llm-search-\(UUID().uuidString).sqlite3")
+        defer { _ = database.deleteDatabase() }
+
+        let llmService = EmbeddingLLMService { input in
+            if input.content.contains("scleractinian") {
+                return "coral reef, marine biology, ocean conservation, reef restoration, tropical ecology"
+            }
+            return "home espresso, coffee brewing, kitchen routine"
+        }
+        let memoryService = MemoryService(database: database, embeddingLLMService: llmService)
+        memoryService.clearAllMemories()
+
+        let reefMemory = MemoryEntry(
+            content: "User fact: studies scleractinian habitat resilience",
+            keywords: ["scleractinian", "habitat"],
+            category: .fact,
+            importance: 4,
+            source: .conversation
+        )
+        let coffeeMemory = MemoryEntry(
+            content: "User preference: enjoys dialing in espresso shots at home",
+            keywords: ["espresso", "coffee"],
+            category: .preference,
+            importance: 3,
+            source: .conversation
+        )
+
+        memoryService.addMemory(reefMemory)
+        memoryService.addMemory(coffeeMemory)
+
+        _ = await memoryService.refreshSemanticEmbedding(for: reefMemory.id)
+        _ = await memoryService.refreshSemanticEmbedding(for: coffeeMemory.id)
+
+        let retrievals = memoryService.searchMemories(query: "marine biology coral reef conservation", maxResults: 5)
+        let vectorResults = memoryService.vectorSearch(query: "marine biology coral reef conservation", maxResults: 3)
+
+        #expect(retrievals.first?.memory.id == reefMemory.id)
+        #expect(retrievals.contains(where: { $0.memory.id == reefMemory.id }))
+        #expect(vectorResults.first?.id == reefMemory.id)
+    }
+
     @Test
     func kvCacheArena_reusesEvictedPagesAndProtectsPrefixPagesUnderPressure() async {
         let arena = KVCacheArena(

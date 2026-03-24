@@ -5,12 +5,14 @@ import NaturalLanguage
 @Observable
 class MemoryService {
     private let database: DatabaseService
+    private let embeddingLLMService: EmbeddingLLMService
     let vectorStore: VectorStore
     var memories: [MemoryEntry] = []
     var associativeLinks: [AssociativeLink] = []
 
-    init(database: DatabaseService) {
+    init(database: DatabaseService, embeddingLLMService: EmbeddingLLMService = .shared) {
         self.database = database
+        self.embeddingLLMService = embeddingLLMService
         self.vectorStore = VectorStore(database: database)
         createTables()
         loadMemories()
@@ -111,8 +113,8 @@ class MemoryService {
         } else {
             memories.insert(memory, at: 0)
         }
-        let embeddingText = memory.content + " " + memory.keywords.joined(separator: " ")
-        _ = vectorStore.upsert(id: memory.id, text: embeddingText)
+        _ = upsertBaseEmbedding(for: memory)
+        scheduleEmbeddingAugmentation(for: memory)
         let newLinks = buildAssociativeLinks(newMemory: memory)
         for link in newLinks {
             saveLink(link)
@@ -271,14 +273,47 @@ class MemoryService {
     }
 
     private func backfillVectorEmbeddings() {
-        var backfilled = 0
         for memory in memories {
-            guard !vectorStore.hasVector(for: memory.id) else { continue }
-            let text = memory.content + " " + memory.keywords.joined(separator: " ")
-            if vectorStore.upsert(id: memory.id, text: text) {
-                backfilled += 1
+            if !vectorStore.hasVector(for: memory.id) {
+                _ = upsertBaseEmbedding(for: memory)
             }
+            scheduleEmbeddingAugmentation(for: memory)
         }
+    }
+
+    func refreshSemanticEmbedding(for memoryID: String) async -> Bool {
+        guard let memory = memories.first(where: { $0.id == memoryID }) else { return false }
+
+        if let existingMetadata = vectorStore.metadata(for: memoryID), existingMetadata.provider == .externalVector {
+            return false
+        }
+
+        let sourceText = sourceEmbeddingText(for: memory)
+        let input = EmbeddingLLMInput(
+            content: memory.content,
+            keywords: memory.keywords,
+            category: memory.category.rawValue
+        )
+
+        guard let augmentationText = await embeddingLLMService.generateSemanticAugmentation(for: input) else {
+            return false
+        }
+
+        if let existingMetadata = vectorStore.metadata(for: memoryID),
+           existingMetadata.provider == .llmAugmented,
+           existingMetadata.sourceText == sourceText,
+           existingMetadata.augmentationText == augmentationText
+        {
+            return true
+        }
+
+        return vectorStore.upsert(
+            id: memoryID,
+            sourceText: sourceText,
+            augmentationText: augmentationText,
+            provider: .llmAugmented,
+            languageHint: memoryLanguageHint(for: memory)
+        )
     }
 
     func getAssociativeMemories(query: String, directResults: [RetrievalResult]) -> [RetrievalResult] {
@@ -494,6 +529,34 @@ class MemoryService {
         }
 
         return entries
+    }
+
+    private func sourceEmbeddingText(for memory: MemoryEntry) -> String {
+        ([memory.content] + memory.keywords)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func memoryLanguageHint(for memory: MemoryEntry) -> String? {
+        NLTextProcessing.detectLanguage(for: sourceEmbeddingText(for: memory))?.rawValue
+    }
+
+    private func upsertBaseEmbedding(for memory: MemoryEntry) -> Bool {
+        vectorStore.upsert(
+            id: memory.id,
+            sourceText: sourceEmbeddingText(for: memory),
+            augmentationText: nil,
+            provider: .naturalLanguage,
+            languageHint: memoryLanguageHint(for: memory)
+        )
+    }
+
+    private func scheduleEmbeddingAugmentation(for memory: MemoryEntry) {
+        let memoryID = memory.id
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.refreshSemanticEmbedding(for: memoryID)
+        }
     }
 
     private func addMemoryWithDedup(_ memory: MemoryEntry) {
