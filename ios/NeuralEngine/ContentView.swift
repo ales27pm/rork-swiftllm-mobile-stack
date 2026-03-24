@@ -86,6 +86,7 @@ struct ContentView: View {
                 showOnboarding = true
             }
             await chatViewModel?.autoLoadModelIfNeeded()
+            modelLoader.autoDownloadEmbeddingModelIfNeeded()
         }
         .sheet(isPresented: $toolExecutor.showInAppBrowser) {
             if let url = toolExecutor.browserURL {
@@ -94,6 +95,17 @@ struct ContentView: View {
         }
         .onChange(of: modelLoader.activeModelID) { _, _ in
             chatViewModel?.syncEngineFormat()
+        }
+        .onChange(of: modelLoader.activeEmbeddingModelID) { _, newID in
+            if let newID, let manifest = modelLoader.availableModels.first(where: { $0.id == newID }) {
+                VectorEmbeddingService.shared.attachGGUFRunner(
+                    modelLoader.embeddingRunner,
+                    dimensions: manifest.embeddingDimensions ?? 384
+                )
+                memoryService?.reembedAllMemoriesWithGGUF()
+            } else {
+                VectorEmbeddingService.shared.detachGGUFRunner()
+            }
         }
         .onChange(of: showOnboarding) { _, isPresented in
             guard !isPresented else { return }

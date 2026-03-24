@@ -21,11 +21,17 @@ class ModelLoaderService {
     let modelRunner = CoreMLModelRunner()
     let llamaRunner = LlamaModelRunner()
     let draftLlamaRunner = LlamaModelRunner()
+    let embeddingRunner = EmbeddingModelRunner()
     let tokenizer = TokenizerService()
     var activeFormat: ModelFormat = .coreML
     var activeDraftModelID: String?
+    var activeEmbeddingModelID: String?
+    var embeddingModelStatuses: [String: ModelStatus] = [:]
+    var isReembedding: Bool = false
+    var reembeddingProgress: Double = 0
 
     static let preferredActiveModelIDKey: String = "preferred_active_model_id"
+    static let preferredEmbeddingModelIDKey: String = "preferred_embedding_model_id"
 
     private var downloadTasks: [String: Task<Void, Never>] = [:]
     private var activationTask: Task<Bool, Never>?
@@ -37,6 +43,7 @@ class ModelLoaderService {
         self.keyValueStore = keyValueStore
         loadBuiltinRegistry()
         restorePreferredModelSelection()
+        restorePreferredEmbeddingModelSelection()
     }
 
     var preferredModelID: String? {
@@ -50,6 +57,28 @@ class ModelLoaderService {
         } else {
             keyValueStore.remove(Self.preferredActiveModelIDKey)
         }
+    }
+
+    var preferredEmbeddingModelID: String? {
+        keyValueStore?.getString(Self.preferredEmbeddingModelIDKey)
+    }
+
+    private func persistPreferredEmbeddingModelID(_ modelID: String?) {
+        guard let keyValueStore else { return }
+        if let modelID {
+            keyValueStore.setString(modelID, forKey: Self.preferredEmbeddingModelIDKey)
+        } else {
+            keyValueStore.remove(Self.preferredEmbeddingModelIDKey)
+        }
+    }
+
+    private func restorePreferredEmbeddingModelSelection() {
+        guard activeEmbeddingModelID == nil,
+              let preferredEmbeddingModelID,
+              case .some(.ready) = embeddingModelStatuses[preferredEmbeddingModelID] else {
+            return
+        }
+        activateEmbeddingModel(preferredEmbeddingModelID)
     }
 
     private func restorePreferredModelSelection() {
@@ -450,14 +479,99 @@ class ModelLoaderService {
                 checksum: "e0aee85060f168f0f2d8473d7ea41ce2f3230c1bc1374847505ea599288a7787",
                 isDraft: false,
                 format: .gguf
+            ),
+            ModelManifest(
+                id: "arctic-embed-xs-q8-gguf",
+                name: "Arctic Embed XS",
+                variant: "22M Q8 GGUF",
+                parameterCount: "22M",
+                quantization: "Q8_0",
+                sizeBytes: 24_000_000,
+                contextLength: 512,
+                architecture: .bert,
+                repoID: "ChristianAzinn/snowflake-arctic-embed-xs-gguf",
+                tokenizerRepoID: nil,
+                modelFilePattern: "snowflake-arctic-embed-xs-Q8_0.gguf",
+                checksum: "",
+                isDraft: false,
+                format: .gguf,
+                recommendation: ModelRecommendation(
+                    badge: "Tiny",
+                    reason: "Smallest embedding model (~24 MB). Auto-downloads on first launch for instant semantic memory.",
+                    rank: 1
+                ),
+                isEmbedding: true,
+                embeddingDimensions: 384
+            ),
+            ModelManifest(
+                id: "arctic-embed-s-q8-gguf",
+                name: "Arctic Embed S",
+                variant: "33M Q8 GGUF",
+                parameterCount: "33M",
+                quantization: "Q8_0",
+                sizeBytes: 36_000_000,
+                contextLength: 512,
+                architecture: .bert,
+                repoID: "ChristianAzinn/snowflake-arctic-embed-s-gguf",
+                tokenizerRepoID: nil,
+                modelFilePattern: "snowflake-arctic-embed-s-Q8_0.gguf",
+                checksum: "",
+                isDraft: false,
+                format: .gguf,
+                isEmbedding: true,
+                embeddingDimensions: 384
+            ),
+            ModelManifest(
+                id: "arctic-embed-m-q8-gguf",
+                name: "Arctic Embed M",
+                variant: "110M Q8 GGUF",
+                parameterCount: "110M",
+                quantization: "Q8_0",
+                sizeBytes: 118_000_000,
+                contextLength: 512,
+                architecture: .bert,
+                repoID: "ChristianAzinn/snowflake-arctic-embed-m-gguf",
+                tokenizerRepoID: nil,
+                modelFilePattern: "snowflake-arctic-embed-m-Q8_0.gguf",
+                checksum: "",
+                isDraft: false,
+                format: .gguf,
+                isEmbedding: true,
+                embeddingDimensions: 768
+            ),
+            ModelManifest(
+                id: "arctic-embed-l-q8-gguf",
+                name: "Arctic Embed L",
+                variant: "335M Q8 GGUF",
+                parameterCount: "335M",
+                quantization: "Q8_0",
+                sizeBytes: 360_000_000,
+                contextLength: 512,
+                architecture: .bert,
+                repoID: "yixuan-chia/snowflake-arctic-embed-l-GGUF",
+                tokenizerRepoID: nil,
+                modelFilePattern: "snowflake-arctic-embed-l-q8_0.gguf",
+                checksum: "",
+                isDraft: false,
+                format: .gguf,
+                isEmbedding: true,
+                embeddingDimensions: 1024
             )
         ]
 
         for model in availableModels {
-            if let unsupportedStatus = statusForUnsupportedManifest(model) {
-                modelStatuses[model.id] = unsupportedStatus
+            if model.isEmbedding {
+                if let unsupportedStatus = statusForUnsupportedManifest(model) {
+                    embeddingModelStatuses[model.id] = unsupportedStatus
+                } else {
+                    embeddingModelStatuses[model.id] = .notDownloaded
+                }
             } else {
-                modelStatuses[model.id] = .notDownloaded
+                if let unsupportedStatus = statusForUnsupportedManifest(model) {
+                    modelStatuses[model.id] = unsupportedStatus
+                } else {
+                    modelStatuses[model.id] = .notDownloaded
+                }
             }
         }
 
@@ -476,12 +590,22 @@ class ModelLoaderService {
                 continue
             }
 
-            modelStatuses[model.id] = status
+            if model.isEmbedding {
+                embeddingModelStatuses[model.id] = status
+            } else {
+                modelStatuses[model.id] = status
+            }
         }
     }
 
     func downloadModel(_ modelID: String) {
         guard let manifest = availableModels.first(where: { $0.id == modelID }) else { return }
+
+        if manifest.isEmbedding {
+            downloadEmbeddingModel(modelID)
+            return
+        }
+
         guard modelStatuses[modelID] != .some(.verifying),
               modelStatuses[modelID] != .some(.compiling) else { return }
 
@@ -811,7 +935,145 @@ class ModelLoaderService {
         return nil
     }
 
+    func downloadEmbeddingModel(_ modelID: String) {
+        guard let manifest = availableModels.first(where: { $0.id == modelID && $0.isEmbedding }) else { return }
+
+        if case .downloading = embeddingModelStatuses[modelID] { return }
+
+        if loadModelPath(forModelID: modelID) != nil {
+            fileSystem.deleteModelAssets(forModelID: modelID)
+        }
+
+        embeddingModelStatuses[modelID] = .downloading(progress: 0)
+
+        let task = Task {
+            do {
+                embeddingModelStatuses[modelID] = .downloading(progress: 0.1)
+
+                let modelRepo = Hub.Repo(id: manifest.repoID)
+                let ggufFileName = manifest.modelFilePattern
+
+                embeddingModelStatuses[modelID] = .downloading(progress: 0.2)
+
+                let snapshotDir = try await Hub.snapshot(from: modelRepo, matching: [ggufFileName])
+
+                embeddingModelStatuses[modelID] = .downloading(progress: 0.8)
+                embeddingModelStatuses[modelID] = .verifying
+
+                let ggufURL = findGGUFFile(in: snapshotDir, named: ggufFileName)
+
+                guard let url = ggufURL else {
+                    throw ModelLoaderError.noModelFound("No GGUF embedding file found in downloaded repository.")
+                }
+
+                if manifest.sizeBytes > 0 {
+                    if let actualSize = fileSystem.fileSize(at: url) {
+                        let tolerance = Double(manifest.sizeBytes) * 0.15
+                        let lowerBound = Double(manifest.sizeBytes) - tolerance
+                        if Double(actualSize) < lowerBound {
+                            throw ModelLoaderError.partialDownload("GGUF embedding file appears truncated: \(actualSize) bytes vs expected ~\(manifest.sizeBytes) bytes")
+                        }
+                    }
+                }
+
+                let persistedModelURL = try fileSystem.persistModelAsset(from: url, forModelID: modelID)
+                try saveModelPath(persistedModelURL, forModelID: modelID)
+
+                embeddingModelStatuses[modelID] = .ready
+                autoActivateEmbeddingIfNeeded(modelID)
+            } catch {
+                if !Task.isCancelled {
+                    embeddingModelStatuses[modelID] = .failed(error.localizedDescription)
+                }
+            }
+        }
+        downloadTasks[modelID] = task
+    }
+
+    func deleteEmbeddingModel(_ modelID: String) {
+        downloadTasks[modelID]?.cancel()
+        downloadTasks.removeValue(forKey: modelID)
+        embeddingModelStatuses[modelID] = .notDownloaded
+
+        if activeEmbeddingModelID == modelID {
+            activeEmbeddingModelID = nil
+            embeddingRunner.unload()
+        }
+
+        if preferredEmbeddingModelID == modelID {
+            persistPreferredEmbeddingModelID(nil)
+        }
+
+        fileSystem.deleteModelAssets(forModelID: modelID)
+    }
+
+    func activateEmbeddingModel(_ modelID: String) {
+        guard case .some(.ready) = embeddingModelStatuses[modelID],
+              let manifest = availableModels.first(where: { $0.id == modelID && $0.isEmbedding }),
+              let modelURL = loadModelPath(forModelID: modelID) else {
+            return
+        }
+
+        do {
+            embeddingRunner.unload()
+            try embeddingRunner.loadModel(at: modelURL.path, nCtx: Int32(manifest.contextLength))
+            activeEmbeddingModelID = modelID
+            persistPreferredEmbeddingModelID(modelID)
+        } catch {
+            embeddingModelStatuses[modelID] = .failed("Failed to load: \(error.localizedDescription)")
+            if activeEmbeddingModelID == modelID {
+                activeEmbeddingModelID = nil
+            }
+        }
+    }
+
+    private func autoActivateEmbeddingIfNeeded(_ modelID: String) {
+        guard activeEmbeddingModelID == nil else { return }
+        if let preferredEmbeddingModelID, preferredEmbeddingModelID != modelID {
+            return
+        }
+        activateEmbeddingModel(modelID)
+    }
+
+    func autoDownloadEmbeddingModelIfNeeded() {
+        let hasAnyEmbeddingModel = availableModels
+            .filter(\.isEmbedding)
+            .contains { embeddingModelStatuses[$0.id] == .some(.ready) }
+
+        guard !hasAnyEmbeddingModel else {
+            if activeEmbeddingModelID == nil {
+                restorePreferredEmbeddingModelSelection()
+            }
+            return
+        }
+
+        let targetID = "arctic-embed-xs-q8-gguf"
+        guard embeddingModelStatuses[targetID] == .some(.notDownloaded) else { return }
+
+        downloadEmbeddingModel(targetID)
+    }
+
+    var activeEmbeddingModel: ModelManifest? {
+        guard let id = activeEmbeddingModelID else { return nil }
+        return availableModels.first { $0.id == id }
+    }
+
+    var embeddingModels: [ModelManifest] {
+        availableModels.filter(\.isEmbedding)
+    }
+
+    var chatModels: [ModelManifest] {
+        availableModels.filter { !$0.isEmbedding }
+    }
+
     func deleteModel(_ modelID: String) {
+        guard let manifest = availableModels.first(where: { $0.id == modelID }) else { return }
+
+        if manifest.isEmbedding {
+            deleteEmbeddingModel(modelID)
+            return
+        }
+
         downloadTasks[modelID]?.cancel()
         downloadTasks.removeValue(forKey: modelID)
         activationTask?.cancel()

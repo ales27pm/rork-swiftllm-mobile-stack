@@ -2114,7 +2114,7 @@ extension DiagnosticEngine {
 
         return TestOutcome(
             status: generated >= expectedMin ? .passed : (generated >= 2 ? .warning : .failed),
-            message: "Generated \(generated)/\(texts.count) embeddings (\(VectorEmbeddingService.dimensions)d)",
+            message: "Generated \(generated)/\(texts.count) embeddings (\(VectorEmbeddingService.fallbackDimensions)d)",
             details: results
         )
     }

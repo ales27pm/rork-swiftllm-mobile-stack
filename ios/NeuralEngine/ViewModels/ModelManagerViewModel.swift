@@ -24,20 +24,27 @@ class ModelManagerViewModel {
         }
 
         switch selectedFilter {
-        case .all: break
+        case .all:
+            models = models.filter { !$0.isEmbedding }
         case .recommended:
-            models = models.filter { $0.recommendation != nil }
+            models = models.filter { $0.recommendation != nil && !$0.isEmbedding }
         case .downloaded:
             models = models.filter { model in
+                if model.isEmbedding {
+                    if case .ready = modelLoader.embeddingModelStatuses[model.id] { return true }
+                    return false
+                }
                 if case .ready = modelLoader.modelStatuses[model.id] { return true }
                 return false
             }
         case .draft:
-            models = models.filter(\.isDraft)
+            models = models.filter { $0.isDraft && !$0.isEmbedding }
         case .gguf:
-            models = models.filter { $0.format == .gguf }
+            models = models.filter { $0.format == .gguf && !$0.isEmbedding }
         case .coreml:
-            models = models.filter { $0.format == .coreML }
+            models = models.filter { $0.format == .coreML && !$0.isEmbedding }
+        case .embedding:
+            models = models.filter(\.isEmbedding)
         }
 
         return models.sorted { lhs, rhs in
@@ -51,7 +58,11 @@ class ModelManagerViewModel {
     }
 
     func download(_ model: ModelManifest) {
-        modelLoader.downloadModel(model.id)
+        if model.isEmbedding {
+            modelLoader.downloadEmbeddingModel(model.id)
+        } else {
+            modelLoader.downloadModel(model.id)
+        }
     }
 
     func delete(_ model: ModelManifest) {
@@ -59,15 +70,33 @@ class ModelManagerViewModel {
     }
 
     func activate(_ model: ModelManifest) {
-        modelLoader.activateModel(model.id)
+        if model.isEmbedding {
+            modelLoader.activateEmbeddingModel(model.id)
+        } else {
+            modelLoader.activateModel(model.id)
+        }
     }
 
     func status(for model: ModelManifest) -> ModelStatus {
-        modelLoader.modelStatuses[model.id] ?? .notDownloaded
+        if model.isEmbedding {
+            return modelLoader.embeddingModelStatuses[model.id] ?? .notDownloaded
+        }
+        return modelLoader.modelStatuses[model.id] ?? .notDownloaded
     }
 
     var activeModelID: String? {
         modelLoader.activeModelID
+    }
+
+    var activeEmbeddingModelID: String? {
+        modelLoader.activeEmbeddingModelID
+    }
+
+    func isActiveModel(_ model: ModelManifest) -> Bool {
+        if model.isEmbedding {
+            return modelLoader.activeEmbeddingModelID == model.id
+        }
+        return modelLoader.activeModelID == model.id
     }
 }
 
@@ -78,4 +107,5 @@ enum ModelFilter: String, CaseIterable {
     case gguf = "GGUF"
     case coreml = "CoreML"
     case draft = "Draft"
+    case embedding = "Embedding"
 }

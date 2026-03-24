@@ -2,15 +2,56 @@ import Foundation
 import NaturalLanguage
 import Accelerate
 
-nonisolated final class VectorEmbeddingService: Sendable {
+nonisolated final class VectorEmbeddingService: @unchecked Sendable {
     static let shared = VectorEmbeddingService()
-    static let dimensions = 512
+    static let fallbackDimensions = 512
+
+    private let lock = NSLock()
+    private var _ggufRunner: EmbeddingModelRunner?
+    private var _ggufDimensions: Int = 0
 
     private init() {}
+
+    var activeDimensions: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _ggufRunner?.isLoaded == true ? _ggufDimensions : Self.fallbackDimensions
+    }
+
+    var isGGUFActive: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _ggufRunner?.isLoaded == true
+    }
+
+    func attachGGUFRunner(_ runner: EmbeddingModelRunner, dimensions: Int) {
+        lock.lock()
+        _ggufRunner = runner
+        _ggufDimensions = dimensions
+        lock.unlock()
+    }
+
+    func detachGGUFRunner() {
+        lock.lock()
+        _ggufRunner = nil
+        _ggufDimensions = 0
+        lock.unlock()
+    }
+
+    func embedWithGGUF(_ text: String) -> [Float]? {
+        lock.lock()
+        let runner = _ggufRunner
+        lock.unlock()
+        return runner?.embed(text)
+    }
 
     func embed(_ text: String, languageHint: String? = nil) -> [Float]? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+
+        if let ggufResult = embedWithGGUF(trimmed) {
+            return ggufResult
+        }
 
         let language = resolveLanguage(for: trimmed, hint: languageHint)
         let sentence = sentenceVector(for: trimmed, language: language)
@@ -102,7 +143,7 @@ nonisolated final class VectorEmbeddingService: Sendable {
     private func sentenceVector(for text: String, language: NLLanguage) -> [Float]? {
         guard let embedding = NLEmbedding.sentenceEmbedding(for: language) else { return nil }
         guard let vector = embedding.vector(for: text) else { return nil }
-        return resizeVector(vector.map { Float($0) }, targetDim: Self.dimensions)
+        return resizeVector(vector.map { Float($0) }, targetDim: Self.fallbackDimensions)
     }
 
     private func averagedWordVector(for text: String, language: NLLanguage) -> [Float]? {
@@ -131,7 +172,7 @@ nonisolated final class VectorEmbeddingService: Sendable {
 
         var count = Float(vectors.count)
         vDSP_vsdiv(mean, 1, &count, &mean, 1, vDSP_Length(dimensions))
-        return resizeVector(mean, targetDim: Self.dimensions)
+        return resizeVector(mean, targetDim: Self.fallbackDimensions)
     }
 
     private func normalize(_ vector: [Float]) -> [Float] {

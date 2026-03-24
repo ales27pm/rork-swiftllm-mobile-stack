@@ -114,7 +114,7 @@ struct ModelManagerView: View {
                 ModelCardView(
                     model: model,
                     status: viewModel.status(for: model),
-                    isActive: viewModel.activeModelID == model.id,
+                    isActive: viewModel.isActiveModel(model),
                     onDownload: { viewModel.download(model) },
                     onDelete: {
                         modelToDelete = model
@@ -169,6 +169,16 @@ struct ModelCardView: View {
                                 .clipShape(Capsule())
                         }
 
+                        if model.isEmbedding {
+                            Text("EMBEDDING")
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.mint.opacity(0.2))
+                                .foregroundStyle(.mint)
+                                .clipShape(Capsule())
+                        }
+
                         if model.isDraft {
                             Text("DRAFT")
                                 .font(.caption2.bold())
@@ -208,7 +218,11 @@ struct ModelCardView: View {
 
             HStack(spacing: 16) {
                 Label(model.sizeFormatted, systemImage: "internaldrive")
-                Label("\(model.contextLength) ctx", systemImage: "text.line.last.and.arrowtriangle.forward")
+                if model.isEmbedding, let dims = model.embeddingDimensions {
+                    Label("\(dims)d", systemImage: "arrow.triangle.branch")
+                } else {
+                    Label("\(model.contextLength) ctx", systemImage: "text.line.last.and.arrowtriangle.forward")
+                }
                 Label(model.quantization, systemImage: "cube")
             }
             .font(.caption)
@@ -228,7 +242,7 @@ struct ModelCardView: View {
         .overlay {
             if isActive {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(.blue.opacity(0.4), lineWidth: 1.5)
+                    .strokeBorder(model.isEmbedding ? .mint.opacity(0.4) : .blue.opacity(0.4), lineWidth: 1.5)
             }
         }
         .sensoryFeedback(.selection, trigger: isActive)
@@ -253,6 +267,7 @@ struct ModelCardView: View {
         case .mistral: return .cyan
         case .smolLM: return .pink
         case .dolphin: return .teal
+        case .bert: return .mint
         }
     }
 

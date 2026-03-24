@@ -25,7 +25,7 @@ struct AdvancedMemoryVectorLogicTests {
         #expect(results[1].id == "beta")
         #expect(results[0].score > results[1].score)
         #expect(results[1].score > results[2].score)
-        #expect(stored?.count == VectorEmbeddingService.dimensions)
+        #expect(stored?.count == VectorEmbeddingService.fallbackDimensions)
         #expect(abs(magnitude - 1.0) < 0.0001)
     }
 

@@ -10,11 +10,13 @@ class VectorStore {
     private var loaded = false
     private let exactSearchThreshold = 2_048
     private let approximateCandidateMultiplier = 8
+    private var currentDimensions: Int
 
     init(database: DatabaseService, embedder: VectorEmbeddingService = .shared) {
         self.database = database
         self.embedder = embedder
-        self.index = HNSWIndex(dimensions: VectorEmbeddingService.dimensions)
+        self.currentDimensions = embedder.activeDimensions
+        self.index = HNSWIndex(dimensions: currentDimensions)
         createTable()
     }
 
@@ -46,6 +48,9 @@ class VectorStore {
         }
         if !columns.contains("provider") {
             _ = database.execute("ALTER TABLE vector_embeddings ADD COLUMN provider TEXT NOT NULL DEFAULT 'natural_language';")
+        }
+        if !columns.contains("model_source") {
+            _ = database.execute("ALTER TABLE vector_embeddings ADD COLUMN model_source TEXT NOT NULL DEFAULT 'nl_embedding';")
         }
     }
 
@@ -82,6 +87,7 @@ class VectorStore {
         languageHint: String? = nil
     ) -> Bool {
         ensureLoaded()
+        syncDimensionsIfNeeded()
 
         let compositeText = [sourceText, augmentationText]
             .compactMap { part -> String? in
@@ -94,11 +100,13 @@ class VectorStore {
         guard let embedded = embedder.embed(compositeText, languageHint: languageHint),
               let vector = sanitizedVector(embedded) else { return false }
 
+        let dims = vector.count
+        let modelSource = embedder.isGGUFActive ? "gguf_embedding" : "nl_embedding"
         let blob = floatsToBlob(vector)
         let now = Date().timeIntervalSince1970 * 1000
         let success = database.execute(
-            "INSERT OR REPLACE INTO vector_embeddings (id, vector, dimensions, source_text, augmentation_text, provider, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
-            params: [id, blob, VectorEmbeddingService.dimensions, sourceText, augmentationText ?? NSNull(), provider.rawValue, now, now]
+            "INSERT OR REPLACE INTO vector_embeddings (id, vector, dimensions, source_text, augmentation_text, provider, model_source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
+            params: [id, blob, dims, sourceText, augmentationText ?? NSNull(), provider.rawValue, modelSource, now, now]
         )
         guard success else { return false }
 
@@ -113,11 +121,12 @@ class VectorStore {
     func upsertWithVector(id: String, vector: [Float]) -> Bool {
         ensureLoaded()
         guard let normalizedVector = sanitizedVector(vector) else { return false }
+        let dims = normalizedVector.count
         let blob = floatsToBlob(normalizedVector)
         let now = Date().timeIntervalSince1970 * 1000
         let success = database.execute(
-            "INSERT OR REPLACE INTO vector_embeddings (id, vector, dimensions, source_text, augmentation_text, provider, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
-            params: [id, blob, VectorEmbeddingService.dimensions, "", NSNull(), EmbeddingProvider.externalVector.rawValue, now, now]
+            "INSERT OR REPLACE INTO vector_embeddings (id, vector, dimensions, source_text, augmentation_text, provider, model_source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
+            params: [id, blob, dims, "", NSNull(), EmbeddingProvider.externalVector.rawValue, "external", now, now]
         )
         guard success else { return false }
         if idToVector[id] != nil {
@@ -213,18 +222,58 @@ class VectorStore {
         ensureLoaded()
         return VectorIndexStats(
             totalVectors: idToVector.count,
-            dimensions: VectorEmbeddingService.dimensions,
+            dimensions: currentDimensions,
             indexNodes: index.nodeCount,
             indexLayers: index.layerCount,
-            memoryBytes: idToVector.count * VectorEmbeddingService.dimensions * MemoryLayout<Float>.size
+            memoryBytes: idToVector.count * currentDimensions * MemoryLayout<Float>.size
         )
     }
 
     func clearAll() {
         _ = database.execute("DELETE FROM vector_embeddings;")
         idToVector.removeAll()
-        index = HNSWIndex(dimensions: VectorEmbeddingService.dimensions)
+        currentDimensions = embedder.activeDimensions
+        index = HNSWIndex(dimensions: currentDimensions)
         loaded = true
+    }
+
+    func reembedAllMemories(sourceTexts: [(id: String, text: String)], onProgress: ((Double) -> Void)? = nil) {
+        guard !sourceTexts.isEmpty else { return }
+
+        idToVector.removeAll()
+        index = HNSWIndex(dimensions: embedder.activeDimensions)
+        currentDimensions = embedder.activeDimensions
+        _ = database.execute("DELETE FROM vector_embeddings;")
+
+        for (offset, entry) in sourceTexts.enumerated() {
+            _ = upsert(
+                id: entry.id,
+                sourceText: entry.text,
+                augmentationText: nil,
+                provider: embedder.isGGUFActive ? .ggufEmbedding : .naturalLanguage
+            )
+            onProgress?(Double(offset + 1) / Double(sourceTexts.count))
+        }
+    }
+
+    func staleVectorCount(currentModelSource: String) -> Int {
+        ensureLoaded()
+        let rows = database.query(
+            "SELECT COUNT(*) as cnt FROM vector_embeddings WHERE model_source != ?;",
+            params: [currentModelSource]
+        )
+        return (rows.first?["cnt"] as? Int64).map(Int.init) ?? 0
+    }
+
+    private func syncDimensionsIfNeeded() {
+        let newDims = embedder.activeDimensions
+        if newDims != currentDimensions {
+            idToVector.removeAll()
+            index = HNSWIndex(dimensions: newDims)
+            currentDimensions = newDims
+            loaded = false
+            loadIndex()
+        }
     }
 
     private func ensureLoaded() {
@@ -296,13 +345,14 @@ class VectorStore {
     private func sanitizedVector(_ vector: [Float]) -> [Float]? {
         guard !vector.isEmpty else { return nil }
 
+        let targetDim = currentDimensions
         let resized: [Float]
-        if vector.count == VectorEmbeddingService.dimensions {
+        if vector.count == targetDim {
             resized = vector
-        } else if vector.count > VectorEmbeddingService.dimensions {
-            resized = Array(vector.prefix(VectorEmbeddingService.dimensions))
+        } else if vector.count > targetDim {
+            resized = Array(vector.prefix(targetDim))
         } else {
-            resized = vector + [Float](repeating: 0, count: VectorEmbeddingService.dimensions - vector.count)
+            resized = vector + [Float](repeating: 0, count: targetDim - vector.count)
         }
 
         guard resized.allSatisfy(\.isFinite) else { return nil }

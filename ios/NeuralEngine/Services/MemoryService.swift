@@ -9,6 +9,9 @@ class MemoryService {
     let vectorStore: VectorStore
     var memories: [MemoryEntry] = []
     var associativeLinks: [AssociativeLink] = []
+    var isReembedding: Bool = false
+    var reembeddingProgress: Double = 0
+    private var reembeddingTask: Task<Void, Never>?
 
     init(database: DatabaseService, embeddingLLMService: EmbeddingLLMService = .shared) {
         self.database = database
@@ -278,6 +281,31 @@ class MemoryService {
                 _ = upsertBaseEmbedding(for: memory)
             }
             scheduleEmbeddingAugmentation(for: memory)
+        }
+    }
+
+    func reembedAllMemoriesWithGGUF() {
+        guard !isReembedding, !memories.isEmpty else { return }
+
+        reembeddingTask?.cancel()
+        isReembedding = true
+        reembeddingProgress = 0
+
+        let sourceTexts = memories.map { memory in
+            (id: memory.id, text: sourceEmbeddingText(for: memory))
+        }
+
+        reembeddingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            self.vectorStore.reembedAllMemories(sourceTexts: sourceTexts) { [weak self] progress in
+                Task { @MainActor in
+                    self?.reembeddingProgress = progress
+                }
+            }
+
+            self.isReembedding = false
+            self.reembeddingProgress = 1.0
         }
     }
 

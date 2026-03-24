@@ -17,8 +17,10 @@ nonisolated struct ModelManifest: Identifiable, Sendable, Codable {
     let isDraft: Bool
     let format: ModelFormat
     let recommendation: ModelRecommendation?
+    let isEmbedding: Bool
+    let embeddingDimensions: Int?
 
-    init(id: String, name: String, variant: String, parameterCount: String, quantization: String, sizeBytes: Int64, contextLength: Int, architecture: ModelArchitecture, repoID: String, tokenizerRepoID: String?, modelFilePattern: String, checksum: String, tokenizerChecksum: String? = nil, isDraft: Bool, format: ModelFormat = .coreML, recommendation: ModelRecommendation? = nil) {
+    init(id: String, name: String, variant: String, parameterCount: String, quantization: String, sizeBytes: Int64, contextLength: Int, architecture: ModelArchitecture, repoID: String, tokenizerRepoID: String?, modelFilePattern: String, checksum: String, tokenizerChecksum: String? = nil, isDraft: Bool, format: ModelFormat = .coreML, recommendation: ModelRecommendation? = nil, isEmbedding: Bool = false, embeddingDimensions: Int? = nil) {
         self.id = id
         self.name = name
         self.variant = variant
@@ -35,6 +37,8 @@ nonisolated struct ModelManifest: Identifiable, Sendable, Codable {
         self.isDraft = isDraft
         self.format = format
         self.recommendation = recommendation
+        self.isEmbedding = isEmbedding
+        self.embeddingDimensions = embeddingDimensions
     }
 
     var sizeFormatted: String {
@@ -63,6 +67,7 @@ nonisolated enum ModelArchitecture: String, Sendable, Codable {
     case mistral
     case smolLM = "smollm"
     case dolphin
+    case bert
 }
 
 nonisolated enum ModelFormat: String, Sendable, Codable {
