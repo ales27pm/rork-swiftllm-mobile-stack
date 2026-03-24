@@ -110,11 +110,16 @@ struct ModelManagerView: View {
 
     private var modelList: some View {
         LazyVStack(spacing: 10) {
+            if viewModel.selectedFilter == .draft, let activeDraft = viewModel.activeDraftModel {
+                draftStatusBanner(draft: activeDraft)
+            }
+
             ForEach(sortedModels) { model in
                 ModelCardView(
                     model: model,
                     status: viewModel.status(for: model),
                     isActive: viewModel.isActiveModel(model),
+                    isDraftCompatible: viewModel.isDraftCompatibleWithActiveModel(model),
                     onDownload: { viewModel.download(model) },
                     onDelete: {
                         modelToDelete = model
@@ -123,6 +128,11 @@ struct ModelManagerView: View {
                     onActivate: {
                         withAnimation(.snappy) {
                             viewModel.activate(model)
+                        }
+                    },
+                    onDeactivateDraft: {
+                        withAnimation(.snappy) {
+                            viewModel.deactivateDraft(model)
                         }
                     }
                 )
@@ -133,6 +143,29 @@ struct ModelManagerView: View {
             }
         }
         .padding(.horizontal, 16)
+    }
+
+    private func draftStatusBanner(draft: ModelManifest) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "bolt.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Active Draft: \(draft.name) \(draft.variant)")
+                    .font(.caption.weight(.semibold))
+                if let main = viewModel.activeMainModel {
+                    Text("Accelerating \(main.name) \(main.variant)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.subheadline)
+        }
+        .padding(12)
+        .background(Color.orange.opacity(0.08))
+        .clipShape(.rect(cornerRadius: 12))
     }
 }
 
@@ -147,9 +180,11 @@ struct ModelCardView: View {
     let model: ModelManifest
     let status: ModelStatus
     let isActive: Bool
+    let isDraftCompatible: Bool
     let onDownload: () -> Void
     let onDelete: () -> Void
     let onActivate: () -> Void
+    var onDeactivateDraft: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -241,8 +276,9 @@ struct ModelCardView: View {
         .clipShape(.rect(cornerRadius: 14))
         .overlay {
             if isActive {
+                let borderColor: Color = model.isDraft ? .orange.opacity(0.4) : (model.isEmbedding ? .mint.opacity(0.4) : .blue.opacity(0.4))
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(model.isEmbedding ? .mint.opacity(0.4) : .blue.opacity(0.4), lineWidth: 1.5)
+                    .strokeBorder(borderColor, lineWidth: 1.5)
             }
         }
         .sensoryFeedback(.selection, trigger: isActive)
@@ -320,30 +356,56 @@ struct ModelCardView: View {
             }
 
         case .ready:
-            HStack(spacing: 8) {
-                if !isActive {
-                    Button {
-                        onActivate()
-                    } label: {
-                        Label("Activate", systemImage: "power")
-                            .font(.subheadline.weight(.medium))
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                } else {
-                    Label("Active", systemImage: "checkmark.circle.fill")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.green)
-                        .frame(maxWidth: .infinity)
+            VStack(spacing: 8) {
+                if model.isDraft && isDraftCompatible && !isActive {
+                    Label("Compatible with active model", systemImage: "link")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
                 }
 
-                Button(role: .destructive) {
-                    onDelete()
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.subheadline)
+                HStack(spacing: 8) {
+                    if !isActive {
+                        Button {
+                            onActivate()
+                        } label: {
+                            Label(model.isDraft ? "Activate Draft" : "Activate", systemImage: model.isDraft ? "bolt" : "power")
+                                .font(.subheadline.weight(.medium))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(model.isDraft ? .orange : .blue)
+                    } else {
+                        if model.isDraft {
+                            HStack(spacing: 8) {
+                                Label("Active Draft", systemImage: "bolt.fill")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.orange)
+                                Spacer()
+                                Button {
+                                    onDeactivateDraft?()
+                                } label: {
+                                    Label("Deactivate", systemImage: "bolt.slash")
+                                        .font(.caption.weight(.medium))
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.orange)
+                            }
+                        } else {
+                            Label("Active", systemImage: "checkmark.circle.fill")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.green)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+
+                    Button(role: .destructive) {
+                        onDelete()
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.subheadline)
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
             }
 
         case .checksumFailed(let error):

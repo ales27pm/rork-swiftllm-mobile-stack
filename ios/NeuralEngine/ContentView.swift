@@ -93,8 +93,11 @@ struct ContentView: View {
                 InAppBrowserView(url: url, title: toolExecutor.browserTitle)
             }
         }
-        .onChange(of: modelLoader.activeModelID) { _, _ in
+        .onChange(of: modelLoader.activeModelID) { _, newID in
             chatViewModel?.syncEngineFormat()
+            if let newID, let manifest = modelLoader.availableModels.first(where: { $0.id == newID }) {
+                modelLoader.autoDownloadDraftModelIfNeeded(for: manifest)
+            }
         }
         .onChange(of: modelLoader.activeEmbeddingModelID) { _, newID in
             if let newID, let manifest = modelLoader.availableModels.first(where: { $0.id == newID }) {

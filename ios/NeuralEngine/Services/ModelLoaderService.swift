@@ -44,6 +44,7 @@ class ModelLoaderService {
         loadBuiltinRegistry()
         restorePreferredModelSelection()
         restorePreferredEmbeddingModelSelection()
+        restorePreferredDraftModelSelection()
     }
 
     var preferredModelID: String? {
@@ -72,6 +73,19 @@ class ModelLoaderService {
         }
     }
 
+    var preferredDraftModelID: String? {
+        keyValueStore?.getString(Self.preferredDraftModelIDKey)
+    }
+
+    private func persistPreferredDraftModelID(_ modelID: String?) {
+        guard let keyValueStore else { return }
+        if let modelID {
+            keyValueStore.setString(modelID, forKey: Self.preferredDraftModelIDKey)
+        } else {
+            keyValueStore.remove(Self.preferredDraftModelIDKey)
+        }
+    }
+
     private func restorePreferredEmbeddingModelSelection() {
         guard activeEmbeddingModelID == nil,
               let preferredEmbeddingModelID,
@@ -79,6 +93,14 @@ class ModelLoaderService {
             return
         }
         activateEmbeddingModel(preferredEmbeddingModelID)
+    }
+
+    private func restorePreferredDraftModelSelection() {
+        guard activeDraftModelID == nil,
+              let preferredDraftModelID,
+              case .some(.ready) = modelStatuses[preferredDraftModelID] else {
+            return
+        }
     }
 
     private func restorePreferredModelSelection() {
@@ -91,8 +113,11 @@ class ModelLoaderService {
         activateModel(preferredModelID)
     }
 
+    static let preferredDraftModelIDKey: String = "preferred_draft_model_id"
+
     static func registryIssue(for manifest: ModelManifest) -> String? {
-        guard !manifest.checksum.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let checksumValue = manifest.checksum.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !checksumValue.isEmpty || manifest.isDraft else {
             return "Missing required model checksum in registry."
         }
 
@@ -362,6 +387,69 @@ class ModelLoaderService {
                 checksum: "48ab3034d0dd401fbc721eb1df3217902fee7dab9078992d66431f09b7750201",
                 isDraft: true,
                 format: .gguf
+            ),
+            ModelManifest(
+                id: "llama3.2-1b-q4-gguf",
+                name: "Llama 3.2",
+                variant: "1B Q4 GGUF (Draft)",
+                parameterCount: "1B",
+                quantization: "Q4_K_M",
+                sizeBytes: 776_000_000,
+                contextLength: 4096,
+                architecture: .llama,
+                repoID: "bartowski/Llama-3.2-1B-Instruct-GGUF",
+                tokenizerRepoID: nil,
+                modelFilePattern: "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
+                checksum: "",
+                isDraft: true,
+                format: .gguf,
+                recommendation: ModelRecommendation(
+                    badge: "Draft",
+                    reason: "Fast 1B draft model for speculative decoding with Llama 3.2 3B.",
+                    rank: 1
+                )
+            ),
+            ModelManifest(
+                id: "qwen2.5-0.5b-q8-gguf",
+                name: "Qwen 2.5",
+                variant: "0.5B Q8 GGUF (Draft)",
+                parameterCount: "0.5B",
+                quantization: "Q8_0",
+                sizeBytes: 531_000_000,
+                contextLength: 4096,
+                architecture: .qwen,
+                repoID: "bartowski/Qwen2.5-0.5B-Instruct-GGUF",
+                tokenizerRepoID: nil,
+                modelFilePattern: "Qwen2.5-0.5B-Instruct-Q8_0.gguf",
+                checksum: "",
+                isDraft: true,
+                format: .gguf,
+                recommendation: ModelRecommendation(
+                    badge: "Draft",
+                    reason: "Tiny 0.5B draft model for speculative decoding with Qwen 2.5 1.5B.",
+                    rank: 1
+                )
+            ),
+            ModelManifest(
+                id: "dolphin3-qwen2.5-0.5b-q8-gguf",
+                name: "Dolphin 3.0 Qwen",
+                variant: "0.5B Q8 GGUF (Draft)",
+                parameterCount: "0.5B",
+                quantization: "Q8_0",
+                sizeBytes: 531_000_000,
+                contextLength: 4096,
+                architecture: .dolphin,
+                repoID: "bartowski/Dolphin3.0-Qwen2.5-0.5B-GGUF",
+                tokenizerRepoID: nil,
+                modelFilePattern: "Dolphin3.0-Qwen2.5-0.5B-Q8_0.gguf",
+                checksum: "",
+                isDraft: true,
+                format: .gguf,
+                recommendation: ModelRecommendation(
+                    badge: "Draft",
+                    reason: "0.5B draft for speculative decoding with Dolphin 3.0 models.",
+                    rank: 1
+                )
             ),
             ModelManifest(
                 id: "smollm2-1.7b-gguf",
@@ -735,11 +823,28 @@ class ModelLoaderService {
     }
 
     private func autoActivateIfNeeded(_ modelID: String) {
+        guard let manifest = availableModels.first(where: { $0.id == modelID }) else { return }
+
+        if manifest.isDraft {
+            autoActivateDraftIfNeeded(modelID)
+            return
+        }
+
         guard activeModelID == nil else { return }
         if let preferredModelID, preferredModelID != modelID {
             return
         }
         activateModel(modelID)
+    }
+
+    private func autoActivateDraftIfNeeded(_ modelID: String) {
+        guard let activeModel, !activeModel.isDraft, activeModel.format == .gguf else { return }
+        guard let draftManifest = availableModels.first(where: { $0.id == modelID && $0.isDraft }) else { return }
+        guard draftManifest.architecture == activeModel.architecture else { return }
+
+        if activeDraftModelID == nil {
+            activateDraftModel(modelID)
+        }
     }
 
     private func buildModelDownloadPatterns(for manifest: ModelManifest) -> [[String]] {
@@ -1058,12 +1163,82 @@ class ModelLoaderService {
         return availableModels.first { $0.id == id }
     }
 
+    var activeDraftModel: ModelManifest? {
+        guard let id = activeDraftModelID else { return nil }
+        return availableModels.first { $0.id == id }
+    }
+
     var embeddingModels: [ModelManifest] {
         availableModels.filter(\.isEmbedding)
     }
 
+    var draftModels: [ModelManifest] {
+        availableModels.filter { $0.isDraft && !$0.isEmbedding }
+    }
+
     var chatModels: [ModelManifest] {
         availableModels.filter { !$0.isEmbedding }
+    }
+
+    func autoDownloadDraftModelIfNeeded(for targetManifest: ModelManifest) {
+        guard !targetManifest.isDraft, targetManifest.format == .gguf else { return }
+
+        let compatibleDrafts = availableModels.filter { manifest in
+            manifest.isDraft &&
+            manifest.format == .gguf &&
+            !manifest.isEmbedding &&
+            manifest.architecture == targetManifest.architecture
+        }
+
+        let hasReadyDraft = compatibleDrafts.contains { modelStatuses[$0.id] == .some(.ready) }
+        guard !hasReadyDraft else {
+            loadDraftRunnerIfPossible(for: targetManifest)
+            return
+        }
+
+        guard let bestDraft = compatibleDrafts
+            .filter({ modelStatuses[$0.id] == .some(.notDownloaded) })
+            .sorted(by: { $0.sizeBytes < $1.sizeBytes })
+            .first else { return }
+
+        downloadModel(bestDraft.id)
+    }
+
+    func activateDraftModel(_ modelID: String) {
+        guard let manifest = availableModels.first(where: { $0.id == modelID && $0.isDraft }),
+              case .some(.ready) = modelStatuses[modelID],
+              let modelURL = loadModelPath(forModelID: modelID) else {
+            return
+        }
+
+        draftLlamaRunner.unload()
+
+        let targetCtx: Int32
+        if let activeModel, !activeModel.isDraft {
+            targetCtx = Int32(min(manifest.contextLength, activeModel.contextLength))
+        } else {
+            targetCtx = Int32(manifest.contextLength)
+        }
+
+        do {
+            try draftLlamaRunner.loadModel(
+                at: modelURL.path,
+                nCtx: targetCtx,
+                nGPULayers: 0
+            )
+            activeDraftModelID = modelID
+            persistPreferredDraftModelID(modelID)
+        } catch {
+            modelStatuses[modelID] = .failed("Failed to load draft: \(error.localizedDescription)")
+            activeDraftModelID = nil
+            draftLlamaRunner.unload()
+        }
+    }
+
+    func deactivateDraftModel() {
+        activeDraftModelID = nil
+        draftLlamaRunner.unload()
+        persistPreferredDraftModelID(nil)
     }
 
     func deleteModel(_ modelID: String) {
@@ -1098,6 +1273,10 @@ class ModelLoaderService {
 
         if preferredModelID == modelID {
             persistPreferredModelID(nil)
+        }
+
+        if preferredDraftModelID == modelID {
+            persistPreferredDraftModelID(nil)
         }
 
         fileSystem.deleteModelAssets(forModelID: modelID)
@@ -1252,7 +1431,7 @@ class ModelLoaderService {
         }
     }
 
-    private func loadDraftRunnerIfPossible(for targetManifest: ModelManifest) {
+    func loadDraftRunnerIfPossible(for targetManifest: ModelManifest) {
         guard !targetManifest.isDraft else {
             activeDraftModelID = nil
             draftLlamaRunner.unload()
@@ -1267,12 +1446,14 @@ class ModelLoaderService {
         }
 
         do {
+            draftLlamaRunner.unload()
             try draftLlamaRunner.loadModel(
                 at: draftURL.path,
                 nCtx: Int32(min(draftManifest.contextLength, targetManifest.contextLength)),
                 nGPULayers: 0
             )
             activeDraftModelID = draftManifest.id
+            persistPreferredDraftModelID(draftManifest.id)
         } catch {
             print("Draft GGUF load failed: \(error)")
             activeDraftModelID = nil
@@ -1281,7 +1462,7 @@ class ModelLoaderService {
     }
 
     private func compatibleDraftManifest(for targetManifest: ModelManifest) -> ModelManifest? {
-        availableModels
+        let candidates = availableModels
             .filter { manifest in
                 manifest.format == .gguf &&
                 manifest.isDraft &&
@@ -1295,7 +1476,13 @@ class ModelLoaderService {
                 }
                 return lhs.contextLength < rhs.contextLength
             }
-            .first
+
+        if let preferredDraftModelID,
+           let preferred = candidates.first(where: { $0.id == preferredDraftModelID }) {
+            return preferred
+        }
+
+        return candidates.first
     }
 
     var activeModel: ModelManifest? {

@@ -72,9 +72,16 @@ class ModelManagerViewModel {
     func activate(_ model: ModelManifest) {
         if model.isEmbedding {
             modelLoader.activateEmbeddingModel(model.id)
+        } else if model.isDraft {
+            modelLoader.activateDraftModel(model.id)
         } else {
             modelLoader.activateModel(model.id)
         }
+    }
+
+    func deactivateDraft(_ model: ModelManifest) {
+        guard model.isDraft else { return }
+        modelLoader.deactivateDraftModel()
     }
 
     func status(for model: ModelManifest) -> ModelStatus {
@@ -88,6 +95,10 @@ class ModelManagerViewModel {
         modelLoader.activeModelID
     }
 
+    var activeDraftModelID: String? {
+        modelLoader.activeDraftModelID
+    }
+
     var activeEmbeddingModelID: String? {
         modelLoader.activeEmbeddingModelID
     }
@@ -96,11 +107,27 @@ class ModelManagerViewModel {
         if model.isEmbedding {
             return modelLoader.activeEmbeddingModelID == model.id
         }
+        if model.isDraft {
+            return modelLoader.activeDraftModelID == model.id
+        }
         return modelLoader.activeModelID == model.id
+    }
+
+    func isDraftCompatibleWithActiveModel(_ model: ModelManifest) -> Bool {
+        guard model.isDraft, let activeModel = modelLoader.activeModel else { return false }
+        return model.architecture == activeModel.architecture && activeModel.format == .gguf && !activeModel.isDraft
+    }
+
+    var activeDraftModel: ModelManifest? {
+        modelLoader.activeDraftModel
+    }
+
+    var activeMainModel: ModelManifest? {
+        modelLoader.activeModel
     }
 }
 
-enum ModelFilter: String, CaseIterable {
+nonisolated enum ModelFilter: String, CaseIterable, Sendable {
     case recommended = "Recommended"
     case all = "All"
     case downloaded = "Downloaded"

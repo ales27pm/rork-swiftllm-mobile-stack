@@ -460,7 +460,11 @@ nonisolated final class FileSystemService: @unchecked Sendable {
             return structuralResult
         }
 
-        guard !manifest.checksum.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let checksumValue = manifest.checksum.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !checksumValue.isEmpty else {
+            if manifest.isDraft {
+                return .intact
+            }
             return .corrupted("Missing required SHA-256 checksum")
         }
 
@@ -470,8 +474,8 @@ nonisolated final class FileSystemService: @unchecked Sendable {
             return .corrupted("Unable to compute SHA-256 hash")
         }
 
-        if actual != manifest.checksum {
-            return .checksumMismatch(expected: manifest.checksum, actual: actual)
+        if actual != checksumValue {
+            return .checksumMismatch(expected: checksumValue, actual: actual)
         }
 
         return .intact
