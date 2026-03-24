@@ -2411,7 +2411,7 @@ extension DiagnosticEngine {
         let afterDelete = store.count
         let cleanedUp = afterDelete == countBefore
 
-        var details: [String] = [
+        let details: [String] = [
             "Before: \(countBefore), After insert: \(afterInsert), After delete: \(afterDelete)",
             "Inserted: \(insertedCount)/20",
             "Search returned: \(searchResults.count) results",
@@ -2434,7 +2434,6 @@ extension DiagnosticEngine {
     private func vectorTestSearchLatency() -> TestOutcome {
         guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
         let store = mem.vectorStore
-        let embedder = VectorEmbeddingService.shared
 
         let topics = ["science", "history", "cooking", "sports", "music", "technology", "nature", "art", "medicine", "finance"]
         var testIds: [String] = []

@@ -27,6 +27,7 @@ class ToolExecutor: NSObject {
     var browserURL: URL?
     var browserTitle: String = ""
     private let webSearchService = WebSearchService()
+    private let weatherKitService = WeatherKitService()
 
     override init() {
         super.init()
@@ -104,15 +105,7 @@ class ToolExecutor: NSObject {
             )
         }
 
-        locationManager.desiredAccuracy = kCLLocationAccuracyBest
-        locationManager.delegate = self
-
-        let location = await withCheckedContinuation { (continuation: CheckedContinuation<CLLocation?, Never>) in
-            self.locationContinuation = continuation
-            self.locationManager.requestLocation()
-        }
-
-        guard let location else {
+        guard let location = await requestCurrentLocation(desiredAccuracy: kCLLocationAccuracyBest) else {
             return ToolResult(
                 toolName: "get_location",
                 success: false,
@@ -121,14 +114,7 @@ class ToolExecutor: NSObject {
             )
         }
 
-        let geocoder = CLGeocoder()
-        var address = "Unknown"
-        if let placemarks = try? await geocoder.reverseGeocodeLocation(location),
-           let place = placemarks.first {
-            let parts = [place.name, place.locality, place.administrativeArea, place.country].compactMap { $0 }
-            address = parts.joined(separator: ", ")
-        }
-
+        let address = await reverseGeocodedAddress(for: location)
         let confidence = max(0.0, min(1.0, 1 - (location.horizontalAccuracy / 500)))
         let timestamp = ISO8601DateFormatter().string(from: location.timestamp)
         let escapedAddress = address.replacingOccurrences(of: "\"", with: "\\\"")
@@ -192,7 +178,50 @@ class ToolExecutor: NSObject {
     }
 
     private func executeGetWeather() async -> ToolResult {
-        return ToolResult(toolName: "get_weather", success: false, data: "Weather data requires WeatherKit entitlement. Use get_location and describe conditions based on the region.", displayIcon: "cloud.fill")
+        let status = locationManager.authorizationStatus
+        if status == .notDetermined {
+            locationManager.requestWhenInUseAuthorization()
+            try? await Task.sleep(for: .seconds(1))
+        }
+
+        guard locationManager.authorizationStatus == .authorizedWhenInUse ||
+              locationManager.authorizationStatus == .authorizedAlways else {
+            return ToolResult(
+                toolName: "get_weather",
+                success: false,
+                data: "Location permission is required to load local weather.",
+                displayIcon: "cloud.slash.fill"
+            )
+        }
+
+        guard let location = await requestCurrentLocation(desiredAccuracy: kCLLocationAccuracyKilometer) else {
+            return ToolResult(
+                toolName: "get_weather",
+                success: false,
+                data: "Your device could not determine a location for weather yet.",
+                displayIcon: "cloud.slash.fill"
+            )
+        }
+
+        let locationName = await reverseGeocodedAddress(for: location)
+
+        do {
+            let snapshot = try await weatherKitService.snapshot(for: location, locationName: locationName)
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            guard let data = try? encoder.encode(snapshot), let json = String(data: data, encoding: .utf8) else {
+                return ToolResult(toolName: "get_weather", success: false, data: "Weather data could not be encoded.", displayIcon: "cloud.fill")
+            }
+
+            return ToolResult(toolName: "get_weather", success: true, data: json, displayIcon: snapshot.current.symbolName)
+        } catch {
+            return ToolResult(
+                toolName: "get_weather",
+                success: false,
+                data: WeatherKitService.userFacingErrorMessage(for: error),
+                displayIcon: "cloud.fill"
+            )
+        }
     }
 
     private func executeGetBrightness() -> ToolResult {
@@ -527,6 +556,29 @@ class ToolExecutor: NSObject {
         browserTitle = params["title"] as? String ?? url.host ?? "Web Page"
         showInAppBrowser = true
         return ToolResult(toolName: "open_url", success: true, data: "{\"status\": \"browser_opened\", \"url\": \"\(urlString)\"}", displayIcon: "globe")
+    }
+
+    private func requestCurrentLocation(desiredAccuracy: CLLocationAccuracy) async -> CLLocation? {
+        locationManager.desiredAccuracy = desiredAccuracy
+        locationManager.delegate = self
+
+        return await withCheckedContinuation { (continuation: CheckedContinuation<CLLocation?, Never>) in
+            self.locationContinuation = continuation
+            self.locationManager.requestLocation()
+        }
+    }
+
+    private func reverseGeocodedAddress(for location: CLLocation) async -> String {
+        let geocoder = CLGeocoder()
+        if let placemarks = try? await geocoder.reverseGeocodeLocation(location),
+           let place = placemarks.first {
+            let parts = [place.name, place.locality, place.administrativeArea, place.country].compactMap { $0 }
+            if !parts.isEmpty {
+                return parts.joined(separator: ", ")
+            }
+        }
+
+        return "Current Location"
     }
 
     static func buildToolsPrompt() -> String {

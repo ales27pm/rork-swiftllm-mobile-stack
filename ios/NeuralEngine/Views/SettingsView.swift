@@ -31,6 +31,7 @@ struct SettingsView: View {
             modelBehaviorSection
             systemPromptSection
             toolsSection
+            weatherSection
             speechSection
             accessSection
             runtimeSection
@@ -248,6 +249,32 @@ struct SettingsView: View {
             Label("Tools", systemImage: "hammer.fill")
         } footer: {
             Text("Disable tool calling when you want pure text-only inference without using device integrations.")
+        }
+    }
+
+    private var weatherSection: some View {
+        Section {
+            NavigationLink {
+                WeatherView()
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "cloud.sun.fill")
+                        .foregroundStyle(.blue)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Local Weather")
+                            .font(.headline)
+                        Text("View current conditions and forecasts powered by Apple Weather.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        } header: {
+            Label("Weather", systemImage: "cloud.sun")
+        } footer: {
+            Text("Weather data is fetched with WeatherKit and uses your device location when permission is available.")
         }
     }
 
@@ -561,7 +588,7 @@ struct SettingsToolCategory: Identifiable, Equatable {
     let icon: String
 
     static let defaults: [SettingsToolCategory] = [
-        .init(id: "location", title: "Location & Maps", description: "Use map lookups, directions, and local context.", icon: "location.fill"),
+        .init(id: "location", title: "Location & Maps", description: "Use map lookups, directions, weather, and local context.", icon: "location.fill"),
         .init(id: "device", title: "Battery & Device", description: "Read battery, device, and environment signals.", icon: "battery.100percent"),
         .init(id: "calendar", title: "Calendar & Events", description: "Review and create event-related actions.", icon: "calendar"),
         .init(id: "contacts", title: "Contacts", description: "Reference people and communication targets.", icon: "person.2.fill"),
