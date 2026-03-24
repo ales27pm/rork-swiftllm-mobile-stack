@@ -66,7 +66,7 @@ class AssistantAgent {
     }
 
     var hasActiveModel: Bool {
-        modelLoader.activeModelID != nil
+        inferenceEngine.hasModel
     }
 
     var activeModelName: String {

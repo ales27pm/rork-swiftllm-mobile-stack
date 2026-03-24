@@ -81,6 +81,13 @@ class ChatViewModel {
                 recoveryAction: .none
             )
         }
+        inferenceEngine.setRecoveryHandler { [weak self] in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.autoReloadModel()
+            }
+        }
         restoreSettings()
     }
 
@@ -113,58 +120,98 @@ class ChatViewModel {
         activeConvergence = frame.reasoningTrace.finalConvergence
     }
 
-    func safeModelLoad() async {
+    func safeModelLoad(forceReload: Bool = false) async {
         guard !isModelLoading else { return }
         isModelLoading = true
-        statusMessage = "Loading model..."
+        statusMessage = forceReload ? "Reloading model..." : "Loading model..."
         loadingProgress = 0.1
         lastError = nil
 
-        do {
-            guard let modelID = modelLoader.activeModelID,
-                  let manifest = modelLoader.availableModels.first(where: { $0.id == modelID }) else {
-                isModelLoading = false
-                statusMessage = "No model selected"
-                loadingProgress = 0
-                return
-            }
-
-            loadingProgress = 0.3
-            statusMessage = "Initializing \(manifest.name)..."
-
-            if manifest.format == .gguf {
-                modelLoader.activateModel(modelID)
-            } else {
-                modelLoader.activateModel(modelID)
-            }
-
-            loadingProgress = 0.7
-            statusMessage = "Attaching engine..."
-
-            inferenceEngine.attachRunner(
-                modelLoader.modelRunner,
-                llamaRunner: modelLoader.llamaRunner,
-                draftLlamaRunner: modelLoader.draftLlamaRunner,
-                tokenizer: modelLoader.tokenizer,
-                format: modelLoader.activeFormat
-            )
-
-            loadingProgress = 1.0
-            statusMessage = "Ready"
-        } catch {
-            let wrapped = NativeErrorWrapper.synthesize(error)
-            lastError = wrapped
-            statusMessage = wrapped.userMessage
+        guard let modelID = modelLoader.activeModelID ?? modelLoader.preferredModelID,
+              let manifest = modelLoader.availableModels.first(where: { $0.id == modelID }) else {
+            isModelLoading = false
+            statusMessage = "No model selected"
             loadingProgress = 0
+            return
         }
 
+        loadingProgress = 0.3
+        statusMessage = forceReload ? "Reloading \(manifest.name)..." : "Initializing \(manifest.name)..."
+
+        if forceReload {
+            inferenceEngine.resetSession()
+        }
+
+        let didLoad = await modelLoader.ensureModelLoaded(modelID, forceReload: forceReload, persistSelection: true)
+        guard didLoad else {
+            let detail = modelLoader.modelStatuses[modelID]?.displayMessage ?? "Unknown model load failure"
+            lastError = WrappedError(
+                domain: .model,
+                severity: .error,
+                userMessage: forceReload ? "Model reload failed." : "Model load failed.",
+                technicalDetail: detail,
+                recoveryAction: .reloadModel
+            )
+            statusMessage = lastError?.userMessage ?? "Model load failed"
+            loadingProgress = 0
+            isModelLoading = false
+            return
+        }
+
+        loadingProgress = 0.7
+        statusMessage = "Attaching engine..."
+
+        inferenceEngine.attachRunner(
+            modelLoader.modelRunner,
+            llamaRunner: modelLoader.llamaRunner,
+            draftLlamaRunner: modelLoader.draftLlamaRunner,
+            tokenizer: modelLoader.tokenizer,
+            format: modelLoader.activeFormat
+        )
+
+        loadingProgress = 1.0
+        statusMessage = "Ready"
+        lastError = nil
         isModelLoading = false
+    }
+
+    func autoLoadModelIfNeeded() async {
+        guard !inferenceEngine.hasModel else { return }
+        guard modelLoader.activeModelID != nil || modelLoader.preferredModelID != nil else { return }
+        await safeModelLoad()
+    }
+
+    func autoReloadModel() async {
+        await safeModelLoad(forceReload: true)
     }
 
     func sendIntent() {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         guard !isGenerating else { return }
+
+        if !inferenceEngine.hasModel {
+            guard modelLoader.activeModelID != nil || modelLoader.preferredModelID != nil else {
+                lastError = WrappedError(
+                    domain: .model,
+                    severity: .warning,
+                    userMessage: "Select a model before chatting.",
+                    technicalDetail: "No active or preferred model ID is available",
+                    recoveryAction: .reloadModel
+                )
+                statusMessage = "No model selected"
+                return
+            }
+
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.autoLoadModelIfNeeded()
+                guard self.inferenceEngine.hasModel else { return }
+                self.sendIntent()
+            }
+            return
+        }
+
         lastError = nil
 
         let intent = IntentClassifier.classify(text: text, conversationHistory: messages)
@@ -348,11 +395,15 @@ class ChatViewModel {
                     let wrapped = WrappedError(
                         domain: .inference,
                         severity: .warning,
-                        userMessage: "No response generated. The model may need to be reloaded.",
+                        userMessage: "No response generated. Reloading model...",
                         technicalDetail: "0 tokens generated, duration=\(metrics.totalDuration)s",
                         recoveryAction: .reloadModel
                     )
                     self.lastError = wrapped
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        await self.autoReloadModel()
+                    }
                 }
 
                 if self.toolsEnabled && ToolCallParser.containsToolCall(fullContent) {
@@ -516,7 +567,7 @@ class ChatViewModel {
     }
 
     var hasActiveModel: Bool {
-        modelLoader.activeModelID != nil
+        inferenceEngine.hasModel
     }
 
     func syncEngineFormat() {

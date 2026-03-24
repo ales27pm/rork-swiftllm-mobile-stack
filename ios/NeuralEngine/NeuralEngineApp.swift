@@ -3,10 +3,10 @@ import LlamaSwift
 
 @main
 struct NeuralEngineApp: App {
-    @State private var metricsLogger = MetricsLogger()
-    @State private var thermalGovernor = ThermalGovernor()
-    @State private var modelLoader = ModelLoaderService()
-    @State private var keyValueStore = KeyValueStore(suiteName: "com.neuralengine.storage")
+    @State private var metricsLogger: MetricsLogger
+    @State private var thermalGovernor: ThermalGovernor
+    @State private var modelLoader: ModelLoaderService
+    @State private var keyValueStore: KeyValueStore
 
     private let secureStore = SecureStore()
     private let fileSystem = FileSystemService()
@@ -14,6 +14,12 @@ struct NeuralEngineApp: App {
 
     init() {
         llama_backend_init()
+
+        let keyValueStore = KeyValueStore(suiteName: "com.neuralengine.storage")
+        _keyValueStore = State(initialValue: keyValueStore)
+        _metricsLogger = State(initialValue: MetricsLogger())
+        _thermalGovernor = State(initialValue: ThermalGovernor())
+        _modelLoader = State(initialValue: ModelLoaderService(keyValueStore: keyValueStore))
     }
 
     var body: some Scene {

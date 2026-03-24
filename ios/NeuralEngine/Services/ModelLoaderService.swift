@@ -17,11 +17,41 @@ class ModelLoaderService {
     var activeFormat: ModelFormat = .coreML
     var activeDraftModelID: String?
 
-    private var downloadTasks: [String: Task<Void, Never>] = [:]
-    private let fileSystem = FileSystemService()
+    static let preferredActiveModelIDKey: String = "preferred_active_model_id"
 
-    init() {
+    private var downloadTasks: [String: Task<Void, Never>] = [:]
+    private var activationTask: Task<Bool, Never>?
+    private var activationTargetModelID: String?
+    private let fileSystem = FileSystemService()
+    private let keyValueStore: KeyValueStore?
+
+    init(keyValueStore: KeyValueStore? = nil) {
+        self.keyValueStore = keyValueStore
         loadBuiltinRegistry()
+        restorePreferredModelSelection()
+    }
+
+    var preferredModelID: String? {
+        keyValueStore?.getString(Self.preferredActiveModelIDKey)
+    }
+
+    private func persistPreferredModelID(_ modelID: String?) {
+        guard let keyValueStore else { return }
+        if let modelID {
+            keyValueStore.setString(modelID, forKey: Self.preferredActiveModelIDKey)
+        } else {
+            keyValueStore.remove(Self.preferredActiveModelIDKey)
+        }
+    }
+
+    private func restorePreferredModelSelection() {
+        guard activeModelID == nil,
+              let preferredModelID,
+              case .some(.ready) = modelStatuses[preferredModelID] else {
+            return
+        }
+
+        activateModel(preferredModelID)
     }
 
     static func registryIssue(for manifest: ModelManifest) -> String? {
@@ -587,6 +617,9 @@ class ModelLoaderService {
 
     private func autoActivateIfNeeded(_ modelID: String) {
         guard activeModelID == nil else { return }
+        if let preferredModelID, preferredModelID != modelID {
+            return
+        }
         activateModel(modelID)
     }
 
@@ -715,6 +748,11 @@ class ModelLoaderService {
     func deleteModel(_ modelID: String) {
         downloadTasks[modelID]?.cancel()
         downloadTasks.removeValue(forKey: modelID)
+        activationTask?.cancel()
+        if activationTargetModelID == modelID {
+            activationTask = nil
+            activationTargetModelID = nil
+        }
         modelStatuses[modelID] = .notDownloaded
 
         if activeModelID == modelID {
@@ -730,59 +768,69 @@ class ModelLoaderService {
             draftLlamaRunner.unload()
         }
 
+        if preferredModelID == modelID {
+            persistPreferredModelID(nil)
+        }
+
         fileSystem.deleteModelAssets(forModelID: modelID)
     }
 
     func activateModel(_ modelID: String) {
-        guard case .ready = modelStatuses[modelID] else { return }
-        guard let manifest = availableModels.first(where: { $0.id == modelID }) else { return }
-
-        activeModelID = modelID
-        activeFormat = manifest.format
-
-        if manifest.format == .gguf {
-            activateGGUFModel(modelID: modelID, manifest: manifest)
-            return
-        }
-
-        Task {
-            do {
-                if let tokenizerDir = loadTokenizerPath(forModelID: modelID) {
-                    try await tokenizer.loadFromDirectory(tokenizerDir)
-                } else {
-                    let tokenizerRepoID = manifest.tokenizerRepoID ?? manifest.repoID
-                    try await tokenizer.loadFromHub(repoID: tokenizerRepoID)
-                }
-            } catch {
-                print("Tokenizer load failed, using fallback: \(error)")
-            }
-
-            do {
-                if let modelURL = loadModelPath(forModelID: modelID) {
-                    try await modelRunner.loadModel(at: modelURL, computeUnits: thermalComputeUnits)
-                }
-            } catch {
-                print("Model load failed: \(error)")
-                modelStatuses[modelID] = .failed("Failed to load: \(error.localizedDescription)")
-                activeModelID = nil
-            }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.ensureModelLoaded(modelID, persistSelection: true)
         }
     }
 
-    func reactivateCurrentModel() {
-        guard let modelID = activeModelID else { return }
-        guard activeFormat == .coreML else { return }
+    @discardableResult
+    func ensureActiveModelLoaded(forceReload: Bool = false) async -> Bool {
+        guard let candidateModelID = activeModelID ?? preferredModelID else {
+            return false
+        }
+        return await ensureModelLoaded(candidateModelID, forceReload: forceReload, persistSelection: true)
+    }
 
-        Task {
-            do {
-                if let modelURL = loadModelPath(forModelID: modelID) {
-                    try await modelRunner.loadModel(at: modelURL, computeUnits: thermalComputeUnits)
-                }
-            } catch {
-                print("Reactivation failed: \(error)")
-                modelStatuses[modelID] = .failed("Recovery failed: \(error.localizedDescription)")
-                activeModelID = nil
+    @discardableResult
+    func ensureModelLoaded(_ modelID: String, forceReload: Bool = false, persistSelection: Bool = true) async -> Bool {
+        guard case .some(.ready) = modelStatuses[modelID],
+              let manifest = availableModels.first(where: { $0.id == modelID }) else {
+            return false
+        }
+
+        if let activationTask, activationTargetModelID == modelID {
+            return await activationTask.value
+        }
+
+        if !forceReload, isModelReadyForInference(manifest) {
+            activeModelID = modelID
+            activeFormat = manifest.format
+            if persistSelection {
+                persistPreferredModelID(modelID)
             }
+            return true
+        }
+
+        activationTask?.cancel()
+        activationTargetModelID = modelID
+
+        let activationTask = Task { @MainActor [weak self] in
+            guard let self else { return false }
+            return await self.performModelActivation(manifest, forceReload: forceReload, persistSelection: persistSelection)
+        }
+        self.activationTask = activationTask
+
+        let success = await activationTask.value
+        if activationTargetModelID == modelID {
+            self.activationTask = nil
+            activationTargetModelID = nil
+        }
+        return success
+    }
+
+    func reactivateCurrentModel() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.ensureActiveModelLoaded(forceReload: true)
         }
     }
 
@@ -790,30 +838,89 @@ class ModelLoaderService {
         modelRunner.healthCheck()
     }
 
-    private func activateGGUFModel(modelID: String, manifest: ModelManifest) {
-        Task {
-            do {
+    private func isModelReadyForInference(_ manifest: ModelManifest) -> Bool {
+        guard activeModelID == manifest.id else { return false }
+        switch manifest.format {
+        case .coreML:
+            return modelRunner.isLoaded
+        case .gguf:
+            return llamaRunner.isLoaded
+        }
+    }
+
+    private func performModelActivation(_ manifest: ModelManifest, forceReload: Bool, persistSelection: Bool) async -> Bool {
+        guard !Task.isCancelled else { return false }
+
+        let modelID = manifest.id
+        activeModelID = modelID
+        activeFormat = manifest.format
+
+        do {
+            switch manifest.format {
+            case .coreML:
                 guard let modelURL = loadModelPath(forModelID: modelID) else {
-                    modelStatuses[modelID] = .failed("GGUF model file not found.")
-                    activeModelID = nil
-                    activeDraftModelID = nil
-                    return
+                    throw ModelLoaderError.noModelFound("CoreML model file not found.")
+                }
+
+                llamaRunner.unload()
+                draftLlamaRunner.unload()
+                activeDraftModelID = nil
+
+                if forceReload || modelRunner.isLoaded {
+                    modelRunner.unload()
+                }
+
+                do {
+                    if let tokenizerDir = loadTokenizerPath(forModelID: modelID) {
+                        try await tokenizer.loadFromDirectory(tokenizerDir)
+                    } else {
+                        let tokenizerRepoID = manifest.tokenizerRepoID ?? manifest.repoID
+                        try await tokenizer.loadFromHub(repoID: tokenizerRepoID)
+                    }
+                } catch {
+                    print("Tokenizer load failed, using fallback: \(error)")
+                }
+
+                try await modelRunner.loadModel(at: modelURL, computeUnits: thermalComputeUnits)
+
+            case .gguf:
+                guard let modelURL = loadModelPath(forModelID: modelID) else {
+                    throw ModelLoaderError.noModelFound("GGUF model file not found.")
                 }
 
                 modelRunner.unload()
+                tokenizer.unloadTokenizer()
+                activeDraftModelID = nil
+
+                if forceReload || llamaRunner.isLoaded {
+                    llamaRunner.unload()
+                    draftLlamaRunner.unload()
+                }
+
                 try llamaRunner.loadModel(
                     at: modelURL.path,
                     nCtx: Int32(manifest.contextLength)
                 )
                 loadDraftRunnerIfPossible(for: manifest)
-            } catch {
-                print("GGUF model load failed: \(error)")
-                modelStatuses[modelID] = .failed("Failed to load: \(error.localizedDescription)")
+            }
+
+            if persistSelection {
+                persistPreferredModelID(modelID)
+            }
+            return true
+        } catch {
+            modelStatuses[modelID] = .failed("Failed to load: \(error.localizedDescription)")
+            if activeModelID == modelID {
                 activeModelID = nil
+            }
+            if activeDraftModelID == modelID {
                 activeDraftModelID = nil
+            }
+            if manifest.format == .gguf {
                 draftLlamaRunner.unload()
                 activeFormat = .coreML
             }
+            return false
         }
     }
 

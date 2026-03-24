@@ -85,6 +85,7 @@ struct ContentView: View {
             if !keyValueStore.has("onboarding_completed") {
                 showOnboarding = true
             }
+            await chatViewModel?.autoLoadModelIfNeeded()
         }
         .sheet(isPresented: $toolExecutor.showInAppBrowser) {
             if let url = toolExecutor.browserURL {
@@ -93,6 +94,12 @@ struct ContentView: View {
         }
         .onChange(of: modelLoader.activeModelID) { _, _ in
             chatViewModel?.syncEngineFormat()
+        }
+        .onChange(of: showOnboarding) { _, isPresented in
+            guard !isPresented else { return }
+            Task { @MainActor in
+                await chatViewModel?.autoLoadModelIfNeeded()
+            }
         }
         .fullScreenCover(isPresented: $showOnboarding) {
             OnboardingView(modelLoader: modelLoader) {
