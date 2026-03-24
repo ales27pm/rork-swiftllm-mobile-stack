@@ -89,29 +89,33 @@ class VectorStore {
         index.remove(id: id)
     }
 
-    func search(query: String, maxResults: Int = 10, minScore: Float = 0.0, languageHint: String? = nil) -> [VectorSearchResult] {
+    func search(query: String, maxResults: Int = 10, minScore: Float = 0.0, allowedIDs: Set<String>? = nil, languageHint: String? = nil) -> [VectorSearchResult] {
         ensureLoaded()
         guard let queryVec = embedder.embed(query, languageHint: languageHint) else { return [] }
-        return searchByVector(queryVec, maxResults: maxResults, minScore: minScore)
+        return searchByVector(queryVec, maxResults: maxResults, minScore: minScore, allowedIDs: allowedIDs)
     }
 
-    func searchByVector(_ queryVector: [Float], maxResults: Int = 10, minScore: Float = 0.0) -> [VectorSearchResult] {
+    func searchByVector(_ queryVector: [Float], maxResults: Int = 10, minScore: Float = 0.0, allowedIDs: Set<String>? = nil) -> [VectorSearchResult] {
         ensureLoaded()
         guard let normalizedQuery = sanitizedVector(queryVector), !idToVector.isEmpty else { return [] }
 
+        if let allowedIDs {
+            let filteredCandidateIDs = Array(allowedIDs.filter { idToVector[$0] != nil })
+            guard !filteredCandidateIDs.isEmpty else { return [] }
+            return exactSearch(queryVector: normalizedQuery, candidateIDs: filteredCandidateIDs, maxResults: maxResults, minScore: minScore)
+        }
+
         if idToVector.count <= exactSearchThreshold {
-            return exactSearch(queryVector: normalizedQuery, maxResults: maxResults, minScore: minScore)
+            return exactSearch(queryVector: normalizedQuery, candidateIDs: Array(idToVector.keys), maxResults: maxResults, minScore: minScore)
         }
 
-        let candidateCount = min(idToVector.count, max(maxResults * approximateCandidateMultiplier, maxResults))
-        let approximate = index.search(query: normalizedQuery, k: candidateCount)
-        let reranked = rerank(candidateIDs: approximate.map(\.id), queryVector: normalizedQuery, maxResults: maxResults, minScore: minScore)
+        return approximateSearchByVector(normalizedQuery, maxResults: maxResults, minScore: minScore, queryIsNormalized: true, allowedIDs: nil, fallbackToExact: true)
+    }
 
-        if reranked.count >= maxResults || approximate.count == idToVector.count {
-            return reranked
-        }
-
-        return exactSearch(queryVector: normalizedQuery, maxResults: maxResults, minScore: minScore)
+    func approximateSearchByVector(_ queryVector: [Float], maxResults: Int = 10, minScore: Float = 0.0, allowedIDs: Set<String>? = nil) -> [VectorSearchResult] {
+        ensureLoaded()
+        guard !idToVector.isEmpty else { return [] }
+        return approximateSearchByVector(queryVector, maxResults: maxResults, minScore: minScore, queryIsNormalized: false, allowedIDs: allowedIDs, fallbackToExact: false)
     }
 
     func getVector(for id: String) -> [Float]? {
@@ -151,8 +155,45 @@ class VectorStore {
         if !loaded { loadIndex() }
     }
 
-    private func exactSearch(queryVector: [Float], maxResults: Int, minScore: Float) -> [VectorSearchResult] {
-        rerank(candidateIDs: Array(idToVector.keys), queryVector: queryVector, maxResults: maxResults, minScore: minScore)
+    private func exactSearch(queryVector: [Float], candidateIDs: [String], maxResults: Int, minScore: Float) -> [VectorSearchResult] {
+        rerank(candidateIDs: candidateIDs, queryVector: queryVector, maxResults: maxResults, minScore: minScore)
+    }
+
+    private func approximateSearchByVector(_ queryVector: [Float], maxResults: Int, minScore: Float, queryIsNormalized: Bool, allowedIDs: Set<String>?, fallbackToExact: Bool) -> [VectorSearchResult] {
+        let normalizedQuery: [Float]
+        if queryIsNormalized {
+            normalizedQuery = queryVector
+        } else {
+            guard let sanitizedQuery = sanitizedVector(queryVector) else { return [] }
+            normalizedQuery = sanitizedQuery
+        }
+
+        let candidateCount = min(idToVector.count, max(maxResults * approximateCandidateMultiplier, maxResults * 4, 32))
+        let approximate = index.search(query: normalizedQuery, k: candidateCount)
+        let approximateCandidateIDs: [String]
+        if let allowedIDs {
+            approximateCandidateIDs = approximate.map(\.id).filter { allowedIDs.contains($0) }
+        } else {
+            approximateCandidateIDs = approximate.map(\.id)
+        }
+
+        let reranked = rerank(candidateIDs: approximateCandidateIDs, queryVector: normalizedQuery, maxResults: maxResults, minScore: minScore)
+
+        guard fallbackToExact else {
+            return reranked
+        }
+
+        if reranked.count >= maxResults || approximate.count == idToVector.count {
+            return reranked
+        }
+
+        let fallbackCandidateIDs: [String]
+        if let allowedIDs {
+            fallbackCandidateIDs = allowedIDs.filter { idToVector[$0] != nil }
+        } else {
+            fallbackCandidateIDs = Array(idToVector.keys)
+        }
+        return exactSearch(queryVector: normalizedQuery, candidateIDs: fallbackCandidateIDs, maxResults: maxResults, minScore: minScore)
     }
 
     private func rerank(candidateIDs: [String], queryVector: [Float], maxResults: Int, minScore: Float) -> [VectorSearchResult] {
@@ -264,7 +305,7 @@ final class HNSWIndex: @unchecked Sendable {
         let level = randomLevel()
         var node = Node(id: id, vector: vector, neighbors: Array(repeating: [], count: level + 1))
 
-        guard let ep = entryPoint, let epNode = nodes[ep] else {
+        guard let ep = entryPoint, nodes[ep] != nil else {
             nodes[id] = node
             entryPoint = id
             topLevel = level

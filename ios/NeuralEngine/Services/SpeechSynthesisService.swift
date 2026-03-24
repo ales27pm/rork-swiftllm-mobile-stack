@@ -284,7 +284,7 @@ class SpeechSynthesisService: NSObject {
 
         do {
             let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .duckOthers, .allowBluetooth])
+            try audioSession.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .duckOthers, .allowBluetoothHFP])
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
         } catch {
             logger.warning("Primary audio session setup failed: \(error.localizedDescription, privacy: .public). Retrying with fallback.")
@@ -434,8 +434,8 @@ extension SpeechSynthesisService: AVSpeechSynthesizerDelegate {
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        let sentenceText = utterance.speechString
         Task { @MainActor in
-            let sentenceText = utterance.speechString
             accumulatedLength += sentenceText.count
             spokenText += (spokenText.isEmpty ? "" : " ") + sentenceText
             currentSentence += 1
@@ -458,8 +458,8 @@ extension SpeechSynthesisService: AVSpeechSynthesizerDelegate {
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, willSpeakRangeOfSpeechString characterRange: NSRange, utterance: AVSpeechUtterance) {
+        let text = utterance.speechString
         Task { @MainActor in
-            let text = utterance.speechString
             if let range = Range(characterRange, in: text) {
                 currentWord = String(text[range])
             }

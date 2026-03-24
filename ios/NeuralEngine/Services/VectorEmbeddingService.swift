@@ -13,12 +13,18 @@ nonisolated final class VectorEmbeddingService: Sendable {
         guard !trimmed.isEmpty else { return nil }
 
         let language = resolveLanguage(for: trimmed, hint: languageHint)
+        let sentence = sentenceVector(for: trimmed, language: language)
+        let averagedWords = averagedWordVector(for: trimmed, language: language)
 
-        if let vector = sentenceVector(for: trimmed, language: language) {
-            return vector
+        if let sentence, let averagedWords {
+            return blendVectors(primary: sentence, secondary: averagedWords, primaryWeight: 0.55)
         }
 
-        return averagedWordVector(for: trimmed, language: language)
+        if let sentence {
+            return sentence
+        }
+
+        return averagedWords
     }
 
     func embedBatch(_ texts: [String], languageHint: String? = nil) -> [[Float]?] {
@@ -138,6 +144,19 @@ nonisolated final class VectorEmbeddingService: Sendable {
         var divisor = magnitude
         vDSP_vsdiv(vector, 1, &divisor, &normalized, 1, vDSP_Length(vector.count))
         return normalized
+    }
+
+    private func blendVectors(primary: [Float], secondary: [Float], primaryWeight: Float) -> [Float] {
+        guard primary.count == secondary.count else {
+            return normalize(primary)
+        }
+
+        let secondaryWeight = max(0, 1 - primaryWeight)
+        var blended = [Float](repeating: 0, count: primary.count)
+        for index in primary.indices {
+            blended[index] = (primary[index] * primaryWeight) + (secondary[index] * secondaryWeight)
+        }
+        return normalize(blended)
     }
 
     private func resizeVector(_ vector: [Float], targetDim: Int) -> [Float] {

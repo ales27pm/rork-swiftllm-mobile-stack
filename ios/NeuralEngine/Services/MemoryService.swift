@@ -164,14 +164,21 @@ class MemoryService {
         let queryTerms = tokenize(query, languageHint: resolvedLanguageHint)
         let idf = buildIDF(filtered, languageHint: resolvedLanguageHint)
         let queryVec = computeTFIDF(tokens: queryTerms, idf: idf)
+        let allowedIDs = Set(filtered.map(\.id))
 
-        let vectorResults = vectorStore.search(query: query, maxResults: filtered.count, minScore: 0.01, languageHint: resolvedLanguageHint)
+        let vectorResults = vectorStore.search(
+            query: query,
+            maxResults: filtered.count,
+            minScore: 0.01,
+            allowedIDs: allowedIDs,
+            languageHint: resolvedLanguageHint
+        )
         var vectorScoreMap: [String: Float] = [:]
-        for vr in vectorResults {
-            vectorScoreMap[vr.id] = vr.score
+        for result in vectorResults {
+            vectorScoreMap[result.id] = result.score
         }
 
-        var scored: [RetrievalResult] = filtered.map { memory in
+        let features = filtered.map { memory in
             let docText = memory.content + " " + memory.keywords.joined(separator: " ") + " " + memory.category.rawValue
             let documentLanguageHint = resolvedLanguageHint ?? NLTextProcessing.detectLanguage(for: docText)?.rawValue
             let docTerms = tokenize(docText, languageHint: documentLanguageHint)
@@ -190,6 +197,7 @@ class MemoryService {
             }
             keywordBonus = min(keywordBonus, 0.4)
 
+            let lexicalScore = (tfidfScore * 0.5) + (lexicalOverlap * 0.25) + (keywordBonus * 0.25)
             let vectorSimilarity = Double(vectorScoreMap[memory.id] ?? 0)
 
             var fallbackEmbedding: Double = 0
@@ -202,29 +210,38 @@ class MemoryService {
                 fallbackEmbedding = rawEmbeddingScore ?? 0
             }
 
-            let embeddingScore = max(vectorSimilarity, fallbackEmbedding)
+            return (
+                memory: memory,
+                lexicalScore: lexicalScore,
+                embeddingScore: max(vectorSimilarity, fallbackEmbedding),
+                vectorSimilarity: vectorSimilarity,
+                decay: computeDecay(memory)
+            )
+        }
 
-            let decay = computeDecay(memory)
-            let recencyScore = decay * 0.15
-            let importanceScore = Double(memory.importance) / 5.0 * 0.2
-            let activationBonus = memory.activationLevel * 0.15
-            let hybridLexicalScore = (tfidfScore * 0.5) + (lexicalOverlap * 0.25) + (keywordBonus * 0.25)
-            var semanticWeight: Double = 0.35
-            if hybridLexicalScore < 0.05 && embeddingScore > 0.2 {
-                semanticWeight = 0.65
-            }
-            let semanticScore = embeddingScore * semanticWeight
-            let totalScore = hybridLexicalScore + semanticScore + recencyScore + importanceScore + activationBonus
+        let lexicalRanks = buildRankMap(features.map { (id: $0.memory.id, score: $0.lexicalScore) })
+        let semanticRanks = buildRankMap(features.map { (id: $0.memory.id, score: $0.embeddingScore) })
+        let rankConstant = max(1, min(10, filtered.count / 4))
 
-            var matchType: RetrievalResult.MatchType = semanticScore > hybridLexicalScore ? .semantic : .keyword
-            if vectorSimilarity > 0.5 && semanticScore > hybridLexicalScore {
+        var scored: [RetrievalResult] = features.map { feature in
+            let lexicalRankScore = reciprocalRankScore(rank: lexicalRanks[feature.memory.id], weight: 0.75, constant: rankConstant)
+            let semanticRankScore = reciprocalRankScore(rank: semanticRanks[feature.memory.id], weight: 0.95, constant: rankConstant)
+            let recencyScore = feature.decay * 0.12
+            let importanceScore = Double(feature.memory.importance) / 5.0 * 0.14
+            let activationBonus = feature.memory.activationLevel * 0.08
+            let lexicalContribution = lexicalRankScore + (feature.lexicalScore * 0.22)
+            let semanticContribution = semanticRankScore + (feature.embeddingScore * 0.28)
+            let totalScore = lexicalContribution + semanticContribution + recencyScore + importanceScore + activationBonus
+
+            var matchType: RetrievalResult.MatchType = semanticContribution > lexicalContribution ? .semantic : .keyword
+            if feature.vectorSimilarity > 0.45 && semanticContribution >= lexicalContribution {
                 matchType = .vector
             }
-            if activationBonus > hybridLexicalScore && activationBonus > semanticScore {
+            if activationBonus > lexicalContribution && activationBonus > semanticContribution {
                 matchType = .primed
             }
 
-            return RetrievalResult(memory: memory, score: totalScore, matchType: matchType)
+            return RetrievalResult(memory: feature.memory, score: totalScore, matchType: matchType)
         }
 
         scored.sort { $0.score > $1.score }
@@ -694,6 +711,28 @@ class MemoryService {
 
         let denom = sqrt(magA) * sqrt(magB)
         return denom == 0 ? 0 : dot / denom
+    }
+
+    private func buildRankMap(_ items: [(id: String, score: Double)]) -> [String: Int] {
+        let sorted = items
+            .filter { $0.score > 0 }
+            .sorted { lhs, rhs in
+                if lhs.score == rhs.score {
+                    return lhs.id < rhs.id
+                }
+                return lhs.score > rhs.score
+            }
+
+        var ranks: [String: Int] = [:]
+        for (index, item) in sorted.enumerated() {
+            ranks[item.id] = index + 1
+        }
+        return ranks
+    }
+
+    private func reciprocalRankScore(rank: Int?, weight: Double, constant: Int) -> Double {
+        guard let rank else { return 0 }
+        return weight / Double(constant + max(rank, 1))
     }
 
     private func computeDecay(_ memory: MemoryEntry) -> Double {

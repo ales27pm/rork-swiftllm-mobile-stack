@@ -2212,8 +2212,10 @@ extension DiagnosticEngine {
         var checks = 0
         var details: [String] = []
 
+        let allowedIDs = Set(docs.map(\.id))
+
         for query in queries {
-            let results = store.search(query: query.q, maxResults: 3)
+            let results = store.search(query: query.q, maxResults: 3, allowedIDs: allowedIDs)
             let topId = results.first?.id ?? "none"
             let topScore = results.first?.score ?? 0
             let foundInTop3 = results.prefix(3).contains { $0.id == query.expectedTop }
@@ -2262,7 +2264,8 @@ extension DiagnosticEngine {
             return TestOutcome(status: .warning, message: "Could not generate query embedding", details: [])
         }
 
-        let hnswResults = store.searchByVector(queryVec, maxResults: 3)
+        let allowedIDs = Set(ids)
+        let hnswResults = store.approximateSearchByVector(queryVec, maxResults: 3, allowedIDs: allowedIDs)
 
         var bruteForce: [(id: String, score: Float)] = []
         for (i, vec) in vectors.enumerated() {
@@ -2402,7 +2405,7 @@ extension DiagnosticEngine {
         let afterInsert = store.count
         let insertedCount = afterInsert - countBefore
 
-        let searchResults = store.search(query: "scientific research", maxResults: 5)
+        let searchResults = store.search(query: "scientific research", maxResults: 5, allowedIDs: Set(testIds))
 
         for id in testIds { store.delete(id: id) }
         let afterDelete = store.count

@@ -48,39 +48,41 @@ final class TokenizerService: @unchecked Sendable {
     private var eosTokenIDs: Set<Int> = [2]
 
     var effectiveEOSTokens: Set<Int> {
-        lock.lock()
-        defer { lock.unlock() }
-        return eosTokenIDs
+        withLock { eosTokenIDs }
     }
 
     var cacheIdentifier: String {
-        lock.lock()
-        defer { lock.unlock() }
-        return sourceIdentifier
+        withLock { sourceIdentifier }
     }
 
     init() {
         buildFallbackVocabulary()
     }
 
+    private func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
+
     func loadFromHub(repoID: String) async throws {
         let loaded = try await AutoTokenizer.from(pretrained: repoID)
-        lock.lock()
-        tokenizer = loaded
-        isRealTokenizer = true
-        sourceIdentifier = "hub:\(repoID)"
-        detectEOSTokens(loaded)
-        lock.unlock()
+        withLock {
+            tokenizer = loaded
+            isRealTokenizer = true
+            sourceIdentifier = "hub:\(repoID)"
+            detectEOSTokens(loaded)
+        }
     }
 
     func loadFromDirectory(_ url: URL) async throws {
         let loaded = try await AutoTokenizer.from(modelFolder: url)
-        lock.lock()
-        tokenizer = loaded
-        isRealTokenizer = true
-        sourceIdentifier = "dir:\(url.standardizedFileURL.path)"
-        detectEOSTokens(loaded)
-        lock.unlock()
+        withLock {
+            tokenizer = loaded
+            isRealTokenizer = true
+            sourceIdentifier = "dir:\(url.standardizedFileURL.path)"
+            detectEOSTokens(loaded)
+        }
     }
 
     private func detectEOSTokens(_ tok: Tokenizer) {
@@ -102,68 +104,61 @@ final class TokenizerService: @unchecked Sendable {
     }
 
     func unloadTokenizer() {
-        lock.lock()
-        tokenizer = nil
-        isRealTokenizer = false
-        sourceIdentifier = "fallback-tokenizer"
-        lock.unlock()
+        withLock {
+            tokenizer = nil
+            isRealTokenizer = false
+            sourceIdentifier = "fallback-tokenizer"
+        }
     }
 
     var hasRealTokenizer: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return isRealTokenizer
+        withLock { isRealTokenizer }
     }
 
     func encode(_ text: String) -> [Int] {
-        lock.lock()
-        defer { lock.unlock() }
+        withLock {
+            if let tokenizer {
+                let encoded = tokenizer(text)
+                return encoded
+            }
 
-        if let tokenizer {
-            let encoded = tokenizer(text)
-            return encoded
+            return fallbackEncode(text)
         }
-
-        return fallbackEncode(text)
     }
 
     func decode(_ tokenIDs: [Int]) -> String {
-        lock.lock()
-        defer { lock.unlock() }
+        withLock {
+            if let tokenizer {
+                return tokenizer.decode(tokens: tokenIDs)
+            }
 
-        if let tokenizer {
-            return tokenizer.decode(tokens: tokenIDs)
+            return fallbackDecode(tokenIDs)
         }
-
-        return fallbackDecode(tokenIDs)
     }
 
     func decodeIncremental(_ tokenID: Int) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
+        withLock {
+            if let tokenizer {
+                return tokenizer.decode(tokens: [tokenID])
+            }
 
-        if let tokenizer {
-            return tokenizer.decode(tokens: [tokenID])
+            guard !Self.specialTokens.contains(tokenID) else { return nil }
+            guard let piece = fallbackVocabulary[tokenID] else { return nil }
+            return piece.replacingOccurrences(of: "▁", with: " ")
         }
-
-        guard !Self.specialTokens.contains(tokenID) else { return nil }
-        guard let piece = fallbackVocabulary[tokenID] else { return nil }
-        return piece.replacingOccurrences(of: "▁", with: " ")
     }
 
     var vocabularySize: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        if isRealTokenizer {
-            return _vocabularySize
+        withLock {
+            if isRealTokenizer {
+                return _vocabularySize
+            }
+            return fallbackVocabulary.count
         }
-        return fallbackVocabulary.count
     }
 
     var currentSchemaInfo: TokenizerSchemaInfo? {
-        lock.lock()
-        defer { lock.unlock() }
-        return schemaInfo
+        withLock { schemaInfo }
     }
 
     func validateSchema(in directory: URL) -> TokenizerSchemaInfo {
@@ -252,9 +247,9 @@ final class TokenizerService: @unchecked Sendable {
             diagnosticCode: .valid
         )
 
-        lock.lock()
-        schemaInfo = info
-        lock.unlock()
+        withLock {
+            schemaInfo = info
+        }
 
         return info
     }
@@ -275,16 +270,15 @@ final class TokenizerService: @unchecked Sendable {
     }
 
     func applyTemplate(messages: [[String: String]]) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
+        withLock {
+            guard let tokenizer else { return nil }
 
-        guard let tokenizer else { return nil }
+            if let encoded = try? tokenizer.applyChatTemplate(messages: messages) {
+                return tokenizer.decode(tokens: encoded)
+            }
 
-        if let encoded = try? tokenizer.applyChatTemplate(messages: messages) {
-            return tokenizer.decode(tokens: encoded)
+            return nil
         }
-
-        return nil
     }
 
     private func fallbackEncode(_ text: String) -> [Int] {
