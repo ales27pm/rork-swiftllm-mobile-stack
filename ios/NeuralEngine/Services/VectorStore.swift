@@ -8,6 +8,8 @@ class VectorStore {
     private var index: HNSWIndex
     private var idToVector: [String: [Float]] = [:]
     private var loaded = false
+    private let exactSearchThreshold = 2_048
+    private let approximateCandidateMultiplier = 8
 
     init(database: DatabaseService, embedder: VectorEmbeddingService = .shared) {
         self.database = database
@@ -35,7 +37,8 @@ class VectorStore {
             guard let id = row["id"] as? String,
                   let blob = row["vector"] as? Data,
                   let dims = row["dimensions"] as? Int64 else { continue }
-            let vector = blobToFloats(blob, count: Int(dims))
+            let rawVector = blobToFloats(blob, count: Int(dims))
+            guard let vector = sanitizedVector(rawVector) else { continue }
             idToVector[id] = vector
             index.insert(id: id, vector: vector)
         }
@@ -44,7 +47,8 @@ class VectorStore {
 
     func upsert(id: String, text: String, languageHint: String? = nil) -> Bool {
         ensureLoaded()
-        guard let vector = embedder.embed(text, languageHint: languageHint) else { return false }
+        guard let embedded = embedder.embed(text, languageHint: languageHint),
+              let vector = sanitizedVector(embedded) else { return false }
         let blob = floatsToBlob(vector)
         let now = Date().timeIntervalSince1970 * 1000
         let success = database.execute(
@@ -62,18 +66,19 @@ class VectorStore {
 
     func upsertWithVector(id: String, vector: [Float]) -> Bool {
         ensureLoaded()
-        let blob = floatsToBlob(vector)
+        guard let normalizedVector = sanitizedVector(vector) else { return false }
+        let blob = floatsToBlob(normalizedVector)
         let now = Date().timeIntervalSince1970 * 1000
         let success = database.execute(
             "INSERT OR REPLACE INTO vector_embeddings (id, vector, dimensions, created_at, updated_at) VALUES (?, ?, ?, ?, ?);",
-            params: [id, blob, vector.count, now, now]
+            params: [id, blob, VectorEmbeddingService.dimensions, now, now]
         )
         guard success else { return false }
         if idToVector[id] != nil {
             index.remove(id: id)
         }
-        idToVector[id] = vector
-        index.insert(id: id, vector: vector)
+        idToVector[id] = normalizedVector
+        index.insert(id: id, vector: normalizedVector)
         return true
     }
 
@@ -92,16 +97,21 @@ class VectorStore {
 
     func searchByVector(_ queryVector: [Float], maxResults: Int = 10, minScore: Float = 0.0) -> [VectorSearchResult] {
         ensureLoaded()
-        let candidates = index.search(query: queryVector, k: maxResults * 2)
-        var results: [VectorSearchResult] = []
-        for candidate in candidates {
-            guard let stored = idToVector[candidate.id] else { continue }
-            let similarity = embedder.cosineSimilarity(queryVector, stored)
-            guard similarity >= minScore else { continue }
-            results.append(VectorSearchResult(id: candidate.id, score: similarity))
+        guard let normalizedQuery = sanitizedVector(queryVector), !idToVector.isEmpty else { return [] }
+
+        if idToVector.count <= exactSearchThreshold {
+            return exactSearch(queryVector: normalizedQuery, maxResults: maxResults, minScore: minScore)
         }
-        results.sort { $0.score > $1.score }
-        return Array(results.prefix(maxResults))
+
+        let candidateCount = min(idToVector.count, max(maxResults * approximateCandidateMultiplier, maxResults))
+        let approximate = index.search(query: normalizedQuery, k: candidateCount)
+        let reranked = rerank(candidateIDs: approximate.map(\.id), queryVector: normalizedQuery, maxResults: maxResults, minScore: minScore)
+
+        if reranked.count >= maxResults || approximate.count == idToVector.count {
+            return reranked
+        }
+
+        return exactSearch(queryVector: normalizedQuery, maxResults: maxResults, minScore: minScore)
     }
 
     func getVector(for id: String) -> [Float]? {
@@ -139,6 +149,59 @@ class VectorStore {
 
     private func ensureLoaded() {
         if !loaded { loadIndex() }
+    }
+
+    private func exactSearch(queryVector: [Float], maxResults: Int, minScore: Float) -> [VectorSearchResult] {
+        rerank(candidateIDs: Array(idToVector.keys), queryVector: queryVector, maxResults: maxResults, minScore: minScore)
+    }
+
+    private func rerank(candidateIDs: [String], queryVector: [Float], maxResults: Int, minScore: Float) -> [VectorSearchResult] {
+        var results: [VectorSearchResult] = []
+        var seen: Set<String> = []
+
+        for id in candidateIDs {
+            guard seen.insert(id).inserted,
+                  let stored = idToVector[id] else { continue }
+            let similarity = embedder.cosineSimilarity(queryVector, stored)
+            guard similarity >= minScore else { continue }
+            results.append(VectorSearchResult(id: id, score: similarity))
+        }
+
+        results.sort { lhs, rhs in
+            if lhs.score == rhs.score {
+                return lhs.id < rhs.id
+            }
+            return lhs.score > rhs.score
+        }
+        return Array(results.prefix(maxResults))
+    }
+
+    private func sanitizedVector(_ vector: [Float]) -> [Float]? {
+        guard !vector.isEmpty else { return nil }
+
+        let resized: [Float]
+        if vector.count == VectorEmbeddingService.dimensions {
+            resized = vector
+        } else if vector.count > VectorEmbeddingService.dimensions {
+            resized = Array(vector.prefix(VectorEmbeddingService.dimensions))
+        } else {
+            resized = vector + [Float](repeating: 0, count: VectorEmbeddingService.dimensions - vector.count)
+        }
+
+        guard resized.allSatisfy(\.isFinite) else { return nil }
+        return normalize(resized)
+    }
+
+    private func normalize(_ vector: [Float]) -> [Float] {
+        var magnitudeSquared: Float = 0
+        vDSP_svesq(vector, 1, &magnitudeSquared, vDSP_Length(vector.count))
+        let magnitude = sqrtf(magnitudeSquared)
+        guard magnitude > 0 else { return vector }
+
+        var normalized = [Float](repeating: 0, count: vector.count)
+        var divisor = magnitude
+        vDSP_vsdiv(vector, 1, &divisor, &normalized, 1, vDSP_Length(vector.count))
+        return normalized
     }
 
     private func floatsToBlob(_ floats: [Float]) -> Data {

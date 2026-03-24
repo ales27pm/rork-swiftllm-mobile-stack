@@ -10,6 +10,8 @@ actor KVCacheArena {
     private var peakMemoryBytes: Int64 = 0
     private var blockHashIndex: [String: UUID] = [:]
     private var pageHashReverseIndex: [UUID: Set<String>] = [:]
+    private let softPressureUtilization: Double = 0.92
+    private let recoveryUtilization: Double = 0.75
 
     nonisolated let evictionPolicy: EvictionPolicy
 
@@ -30,10 +32,12 @@ actor KVCacheArena {
         tokenCount: Int,
         sequenceID: UUID? = nil
     ) -> KVPage {
-        if let freeID = freePageIDs.popLast(), var recycled = pages[freeID] {
-            removeHashMappings(for: freeID)
-            recycled = KVPage(
-                id: recycled.id,
+        let requiredBytes = Int64(pageFootprintBytes)
+        ensureCapacity(forAdditionalBytes: requiredBytes)
+
+        if let recycledID = nextReusablePageID(), let recycledPage = pages[recycledID] {
+            let recycled = KVPage(
+                id: recycledPage.id,
                 tokenStart: tokenStart,
                 tokenCount: tokenCount,
                 layerCount: layerCount,
@@ -41,14 +45,11 @@ actor KVCacheArena {
                 isActive: true,
                 sequenceID: sequenceID
             )
-            pages[freeID] = recycled
-            evictionOrder.append(freeID)
+            pages[recycledID] = recycled
+            evictionOrder.removeAll { $0 == recycledID }
+            evictionOrder.append(recycledID)
             updatePeakMemory()
             return recycled
-        }
-
-        if estimatedMemoryBytes >= memoryBudgetBytes {
-            evictLRUPage()
         }
 
         let page = KVPage(
@@ -66,7 +67,7 @@ actor KVCacheArena {
     }
 
     func touchPage(_ pageID: UUID) {
-        guard var page = pages[pageID] else { return }
+        guard var page = pages[pageID], page.isActive else { return }
         page.touch()
         pages[pageID] = page
         evictionOrder.removeAll { $0 == pageID }
@@ -74,33 +75,34 @@ actor KVCacheArena {
     }
 
     func retainPage(_ pageID: UUID) {
-        guard var page = pages[pageID] else { return }
+        guard var page = pages[pageID], page.isActive else { return }
         page.retain()
+        page.touch()
         pages[pageID] = page
+        evictionOrder.removeAll { $0 == pageID }
+        evictionOrder.append(pageID)
     }
 
     func releasePage(_ pageID: UUID) {
-        guard var page = pages[pageID] else { return }
+        guard var page = pages[pageID], page.isActive else { return }
         let freed = page.release()
         if freed {
             page.isActive = false
+            page.isDirty = false
             pages[pageID] = page
-            freePageIDs.append(pageID)
-            evictionOrder.removeAll { $0 == pageID }
-            removeHashMappings(for: pageID)
+            reclaimPage(pageID)
         } else {
             pages[pageID] = page
         }
     }
 
     func freePage(_ pageID: UUID) {
-        guard var page = pages[pageID] else { return }
+        guard var page = pages[pageID], page.isActive else { return }
         page.isActive = false
         page.referenceCount = 0
+        page.isDirty = false
         pages[pageID] = page
-        freePageIDs.append(pageID)
-        evictionOrder.removeAll { $0 == pageID }
-        removeHashMappings(for: pageID)
+        reclaimPage(pageID)
     }
 
     func freePages(_ pageIDs: [UUID]) {
@@ -113,50 +115,23 @@ actor KVCacheArena {
         pages[pageID]
     }
 
-    private func evictLRUPage() {
-        while estimatedMemoryBytes >= memoryBudgetBytes, let candidateID = findEvictionCandidate() {
-            freePage(candidateID)
-        }
-    }
-
-    private func findEvictionCandidate() -> UUID? {
-        switch evictionPolicy {
-        case .lru:
-            for id in evictionOrder {
-                if let page = pages[id], page.isActive, !page.isShared {
-                    return id
-                }
-            }
-        case .lruWithPrefixProtection:
-            for id in evictionOrder {
-                if let page = pages[id], page.isActive, !page.isShared, page.tokenStart > 0 {
-                    return id
-                }
-            }
-            for id in evictionOrder {
-                if let page = pages[id], page.isActive, !page.isShared {
-                    return id
-                }
-            }
-        case .oldestFirst:
-            let sorted = pages.values
-                .filter { $0.isActive && !$0.isShared }
-                .sorted { $0.creationDate < $1.creationDate }
-            return sorted.first?.id
-        }
-        return nil
+    func markPageClean(_ pageID: UUID) {
+        guard var page = pages[pageID], page.isActive else { return }
+        page.markClean()
+        pages[pageID] = page
     }
 
     func evictPagesForBudget(targetFreeBytes: Int64) -> [UUID] {
-        var evicted: [UUID] = []
-        var freed: Int64 = 0
+        guard targetFreeBytes > 0 else { return [] }
 
-        while freed < targetFreeBytes, let candidateID = findEvictionCandidate() {
-            if let page = pages[candidateID] {
-                freed += Int64(page.memoryEstimateBytes)
-                evicted.append(candidateID)
-                freePage(candidateID)
-            }
+        var evicted: [UUID] = []
+        var reclaimedBytes: Int64 = 0
+
+        while reclaimedBytes < targetFreeBytes, let candidateID = findEvictionCandidate() {
+            guard let page = pages[candidateID], page.isActive else { break }
+            reclaimedBytes += Int64(page.memoryEstimateBytes)
+            evicted.append(candidateID)
+            freePage(candidateID)
         }
 
         return evicted
@@ -178,22 +153,17 @@ actor KVCacheArena {
             removeHashMappings(for: id)
             pages.removeValue(forKey: id)
         }
-        freePageIDs.removeAll()
-        evictionOrder = evictionOrder.filter { pages[$0] != nil }
+
+        let liveIDs = Set(pages.keys)
+        freePageIDs = freePageIDs.filter { liveIDs.contains($0) }
+        evictionOrder = evictionOrder.filter { liveIDs.contains($0) }
 
         return DefragmentResult(
             pagesReclaimed: deadIDs.count,
             pagesBefore: beforeCount,
             pagesAfter: pages.count,
-            bytesReclaimed: Int64(deadIDs.count * layerCount * pageSize * 2 * MemoryLayout<Float>.size)
+            bytesReclaimed: Int64(deadIDs.count * pageFootprintBytes)
         )
-    }
-
-    private func updatePeakMemory() {
-        let current = estimatedMemoryBytes
-        if current > peakMemoryBytes {
-            peakMemoryBytes = current
-        }
     }
 
     func reset() {
@@ -236,20 +206,20 @@ actor KVCacheArena {
 
     var statistics: KVCacheStatistics {
         let activePages = pages.values.filter(\.isActive)
-        let avgRefCount = activePages.isEmpty ? 0.0 : Double(activePages.reduce(0) { $0 + $1.referenceCount }) / Double(activePages.count)
-        let dirtyCount = activePages.filter(\.isDirty).count
+        let averageReferenceCount = activePages.isEmpty ? 0.0 : Double(activePages.reduce(0) { $0 + $1.referenceCount }) / Double(activePages.count)
+        let dirtyPages = activePages.filter(\.isDirty).count
 
         return KVCacheStatistics(
             activePages: activePages.count,
             freePages: freePageIDs.count,
             totalPages: pages.count,
             sharedPages: activePages.filter(\.isShared).count,
-            dirtyPages: dirtyCount,
+            dirtyPages: dirtyPages,
             estimatedMemoryBytes: estimatedMemoryBytes,
             peakMemoryBytes: peakMemoryBytes,
             memoryBudgetBytes: memoryBudgetBytes,
             budgetUtilization: memoryBudgetUtilization,
-            averageReferenceCount: avgRefCount,
+            averageReferenceCount: averageReferenceCount,
             evictionPolicy: evictionPolicy
         )
     }
@@ -267,12 +237,95 @@ actor KVCacheArena {
     }
 
     func register(blockHash: String, pageID: UUID) {
+        guard let page = pages[pageID], page.isActive else { return }
         blockHashIndex[blockHash] = pageID
         pageHashReverseIndex[pageID, default: []].insert(blockHash)
     }
 
     func referenceCount(for pageID: UUID) -> Int? {
         pages[pageID]?.referenceCount
+    }
+
+    private var pageFootprintBytes: Int {
+        layerCount * pageSize * 2 * MemoryLayout<Float>.size
+    }
+
+    private func nextReusablePageID() -> UUID? {
+        while let candidateID = freePageIDs.popLast() {
+            guard let page = pages[candidateID] else { continue }
+            guard !page.isActive else { continue }
+            removeHashMappings(for: candidateID)
+            return candidateID
+        }
+        return nil
+    }
+
+    private func ensureCapacity(forAdditionalBytes requiredBytes: Int64) {
+        guard memoryBudgetBytes > 0 else { return }
+
+        while estimatedMemoryBytes + requiredBytes > memoryBudgetBytes,
+              let candidateID = findEvictionCandidate()
+        {
+            freePage(candidateID)
+        }
+
+        let projectedUtilization = Double(estimatedMemoryBytes + requiredBytes) / Double(memoryBudgetBytes)
+        if activePageCount >= 3 && projectedUtilization > softPressureUtilization {
+            evictUntilUtilizationBelow(recoveryUtilization)
+        }
+    }
+
+    private func evictUntilUtilizationBelow(_ targetUtilization: Double) {
+        guard memoryBudgetBytes > 0 else { return }
+        while memoryBudgetUtilization > targetUtilization,
+              let candidateID = findEvictionCandidate()
+        {
+            freePage(candidateID)
+        }
+    }
+
+    private func reclaimPage(_ pageID: UUID) {
+        evictionOrder.removeAll { $0 == pageID }
+        removeHashMappings(for: pageID)
+        if !freePageIDs.contains(pageID) {
+            freePageIDs.append(pageID)
+        }
+    }
+
+    private func findEvictionCandidate() -> UUID? {
+        switch evictionPolicy {
+        case .lru:
+            return evictionOrder.first(where: isEvictablePage)
+        case .lruWithPrefixProtection:
+            if let protected = evictionOrder.first(where: { pageID in
+                isEvictablePage(pageID) && (pages[pageID]?.tokenStart ?? 0) > 0
+            }) {
+                return protected
+            }
+            return evictionOrder.first(where: isEvictablePage)
+        case .oldestFirst:
+            return pages.values
+                .filter { $0.isActive && !$0.isShared }
+                .sorted { lhs, rhs in
+                    if lhs.creationDate == rhs.creationDate {
+                        return lhs.tokenStart < rhs.tokenStart
+                    }
+                    return lhs.creationDate < rhs.creationDate
+                }
+                .first?.id
+        }
+    }
+
+    private func isEvictablePage(_ pageID: UUID) -> Bool {
+        guard let page = pages[pageID] else { return false }
+        return page.isActive && !page.isShared
+    }
+
+    private func updatePeakMemory() {
+        let current = estimatedMemoryBytes
+        if current > peakMemoryBytes {
+            peakMemoryBytes = current
+        }
     }
 
     private func removeHashMappings(for pageID: UUID) {

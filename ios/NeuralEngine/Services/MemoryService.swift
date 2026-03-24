@@ -588,12 +588,14 @@ class MemoryService {
         return .context
     }
 
-    private func saveLink(_ link: AssociativeLink) {
+    func saveLink(_ link: AssociativeLink) {
         _ = database.execute(
             "INSERT OR REPLACE INTO associative_links (source_id, target_id, strength, type, created_at, reinforcements) VALUES (?, ?, ?, ?, ?, ?);",
             params: [link.sourceId, link.targetId, link.strength, link.type.rawValue, link.createdAt, link.reinforcements]
         )
-        if !associativeLinks.contains(where: { $0.sourceId == link.sourceId && $0.targetId == link.targetId }) {
+        if let index = associativeLinks.firstIndex(where: { $0.sourceId == link.sourceId && $0.targetId == link.targetId }) {
+            associativeLinks[index] = link
+        } else {
             associativeLinks.append(link)
         }
     }
