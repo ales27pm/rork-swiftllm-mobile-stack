@@ -44,11 +44,7 @@ nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
         unloadInternalLocked()
 
         var modelParams = llama_model_default_params()
-#if targetEnvironment(simulator)
         modelParams.n_gpu_layers = 0
-#else
-        modelParams.n_gpu_layers = 99
-#endif
 
         guard let loadedModel = llama_model_load_from_file(path, modelParams) else {
             throw EmbeddingRunnerError.modelLoadFailed
@@ -89,32 +85,38 @@ nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
         defer { endEmbeddingOperation(borrowedState) }
 
         switch borrowedState {
-        case .native(let context, let vocab, let dimensions):
-            let tokens = tokenize(vocab: vocab, text: trimmed, addBOS: true)
-            guard !tokens.isEmpty else { return nil }
+        case .native(let model, let context, let vocab, let dimensions):
+            return autoreleasepool {
+                let tokens = tokenize(vocab: vocab, text: trimmed, addBOS: true)
+                guard !tokens.isEmpty else { return nil }
 
-            let memory = llama_get_memory(context)
-            llama_memory_clear(memory, true)
+                let batch = makeBatch(for: tokens)
+                defer { llama_batch_free(batch) }
 
-            for token in tokens {
-                var mutableToken = llama_token(token)
-                let batch = withUnsafeMutablePointer(to: &mutableToken) { pointer in
-                    llama_batch_get_one(pointer, 1)
+                let memory = llama_get_memory(context)
+                llama_memory_clear(memory, true)
+
+                let result: Int32
+                if llama_model_has_encoder(model) {
+                    result = llama_encode(context, batch)
+                } else {
+                    result = llama_decode(context, batch)
                 }
-                let result = llama_encode(context, batch)
                 guard result == 0 else { return nil }
-            }
 
-            guard let embPtr = llama_get_embeddings_seq(context, 0) else {
+                llama_synchronize(context)
+
+                if let embPtr = llama_get_embeddings_seq(context, 0) {
+                    let raw = Array(UnsafeBufferPointer(start: embPtr, count: dimensions))
+                    return l2Normalize(raw)
+                }
+
                 guard let embIth = llama_get_embeddings_ith(context, -1) else {
                     return nil
                 }
                 let raw = Array(UnsafeBufferPointer(start: embIth, count: dimensions))
                 return l2Normalize(raw)
             }
-
-            let raw = Array(UnsafeBufferPointer(start: embPtr, count: dimensions))
-            return l2Normalize(raw)
 #if DEBUG
         case .synthetic(let configuration):
             return syntheticEmbedding(for: trimmed, dimensions: configuration.dimensions)
@@ -205,11 +207,11 @@ nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
             return nil
         }
 
-        return .native(context: context, vocab: vocab, dimensions: dimensions)
+        return .native(model: model, context: context, vocab: vocab, dimensions: dimensions)
     }
 
     private func endEmbeddingOperation(_ borrowedState: BorrowedEmbeddingState?) {
-        if case .native(let context, _, _) = borrowedState {
+        if case .native(_, let context, _, _) = borrowedState {
             llama_synchronize(context)
         }
 
@@ -232,6 +234,27 @@ nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
         }
         guard count >= 0 else { return [] }
         return Array(tokens.prefix(Int(count))).map(Int.init)
+    }
+
+    private func makeBatch(for tokens: [Int]) -> llama_batch {
+        let tokenCount = Int32(tokens.count)
+        var batch = llama_batch_init(tokenCount, 0, 1)
+        batch.n_tokens = tokenCount
+
+        for (index, token) in tokens.enumerated() {
+            batch.token[index] = llama_token(token)
+            batch.pos[index] = Int32(index)
+            batch.n_seq_id[index] = 1
+            if let seqIDs = batch.seq_id, let seqID = seqIDs[index] {
+                seqID[0] = 0
+            }
+        }
+
+        if !tokens.isEmpty {
+            batch.logits[tokens.count - 1] = 1
+        }
+
+        return batch
     }
 
     private func l2Normalize(_ vector: [Float]) -> [Float] {
@@ -294,7 +317,7 @@ nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
 }
 
 private enum BorrowedEmbeddingState {
-    case native(context: OpaquePointer, vocab: OpaquePointer, dimensions: Int)
+    case native(model: OpaquePointer, context: OpaquePointer, vocab: OpaquePointer, dimensions: Int)
 #if DEBUG
     case synthetic(configuration: EmbeddingSyntheticTestingConfiguration)
 #endif
