@@ -77,6 +77,28 @@ struct ModelLoaderChecksumTests {
         #expect(status == .checksumFailed("Checksum mismatch detected. Delete and re-download."))
     }
 
+    @Test func builtinEmbeddingRegistryEntriesRemainDownloadableWhenChecksumsExist() {
+        let loader = ModelLoaderService()
+        let embeddingIDs: Set<String> = [
+            "arctic-embed-xs-q8-gguf",
+            "arctic-embed-s-q8-gguf",
+            "arctic-embed-m-q8-gguf",
+            "arctic-embed-l-q8-gguf"
+        ]
+
+        let embeddingModels = loader.availableModels.filter { embeddingIDs.contains($0.id) }
+        #expect(embeddingModels.count == embeddingIDs.count)
+
+        for manifest in embeddingModels {
+            #expect(ModelLoaderService.registryIssue(for: manifest) == nil)
+            #expect(!manifest.checksum.isEmpty)
+
+            let status = loader.resolveRestoredStatus(for: manifest, modelURL: nil, tokenizerURL: nil)
+            #expect(status == .notDownloaded)
+            #expect(loader.embeddingModelStatuses[manifest.id] == .notDownloaded)
+        }
+    }
+
     @Test func directoryHashRemainsStableAcrossNestedFiles() throws {
         let fileSystem = FileSystemService()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
