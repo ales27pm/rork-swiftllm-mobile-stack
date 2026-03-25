@@ -1,9 +1,15 @@
 import Foundation
 import CoreML
+import OSLog
 
 @Observable
 @MainActor
 class InferenceEngine {
+    nonisolated private static let logger: Logger = {
+        let subsystem = Bundle.main.bundleIdentifier ?? "NeuralEngine"
+        return Logger(subsystem: subsystem, category: "InferenceEngine")
+    }()
+
     var isGenerating: Bool = false
     var currentText: String = ""
     var sessionCache = SessionCache()
@@ -42,6 +48,14 @@ class InferenceEngine {
     private var thermalEscalationObserver: NSObjectProtocol?
     private var memoryPressureObserver: NSObjectProtocol?
 
+    nonisolated private func logNotice(_ message: String) {
+        Self.logger.notice("\(message, privacy: .public)")
+    }
+
+    nonisolated private func logError(_ message: String) {
+        Self.logger.error("\(message, privacy: .public)")
+    }
+
     init(metricsLogger: MetricsLogger, thermalGovernor: ThermalGovernor) {
         self.metricsLogger = metricsLogger
         self.thermalGovernor = thermalGovernor
@@ -65,7 +79,7 @@ class InferenceEngine {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.isGenerating else { return }
-                self.cancel()
+                self.cancel(reason: "forceStop")
             }
         }
 
@@ -120,6 +134,7 @@ class InferenceEngine {
         self.activeFormat = format
         hasValidatedCurrentSession = false
         activeFallbackMode = "none"
+        logNotice("Attached runners format=\(format.rawValue) hasDraftRunner=\(draftLlamaRunner != nil)")
         startHealthMonitor()
     }
 
@@ -776,6 +791,7 @@ class InferenceEngine {
         let probeLatencyThreshold = zeroTokenProbeLatencyThresholdMS
         let speculativeDraftRunner = mode.speculativeEnabled ? draftLlamaRunner : nil
         let speculativeDraftCount = mode.speculativeEnabled ? speculationPolicy.k : 0
+        logNotice("Generation start format=gguf promptMessages=\(messages.count) speculativeDraft=\(speculativeDraftRunner != nil) maxTokens=\(thermalAdjustedConfig.maxTokens)")
 
         if thermalGovernor.shouldSuspendInference {
             isGenerating = false
@@ -841,6 +857,7 @@ class InferenceEngine {
                     }
                 )
 
+                self.logNotice("Generation stop format=gguf status=success generatedTokens=\(result.generatedTokenCount) acceptedSpeculative=\(result.acceptedSpeculativeTokens) rejectedSpeculative=\(result.rejectedSpeculativeTokens)")
                 await MainActor.run { [weak self] in
                     guard let self else { return }
                     self.metricsLogger.recordFirstToken()
@@ -884,6 +901,7 @@ class InferenceEngine {
                 }
             } catch let error as LlamaRunnerError {
                 if case .generationCancelled = error {
+                    self.logNotice("Generation stop format=gguf status=cancelled error=\(error.localizedDescription)")
                     await MainActor.run { [weak self] in
                         guard let self else { return }
                         self.isGenerating = false
@@ -899,6 +917,7 @@ class InferenceEngine {
                     }
                     return
                 }
+                self.logError("Generation stop format=gguf status=failed error=\(error.localizedDescription)")
                 await MainActor.run { [weak self] in
                     guard let self else { return }
                     self.isGenerating = false
@@ -913,6 +932,7 @@ class InferenceEngine {
                     ))
                 }
             } catch {
+                self.logError("Generation stop format=gguf status=failed error=\(error.localizedDescription)")
                 await MainActor.run { [weak self] in
                     guard let self else { return }
                     self.isGenerating = false
@@ -930,7 +950,12 @@ class InferenceEngine {
         }
     }
 
-    func cancel() {
+    func cancel(reason: String = "user") {
+        if activeFormat == .gguf {
+            llamaRunner?.requestGenerationCancellation(reason: reason)
+            draftLlamaRunner?.requestGenerationCancellation(reason: reason)
+        }
+        logNotice("Cancellation requested reason=\(reason) format=\(activeFormat.rawValue) hasTask=\(generationTask != nil)")
         generationTask?.cancel()
         generationTask = nil
         decodeEngine.stop()
@@ -938,8 +963,13 @@ class InferenceEngine {
         isGenerating = false
     }
 
-    func cancelAndDrain() async {
+    func cancelAndDrain(reason: String = "drain") async {
         let task = generationTask
+        if activeFormat == .gguf {
+            llamaRunner?.requestGenerationCancellation(reason: reason)
+            draftLlamaRunner?.requestGenerationCancellation(reason: reason)
+        }
+        logNotice("Cancellation requested reason=\(reason) format=\(activeFormat.rawValue) hasTask=\(task != nil)")
         task?.cancel()
         decodeEngine.stop()
         prefillEngine.cancel()
@@ -948,10 +978,11 @@ class InferenceEngine {
         }
         generationTask = nil
         isGenerating = false
+        logNotice("Cancellation drained reason=\(reason) format=\(activeFormat.rawValue)")
     }
 
     func resetSession() {
-        cancel()
+        cancel(reason: "resetSession")
         let oldSequenceID = sessionCache.sequenceID
         sessionCache.reset()
         streamingDecoder.reset()

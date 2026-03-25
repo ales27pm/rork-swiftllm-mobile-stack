@@ -1,5 +1,6 @@
 import Foundation
 import CoreML
+import OSLog
 import Hub
 
 nonisolated private struct HuggingFaceModelIndexResponse: Decodable, Sendable {
@@ -13,6 +14,11 @@ nonisolated private struct HuggingFaceRepositorySibling: Decodable, Sendable {
 @Observable
 @MainActor
 class ModelLoaderService {
+    private static let logger: Logger = {
+        let subsystem = Bundle.main.bundleIdentifier ?? "NeuralEngine"
+        return Logger(subsystem: subsystem, category: "ModelLoaderService")
+    }()
+
     var availableModels: [ModelManifest] = []
     var modelStatuses: [String: ModelStatus] = [:]
     var activeModelID: String?
@@ -40,6 +46,14 @@ class ModelLoaderService {
     private let keyValueStore: KeyValueStore?
     private var generationDrainHandler: (() async -> Void)?
 
+    private func logNotice(_ message: String) {
+        Self.logger.notice("\(message, privacy: .public)")
+    }
+
+    private func logError(_ message: String) {
+        Self.logger.error("\(message, privacy: .public)")
+    }
+
     init(keyValueStore: KeyValueStore? = nil) {
         self.keyValueStore = keyValueStore
         loadBuiltinRegistry()
@@ -52,10 +66,12 @@ class ModelLoaderService {
         generationDrainHandler = handler
     }
 
-    private func drainGenerationIfNeeded() async {
+    private func drainGenerationIfNeeded(reason: String) async {
+        logNotice("Generation drain requested reason=\(reason) activeModelID=\(activeModelID ?? "none") activeDraftModelID=\(activeDraftModelID ?? "none")")
         if let generationDrainHandler {
             await generationDrainHandler()
         }
+        logNotice("Generation drain completed reason=\(reason) activeModelID=\(activeModelID ?? "none") activeDraftModelID=\(activeDraftModelID ?? "none")")
     }
 
     var preferredModelID: String? {
@@ -796,7 +812,7 @@ class ModelLoaderService {
                     case .schemaMismatch:
                         throw ModelLoaderError.integrityCheckFailed("Unsupported tokenizer class: \(schemaResult.tokenizerClass ?? "unknown"). Asset repair required.")
                     case .missingConfig:
-                        print("[AssetPipeline] tokenizer_config.json not found — proceeding with fallback tokenizer")
+                        logNotice("Tokenizer config missing; proceeding with fallback tokenizer modelID=\(modelID)")
                     default:
                         break
                     }
@@ -1229,7 +1245,8 @@ class ModelLoaderService {
             return
         }
 
-        await drainGenerationIfNeeded()
+        logNotice("Draft activation requested draftModelID=\(modelID)")
+        await drainGenerationIfNeeded(reason: "activateDraft:\(modelID)")
         draftLlamaRunner.unload()
 
         let targetCtx: Int32
@@ -1247,10 +1264,12 @@ class ModelLoaderService {
             )
             activeDraftModelID = modelID
             persistPreferredDraftModelID(modelID)
+            logNotice("Draft activation completed draftModelID=\(modelID) nCtx=\(targetCtx)")
         } catch {
             modelStatuses[modelID] = .failed("Failed to load draft: \(error.localizedDescription)")
             activeDraftModelID = nil
             draftLlamaRunner.unload()
+            logError("Draft activation failed draftModelID=\(modelID) error=\(error.localizedDescription)")
         }
     }
 
@@ -1262,10 +1281,12 @@ class ModelLoaderService {
     }
 
     private func deactivateDraftModelAfterDraining() async {
-        await drainGenerationIfNeeded()
+        logNotice("Draft deactivation requested draftModelID=\(activeDraftModelID ?? "none")")
+        await drainGenerationIfNeeded(reason: "deactivateDraft")
         activeDraftModelID = nil
         draftLlamaRunner.unload()
         persistPreferredDraftModelID(nil)
+        logNotice("Draft deactivation completed")
     }
 
     func deleteModel(_ modelID: String) {
@@ -1283,7 +1304,8 @@ class ModelLoaderService {
             return
         }
 
-        await drainGenerationIfNeeded()
+        logNotice("Delete requested modelID=\(modelID)")
+        await drainGenerationIfNeeded(reason: "deleteModel:\(modelID)")
         downloadTasks[modelID]?.cancel()
         downloadTasks.removeValue(forKey: modelID)
         activationTask?.cancel()
@@ -1315,6 +1337,7 @@ class ModelLoaderService {
         }
 
         fileSystem.deleteModelAssets(forModelID: modelID)
+        logNotice("Delete completed modelID=\(modelID)")
     }
 
     func activateModel(_ modelID: String) {
@@ -1342,6 +1365,8 @@ class ModelLoaderService {
         if let activationTask, activationTargetModelID == modelID {
             return await activationTask.value
         }
+
+        logNotice("Model activation requested modelID=\(modelID) format=\(manifest.format.rawValue) forceReload=\(forceReload)")
 
         if !forceReload, isModelReadyForInference(manifest) {
             activeModelID = modelID
@@ -1397,7 +1422,7 @@ class ModelLoaderService {
         activeModelID = modelID
         activeFormat = manifest.format
 
-        await drainGenerationIfNeeded()
+        await drainGenerationIfNeeded(reason: forceReload ? "activateModel:\(modelID):forceReload" : "activateModel:\(modelID)")
 
         do {
             switch manifest.format {
@@ -1422,7 +1447,7 @@ class ModelLoaderService {
                         try await tokenizer.loadFromHub(repoID: tokenizerRepoID)
                     }
                 } catch {
-                    print("Tokenizer load failed, using fallback: \(error)")
+                    logError("Tokenizer load failed modelID=\(modelID) error=\(error.localizedDescription)")
                 }
 
                 try await modelRunner.loadModel(at: modelURL, computeUnits: thermalComputeUnits)
@@ -1451,6 +1476,7 @@ class ModelLoaderService {
             if persistSelection {
                 persistPreferredModelID(modelID)
             }
+            logNotice("Model activation completed modelID=\(modelID) format=\(manifest.format.rawValue) draftModelID=\(activeDraftModelID ?? "none")")
             return true
         } catch {
             modelStatuses[modelID] = .failed("Failed to load: \(error.localizedDescription)")
@@ -1464,6 +1490,7 @@ class ModelLoaderService {
                 draftLlamaRunner.unload()
                 activeFormat = .coreML
             }
+            logError("Model activation failed modelID=\(modelID) format=\(manifest.format.rawValue) error=\(error.localizedDescription)")
             return false
         }
     }
@@ -1476,7 +1503,8 @@ class ModelLoaderService {
     }
 
     private func loadDraftRunnerIfPossibleAfterDraining(for targetManifest: ModelManifest) async {
-        await drainGenerationIfNeeded()
+        logNotice("Draft auto-activation requested targetModelID=\(targetManifest.id)")
+        await drainGenerationIfNeeded(reason: "autoActivateDraft:\(targetManifest.id)")
         guard !targetManifest.isDraft else {
             activeDraftModelID = nil
             draftLlamaRunner.unload()
@@ -1499,8 +1527,9 @@ class ModelLoaderService {
             )
             activeDraftModelID = draftManifest.id
             persistPreferredDraftModelID(draftManifest.id)
+            logNotice("Draft auto-activation completed targetModelID=\(targetManifest.id) draftModelID=\(draftManifest.id)")
         } catch {
-            print("Draft GGUF load failed: \(error)")
+            logError("Draft auto-activation failed targetModelID=\(targetManifest.id) draftModelID=\(draftManifest.id) error=\(error.localizedDescription)")
             activeDraftModelID = nil
             draftLlamaRunner.unload()
         }

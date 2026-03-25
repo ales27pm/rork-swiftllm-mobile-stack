@@ -1,9 +1,15 @@
 import Foundation
 import UIKit
 import CoreML
+import OSLog
 import LlamaSwift
 
 nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Sendable {
+    private static let logger: Logger = {
+        let subsystem = Bundle.main.bundleIdentifier ?? "NeuralEngine"
+        return Logger(subsystem: subsystem, category: "LlamaModelRunner")
+    }()
+
     private struct StoredPrefixStateRecord {
         let snapshot: LlamaSessionSnapshot
         let metadata: PrefixStateSnapshotMetadata
@@ -48,7 +54,11 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     private let stateCondition = NSCondition()
 
     private var activeGenerationCount: Int = 0
+    private var activeGenerationID: UUID?
+    private var activeGenerationLabel: String?
     private var pendingUnload: Bool = false
+    private var generationCancellationRequested: Bool = false
+    private var generationCancellationReason: String?
 
     private var model: OpaquePointer?
     private var context: OpaquePointer?
@@ -88,17 +98,68 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         return try body()
     }
 
+    private func logDebug(_ message: String) {
+        Self.logger.debug("\(message, privacy: .public)")
+    }
+
+    private func logNotice(_ message: String) {
+        Self.logger.notice("\(message, privacy: .public)")
+    }
+
+    private func logError(_ message: String) {
+        Self.logger.error("\(message, privacy: .public)")
+    }
+
+    private func ownershipSummaryLocked() -> String {
+        let modelPath = lastContextPath ?? "none"
+        let generationID = activeGenerationID?.uuidString ?? "none"
+        let generationLabel = activeGenerationLabel ?? "none"
+        return "model=\(modelPath) session=\(modelSessionID.uuidString) state=\(state.rawValue) pendingUnload=\(pendingUnload) activeGenerationCount=\(activeGenerationCount) generationID=\(generationID) label=\(generationLabel)"
+    }
+
+    private func cancellationReasonLocked() -> String {
+        generationCancellationReason ?? (pendingUnload ? "unload" : "none")
+    }
+
+    private func assertDecodeAccessLocked(_ operation: String) {
+#if DEBUG
+        if activeGenerationCount == 0 {
+            assertionFailure("GGUF \(operation) attempted without a generation token")
+        }
+        if pendingUnload || generationCancellationRequested {
+            assertionFailure("GGUF \(operation) attempted while runner is unloading or cancelled")
+        }
+        if state == .evicted {
+            assertionFailure("GGUF \(operation) attempted on an evicted runner")
+        }
+#endif
+    }
+
+    private func throwIfDecodeDisallowedLocked(_ operation: String) throws {
+        assertDecodeAccessLocked(operation)
+        if pendingUnload || generationCancellationRequested {
+            throw LlamaRunnerError.generationCancelled
+        }
+        if state == .evicted {
+            throw LlamaRunnerError.modelEvicted
+        }
+    }
+
     // MARK: – Generation-token protocol
 
     /// Increment the generation reference count, preventing any concurrent
     /// unload from freeing native pointers while we hold a token.
     /// Returns false if an unload is pending or another generation is active.
     /// Each runner allows at most ONE active generation at a time.
-    func tryAcquireGenerationToken() -> Bool {
+    func tryAcquireGenerationToken(reason: String = "work") -> Bool {
         stateCondition.lock()
         defer { stateCondition.unlock() }
         guard !pendingUnload, activeGenerationCount == 0 else { return false }
         activeGenerationCount = 1
+        activeGenerationID = UUID()
+        activeGenerationLabel = reason
+        generationCancellationRequested = false
+        generationCancellationReason = nil
         return true
     }
 
@@ -106,17 +167,40 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// so any thread blocked in waitForGenerationDrainLocked() wakes up.
     func releaseGenerationToken() {
         stateCondition.lock()
-        activeGenerationCount -= 1
+#if DEBUG
         if activeGenerationCount == 0 {
+            assertionFailure("releaseGenerationToken() called without an active generation")
+            stateCondition.unlock()
+            return
+        }
+#endif
+        activeGenerationCount = max(activeGenerationCount - 1, 0)
+        let didDrain = activeGenerationCount == 0
+        let drainedGenerationID = activeGenerationID?.uuidString ?? "none"
+        let drainedReason = cancellationReasonLocked()
+        let shouldLogDrain = didDrain && (pendingUnload || generationCancellationRequested)
+        if didDrain {
+            activeGenerationID = nil
+            activeGenerationLabel = nil
+            generationCancellationRequested = false
+            generationCancellationReason = nil
             stateCondition.broadcast()
         }
         stateCondition.unlock()
+
+        if shouldLogDrain {
+            logNotice("Cancellation drained generationID=\(drainedGenerationID) reason=\(drainedReason)")
+        }
     }
 
     /// Must be called while stateCondition IS locked.
     /// Sets pendingUnload = true and blocks until activeGenerationCount == 0.
-    private func waitForGenerationDrainLocked() {
+    private func waitForGenerationDrainLocked(reason: String) {
         pendingUnload = true
+        if activeGenerationCount > 0 {
+            generationCancellationRequested = true
+            generationCancellationReason = reason
+        }
         if state != .idle {
             state = .disposing
         }
@@ -129,9 +213,24 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// Must be called WITHOUT holding stateCondition.
     private func isCancellationPending() -> Bool {
         stateCondition.lock()
-        let pending = pendingUnload
+        let pending = pendingUnload || generationCancellationRequested
         stateCondition.unlock()
         return pending
+    }
+
+    func requestGenerationCancellation(reason: String) {
+        stateCondition.lock()
+        let hasActiveGeneration = activeGenerationCount > 0
+        let generationID = activeGenerationID?.uuidString ?? "none"
+        if hasActiveGeneration {
+            generationCancellationRequested = true
+            generationCancellationReason = reason
+        }
+        stateCondition.unlock()
+
+        if hasActiveGeneration {
+            logNotice("Cancellation requested generationID=\(generationID) reason=\(reason)")
+        }
     }
 
     private func throwIfCancellationPending(_ otherRunner: LlamaModelRunner? = nil) throws {
@@ -180,6 +279,10 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         activeComputeUnits = nGPULayers > 0 ? .cpuAndGPU : .cpuOnly
         state = .ready
         pendingUnload = false
+        generationCancellationRequested = false
+        generationCancellationReason = nil
+        activeGenerationID = nil
+        activeGenerationLabel = nil
     }
 
     private func syntheticVocabularySize(for configuration: LlamaSyntheticTestingConfiguration) -> Int {
@@ -218,16 +321,18 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     // decode / readLogits / isEOG / tokenPiece methods below, which perform
     // the complete llama_* operation inside the method body.
 
-    private func borrowContextPtr() throws -> OpaquePointer {
+    private func borrowContextPtr(for operation: String) throws -> OpaquePointer {
         stateCondition.lock()
         defer { stateCondition.unlock() }
+        try throwIfDecodeDisallowedLocked(operation)
         guard let c = context else { throw LlamaRunnerError.modelNotLoaded }
         return c
     }
 
-    private func borrowModelAndContextPtr() throws -> (model: OpaquePointer, context: OpaquePointer) {
+    private func borrowModelAndContextPtr(for operation: String) throws -> (model: OpaquePointer, context: OpaquePointer) {
         stateCondition.lock()
         defer { stateCondition.unlock() }
+        try throwIfDecodeDisallowedLocked(operation)
         guard let m = model, let c = context else { throw LlamaRunnerError.modelNotLoaded }
         let isOperationalState = state == .ready || state == .recovering || (state == .disposing && activeGenerationCount > 0)
         guard isOperationalState else { throw LlamaRunnerError.invalidState(state) }
@@ -244,7 +349,10 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// Caller must hold a generation token for self.
     private func decode(_ tokens: [Int]) throws {
 #if DEBUG
-        if let syntheticState = withLock({ syntheticTestingState }) {
+        if let syntheticState = try withLock({ () throws -> LlamaSyntheticTestingState? in
+            try throwIfDecodeDisallowedLocked("decode")
+            return syntheticTestingState
+        }) {
             for token in tokens {
                 try throwIfCancellationPending()
                 syntheticState.beginDecode()
@@ -259,7 +367,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             return
         }
 #endif
-        let ctx = try borrowContextPtr()
+        let ctx = try borrowContextPtr(for: "decode")
         for token in tokens {
             try throwIfCancellationPending()
             var mutableToken = llama_token(token)
@@ -275,11 +383,14 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// Caller must hold a generation token for self.
     private func readLogits() throws -> [Float] {
 #if DEBUG
-        if let syntheticState = withLock({ syntheticTestingState }) {
+        if let syntheticState = try withLock({ () throws -> LlamaSyntheticTestingState? in
+            try throwIfDecodeDisallowedLocked("readLogits")
+            return syntheticTestingState
+        }) {
             return syntheticLogits(for: syntheticState)
         }
 #endif
-        let (m, ctx) = try borrowModelAndContextPtr()
+        let (m, ctx) = try borrowModelAndContextPtr(for: "readLogits")
         guard let vocab = llama_model_get_vocab(m) else { throw LlamaRunnerError.tokenizationFailed }
         let vocabSize = Int(llama_vocab_n_tokens(vocab))
         guard let ptr = llama_get_logits_ith(ctx, -1) else { throw LlamaRunnerError.invalidLogits }
@@ -290,12 +401,16 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// Caller must hold a generation token for self.
     private func clearKVCache() {
 #if DEBUG
-        if let syntheticState = withLock({ syntheticTestingState }) {
+        if let syntheticState = withLock({ () -> LlamaSyntheticTestingState? in
+            assertDecodeAccessLocked("clearKVCache")
+            return syntheticTestingState
+        }) {
             syntheticState.resetForNewSequence()
             return
         }
 #endif
         stateCondition.lock()
+        assertDecodeAccessLocked("clearKVCache")
         let ctx = context
         stateCondition.unlock()
         guard let ctx else { return }
@@ -423,9 +538,18 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         gpuLayers = nGPULayers
 #endif
 
+        let loadRequestSummary = withLock { ownershipSummaryLocked() }
+        logNotice("Model load requested path=\(path) nCtx=\(nCtx) gpuLayers=\(gpuLayers) \(loadRequestSummary)")
+
         stateCondition.lock()
-        waitForGenerationDrainLocked()
+        let unloadBlockedByActiveWork = activeGenerationCount > 0
+        let blockedSummary = ownershipSummaryLocked()
+        waitForGenerationDrainLocked(reason: "modelLoad")
         stateCondition.unlock()
+
+        if unloadBlockedByActiveWork {
+            logNotice("Unload blocked by active work reason=modelLoad \(blockedSummary)")
+        }
 
         stateCondition.lock()
         defer { stateCondition.unlock() }
@@ -441,6 +565,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             }
             installSyntheticModelLocked(path: path, nCtx: nCtx, nGPULayers: gpuLayers, configuration: configuration)
             setupLifecycleObservers()
+            logNotice("Model load completed path=\(path) \(ownershipSummaryLocked())")
             return
         }
 #endif
@@ -451,6 +576,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         guard let loadedModel = llama_model_load_from_file(path, modelParameters) else {
             state = .idle
             pendingUnload = false
+            logError("Model load failed path=\(path) error=\(LlamaRunnerError.modelLoadFailed.localizedDescription)")
             throw LlamaRunnerError.modelLoadFailed
         }
 
@@ -466,6 +592,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             llama_model_free(loadedModel)
             state = .idle
             pendingUnload = false
+            logError("Context creation failed path=\(path) error=\(LlamaRunnerError.contextCreationFailed.localizedDescription)")
             throw LlamaRunnerError.contextCreationFailed
         }
 
@@ -487,6 +614,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         pendingUnload = false
 
         setupLifecycleObservers()
+        logNotice("Model load completed path=\(path) \(ownershipSummaryLocked())")
     }
 
     func generate(
@@ -527,7 +655,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         // Acquire generation token BEFORE reading any raw pointer.
         // This prevents a concurrent unload from freeing the context
         // while we are decoding.
-        guard tryAcquireGenerationToken() else {
+        guard tryAcquireGenerationToken(reason: draftRunner == nil ? "generation" : "generation+speculation") else {
             throw LlamaRunnerError.invalidState(currentState)
         }
         defer { releaseGenerationToken() }
@@ -536,7 +664,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         // mid-deactivation) fall back to non-speculative generation.
         let hasDraftToken: Bool
         let effectiveDraftRunner: LlamaModelRunner?
-        if let dr = draftRunner, draftCount > 0, dr.tryAcquireGenerationToken() {
+        if let dr = draftRunner, draftCount > 0, dr.tryAcquireGenerationToken(reason: "draft-speculation") {
             hasDraftToken = true
             effectiveDraftRunner = dr
         } else {
@@ -546,6 +674,9 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         defer {
             if hasDraftToken { draftRunner?.releaseGenerationToken() }
         }
+
+        let generationStartSummary = withLock { ownershipSummaryLocked() }
+        logNotice("Generation start draft=\(effectiveDraftRunner != nil) promptChars=\(prompt.count) maxTokens=\(samplingConfig.maxTokens) \(generationStartSummary)")
 
         // Tokenize the prompt using self's own vocab (no raw pointer escapes).
         let promptTokens = tokenize(prompt, addBOS: true)
@@ -640,14 +771,17 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
                     firstTokenTimeMS = Date().timeIntervalSince(prefillStart) * 1000
                 }
 
+                try throwIfCancellationPending(effectiveDraftRunner)
                 onToken(tokenPiece(sampledToken))
 
                 allTokens.append(sampledToken)
                 generatedCount += 1
+                try throwIfCancellationPending(effectiveDraftRunner)
                 try decode([sampledToken])
                 currentLogits = try readLogits()
 
                 if let dr = effectiveDraftRunner {
+                    try throwIfCancellationPending(dr)
                     try dr.decode([sampledToken])
                     currentDraftLogits = try dr.readLogits()
                 }
@@ -665,7 +799,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
                 state = .ready
             }
 
-            return LlamaGenerationResult(
+            let result = LlamaGenerationResult(
                 promptTokenCount: promptTokens.count,
                 generatedTokenCount: generatedCount,
                 prefillTokensPerSecond: prefillTPS,
@@ -678,12 +812,22 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
                 speculativeVerifyLatencyMS: verificationCount > 0 ? cumulativeVerificationLatencyMS / Double(verificationCount) : 0,
                 speculativeVerificationCount: verificationCount
             )
+            let completionSummary = withLock { ownershipSummaryLocked() }
+            logNotice("Generation stop status=success generatedTokens=\(generatedCount) acceptedSpeculative=\(acceptedSpeculativeTokens) rejectedSpeculative=\(rejectedSpeculativeTokens) \(completionSummary)")
+            return result
         } catch let error as LlamaRunnerError {
             if case .generationCancelled = error {
+                let cancellationReason = withLock { cancellationReasonLocked() }
+                let cancellationSummary = withLock { ownershipSummaryLocked() }
+                logNotice("Generation stop status=cancelled reason=\(cancellationReason) \(cancellationSummary)")
                 throw error
             }
+            let failureSummary = withLock { ownershipSummaryLocked() }
+            logError("Generation stop status=failed error=\(error.localizedDescription) \(failureSummary)")
             try recordPredictionFailure(error)
         } catch {
+            let failureSummary = withLock { ownershipSummaryLocked() }
+            logError("Generation stop status=failed error=\(error.localizedDescription) \(failureSummary)")
             try recordPredictionFailure(error)
         }
     }
@@ -698,7 +842,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             throw LlamaRunnerError.emptyInput
         }
 
-        guard tryAcquireGenerationToken() else {
+        guard tryAcquireGenerationToken(reason: "predictLogitsSpan") else {
             throw LlamaRunnerError.invalidState(currentState)
         }
         defer { releaseGenerationToken() }
@@ -715,10 +859,17 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             return logits
         } catch let error as LlamaRunnerError {
             if case .generationCancelled = error {
+                let cancellationReason = withLock { cancellationReasonLocked() }
+                let cancellationSummary = withLock { ownershipSummaryLocked() }
+                logNotice("Prediction stop status=cancelled reason=\(cancellationReason) \(cancellationSummary)")
                 throw error
             }
+            let failureSummary = withLock { ownershipSummaryLocked() }
+            logError("Prediction stop status=failed error=\(error.localizedDescription) \(failureSummary)")
             try recordPredictionFailure(error)
         } catch {
+            let failureSummary = withLock { ownershipSummaryLocked() }
+            logError("Prediction stop status=failed error=\(error.localizedDescription) \(failureSummary)")
             try recordPredictionFailure(error)
         }
     }
@@ -1030,9 +1181,14 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     }
 
     func unload() {
+        let unloadRequestSummary = withLock { ownershipSummaryLocked() }
+        logNotice("Unload requested reason=explicit \(unloadRequestSummary)")
+
         stateCondition.lock()
         removeLifecycleObserversInternal()
-        waitForGenerationDrainLocked()
+        let unloadBlockedByActiveWork = activeGenerationCount > 0
+        let blockedSummary = ownershipSummaryLocked()
+        waitForGenerationDrainLocked(reason: "unload")
 #if DEBUG
         let syntheticUnloadDelaySeconds = syntheticTestingState?.configuration.unloadDelaySeconds ?? 0
         if syntheticUnloadDelaySeconds > 0 {
@@ -1041,10 +1197,16 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
 #endif
         stateCondition.unlock()
 
+        if unloadBlockedByActiveWork {
+            logNotice("Unload blocked by active work reason=explicit \(blockedSummary)")
+        }
+
         stateCondition.lock()
         freeNativeResources()
         pendingUnload = false
+        let completionSummary = ownershipSummaryLocked()
         stateCondition.unlock()
+        logNotice("Unload completed \(completionSummary)")
     }
 
     // MARK: – Private helpers
@@ -1069,6 +1231,10 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         prefixSnapshotStore.removeAll()
         modelSessionID = UUID()
         activeComputeUnits = .cpuAndGPU
+        generationCancellationRequested = false
+        generationCancellationReason = nil
+        activeGenerationID = nil
+        activeGenerationLabel = nil
         state = .idle
     }
 
@@ -1171,6 +1337,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         targetLogitSpan.reserveCapacity(proposedTokens.count)
         var rollingTargetLogits = targetCurrentLogits
         for index in proposedTokens.indices {
+            try throwIfCancellationPending(draftRunner)
             targetLogitSpan.append(rollingTargetLogits)
             if index < proposedTokens.count - 1 {
                 try decode([proposedTokens[index]])
@@ -1178,8 +1345,10 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             }
         }
 
+        try throwIfCancellationPending(draftRunner)
         try restoreFromSnapshot(targetSnapshot)
         try draftRunner.restoreFromSnapshot(draftSnapshot)
+        try throwIfCancellationPending(draftRunner)
 
         var acceptedTokens: [Int] = []
         var rejectedCount = 0
@@ -1242,10 +1411,12 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             try decode(committedTokens)
             nextTargetLogits = try readLogits()
 
+            try throwIfCancellationPending(draftRunner)
             try draftRunner.decode(committedTokens)
             nextDraftLogits = try draftRunner.readLogits()
 
             for (offset, token) in committedTokens.enumerated() {
+                try throwIfCancellationPending(draftRunner)
                 if firstTokenTimeMS == nil && generatedCount + offset == 0 {
                     firstTokenTimeMS = Date().timeIntervalSince(prefillStart) * 1000
                 }
@@ -1325,12 +1496,14 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     // MARK: – Misc private helpers
 
     private func recordPredictionFailure(_ error: Error) throws -> Never {
-        withLock {
+        let failureSummary = withLock {
             consecutiveFailures += 1
             if consecutiveFailures >= 3 {
                 state = .evicted
             }
+            return ownershipSummaryLocked()
         }
+        logError("Prediction failure error=\(error.localizedDescription) \(failureSummary)")
 
         let failures = withLock { consecutiveFailures }
         if failures >= 3 {
@@ -1362,7 +1535,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     deinit {
         removeLifecycleObserversInternal()
         stateCondition.lock()
-        waitForGenerationDrainLocked()
+        waitForGenerationDrainLocked(reason: "deinit")
         freeNativeResources()
         pendingUnload = false
         stateCondition.unlock()

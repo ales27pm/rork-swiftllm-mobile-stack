@@ -249,6 +249,65 @@ struct GGUFRunnerRegressionHarnessTests {
         #expect(context.loader.activeDraftModelID == nil)
     }
 
+    @Test func inferenceEngineCancelAndDrain_cancelsActiveGGUFGeneration() async {
+        let runner = LlamaModelRunner()
+        runner.installSyntheticModelForTesting(
+            configuration: LlamaSyntheticTestingConfiguration(
+                plannedTokens: [4, 5, 6, 0],
+                eogTokens: [0],
+                tokenPieces: [4: "a", 5: "b", 6: "c"],
+                decodeDelaySeconds: 0.03,
+                vocabSize: 16
+            )
+        )
+
+        let engine = InferenceEngine(metricsLogger: MetricsLogger(), thermalGovernor: ThermalGovernor())
+        engine.attachRunner(
+            CoreMLModelRunner(),
+            llamaRunner: runner,
+            draftLlamaRunner: nil,
+            tokenizer: TokenizerService(),
+            format: .gguf
+        )
+
+        let completionRecorder = CompletionRecorder()
+        engine.generate(
+            messages: [["role": "user", "content": longPrompt]],
+            systemPrompt: "",
+            samplingConfig: SamplingConfig(
+                temperature: 0.7,
+                topK: 8,
+                topP: 1.0,
+                repetitionPenalty: 1.0,
+                maxTokens: 16,
+                stopSequences: [],
+                samplerSeed: 13
+            ),
+            onToken: { _ in },
+            onComplete: { metrics in
+                Task {
+                    await completionRecorder.record(metrics)
+                }
+            }
+        )
+
+        let enteredDecode = await waitUntil(timeout: .seconds(5)) {
+            runner.isSyntheticDecodeActiveForTesting()
+        }
+        #expect(enteredDecode)
+        guard enteredDecode else { return }
+
+        await engine.cancelAndDrain(reason: "testCancel")
+
+        let completed = await waitUntil(timeout: .seconds(5)) {
+            await completionRecorder.hasValue
+        }
+        #expect(completed)
+        #expect(!engine.isGenerating)
+        let metrics = await completionRecorder.value
+        #expect(metrics?.fallbackMode == "generationCancelled")
+    }
+
     private func runTransitionWhileGenerationIsActive(
         loader: ModelLoaderService,
         runner: LlamaModelRunner,
@@ -417,6 +476,22 @@ private actor DrainRecorder {
 
     func markFinished() {
         finished = true
+    }
+}
+
+private actor CompletionRecorder {
+    private var metrics: GenerationMetrics?
+
+    var hasValue: Bool {
+        metrics != nil
+    }
+
+    var value: GenerationMetrics? {
+        metrics
+    }
+
+    func record(_ metrics: GenerationMetrics) {
+        self.metrics = metrics
     }
 }
 
