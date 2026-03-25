@@ -3,29 +3,45 @@ import Accelerate
 import LlamaSwift
 
 nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
-    private let lock = NSLock()
+    private let stateCondition = NSCondition()
     private var model: OpaquePointer?
     private var context: OpaquePointer?
     private var embeddingDimensions: Int = 0
     private var modelPath: String?
+    private var activeOperationCount: Int = 0
+    private var pendingUnload: Bool = false
+#if DEBUG
+    private var syntheticConfiguration: EmbeddingSyntheticTestingConfiguration?
+    private var syntheticEmbedCallCount: Int = 0
+    private var syntheticEmbedActive: Bool = false
+#endif
 
     var isLoaded: Bool {
-        lock.lock()
-        defer { lock.unlock() }
+        stateCondition.lock()
+        defer { stateCondition.unlock() }
+#if DEBUG
+        return (model != nil && context != nil) || syntheticConfiguration != nil
+#else
         return model != nil && context != nil
+#endif
     }
 
     var dimensions: Int {
-        lock.lock()
-        defer { lock.unlock() }
+        stateCondition.lock()
+        defer { stateCondition.unlock() }
         return embeddingDimensions
     }
 
     func loadModel(at path: String, nCtx: Int32 = 512) throws {
-        lock.lock()
-        defer { lock.unlock() }
+        stateCondition.lock()
+        waitForOperationDrainLocked()
+        defer {
+            pendingUnload = false
+            stateCondition.broadcast()
+            stateCondition.unlock()
+        }
 
-        unloadInternal()
+        unloadInternalLocked()
 
         var modelParams = llama_model_default_params()
 #if targetEnvironment(simulator)
@@ -66,58 +82,44 @@ nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
     }
 
     func embed(_ text: String) -> [Float]? {
-        lock.lock()
-        guard let model, let context else {
-            lock.unlock()
-            return nil
-        }
-        let dims = embeddingDimensions
-        lock.unlock()
-
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
-        guard let vocab = llama_model_get_vocab(model) else { return nil }
+        guard let borrowedState = beginEmbeddingOperation() else { return nil }
+        defer { endEmbeddingOperation(borrowedState) }
 
-        let tokens = tokenize(vocab: vocab, text: trimmed, addBOS: true)
-        guard !tokens.isEmpty else { return nil }
+        switch borrowedState {
+        case .native(let context, let vocab, let dimensions):
+            let tokens = tokenize(vocab: vocab, text: trimmed, addBOS: true)
+            guard !tokens.isEmpty else { return nil }
 
-        lock.lock()
-        defer { lock.unlock() }
+            let memory = llama_get_memory(context)
+            llama_memory_clear(memory, true)
 
-        guard let ctx = self.context else { return nil }
-
-        let memory = llama_get_memory(ctx)
-        llama_memory_clear(memory, true)
-
-        for (index, token) in tokens.enumerated() {
-            var mutableToken = llama_token(token)
-            let batch = withUnsafeMutablePointer(to: &mutableToken) { pointer in
-                llama_batch_get_one(pointer, 1)
+            for token in tokens {
+                var mutableToken = llama_token(token)
+                let batch = withUnsafeMutablePointer(to: &mutableToken) { pointer in
+                    llama_batch_get_one(pointer, 1)
+                }
+                let result = llama_encode(context, batch)
+                guard result == 0 else { return nil }
             }
 
-            let result: Int32
-            if index < tokens.count - 1 {
-                result = llama_encode(ctx, batch)
-            } else {
-                result = llama_encode(ctx, batch)
-            }
-
-            if result != 0 {
-                return nil
-            }
-        }
-
-        guard let embPtr = llama_get_embeddings_seq(ctx, 0) else {
-            if let embIth = llama_get_embeddings_ith(ctx, -1) {
-                let raw = Array(UnsafeBufferPointer(start: embIth, count: dims))
+            guard let embPtr = llama_get_embeddings_seq(context, 0) else {
+                guard let embIth = llama_get_embeddings_ith(context, -1) else {
+                    return nil
+                }
+                let raw = Array(UnsafeBufferPointer(start: embIth, count: dimensions))
                 return l2Normalize(raw)
             }
-            return nil
-        }
 
-        let raw = Array(UnsafeBufferPointer(start: embPtr, count: dims))
-        return l2Normalize(raw)
+            let raw = Array(UnsafeBufferPointer(start: embPtr, count: dimensions))
+            return l2Normalize(raw)
+#if DEBUG
+        case .synthetic(let configuration):
+            return syntheticEmbedding(for: trimmed, dimensions: configuration.dimensions)
+#endif
+        }
     }
 
     func embedBatch(_ texts: [String]) -> [[Float]?] {
@@ -125,18 +127,99 @@ nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
     }
 
     func unload() {
-        lock.lock()
-        defer { lock.unlock() }
-        unloadInternal()
+        stateCondition.lock()
+        waitForOperationDrainLocked()
+        unloadInternalLocked()
+        pendingUnload = false
+        stateCondition.broadcast()
+        stateCondition.unlock()
     }
 
-    private func unloadInternal() {
-        if let context { llama_free(context) }
-        if let model { llama_model_free(model) }
+    private func waitForOperationDrainLocked() {
+        pendingUnload = true
+        while activeOperationCount > 0 {
+            stateCondition.wait()
+        }
+        synchronizeContextLocked()
+    }
+
+    private func synchronizeContextLocked() {
+        guard let context else { return }
+        llama_synchronize(context)
+    }
+
+    private func unloadInternalLocked() {
+        if let context {
+            llama_free(context)
+        }
+        if let model {
+            llama_model_free(model)
+        }
         context = nil
         model = nil
         embeddingDimensions = 0
         modelPath = nil
+#if DEBUG
+        syntheticConfiguration = nil
+        syntheticEmbedCallCount = 0
+        syntheticEmbedActive = false
+#endif
+    }
+
+    private func beginEmbeddingOperation() -> BorrowedEmbeddingState? {
+        stateCondition.lock()
+        while activeOperationCount > 0 && !pendingUnload {
+            stateCondition.wait()
+        }
+
+        guard !pendingUnload else {
+            stateCondition.unlock()
+            return nil
+        }
+
+#if DEBUG
+        if let syntheticConfiguration {
+            activeOperationCount = 1
+            syntheticEmbedCallCount += 1
+            syntheticEmbedActive = true
+            stateCondition.unlock()
+            if syntheticConfiguration.embedDelaySeconds > 0 {
+                Thread.sleep(forTimeInterval: syntheticConfiguration.embedDelaySeconds)
+            }
+            return .synthetic(configuration: syntheticConfiguration)
+        }
+#endif
+
+        guard let model, let context else {
+            stateCondition.unlock()
+            return nil
+        }
+
+        activeOperationCount = 1
+        let dimensions = embeddingDimensions
+        let vocab = llama_model_get_vocab(model)
+        stateCondition.unlock()
+
+        guard let vocab else {
+            endEmbeddingOperation(nil)
+            return nil
+        }
+
+        return .native(context: context, vocab: vocab, dimensions: dimensions)
+    }
+
+    private func endEmbeddingOperation(_ borrowedState: BorrowedEmbeddingState?) {
+        if case .native(let context, _, _) = borrowedState {
+            llama_synchronize(context)
+        }
+
+        stateCondition.lock()
+        activeOperationCount = max(activeOperationCount - 1, 0)
+#if DEBUG
+        syntheticEmbedActive = false
+#endif
+        stateCondition.broadcast()
+        stateCondition.unlock()
     }
 
     private func tokenize(vocab: OpaquePointer, text: String, addBOS: Bool) -> [Int] {
@@ -163,12 +246,66 @@ nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
         return normalized
     }
 
+#if DEBUG
+    func installSyntheticModelForTesting(dimensions: Int = 8, embedDelaySeconds: TimeInterval = 0) {
+        stateCondition.lock()
+        waitForOperationDrainLocked()
+        unloadInternalLocked()
+        syntheticConfiguration = EmbeddingSyntheticTestingConfiguration(
+            dimensions: max(dimensions, 1),
+            embedDelaySeconds: max(embedDelaySeconds, 0)
+        )
+        embeddingDimensions = max(dimensions, 1)
+        modelPath = "synthetic://embedding"
+        pendingUnload = false
+        stateCondition.broadcast()
+        stateCondition.unlock()
+    }
+
+    func isSyntheticEmbedActiveForTesting() -> Bool {
+        stateCondition.lock()
+        defer { stateCondition.unlock() }
+        return syntheticEmbedActive
+    }
+
+    func syntheticEmbedCallCountForTesting() -> Int {
+        stateCondition.lock()
+        defer { stateCondition.unlock() }
+        return syntheticEmbedCallCount
+    }
+
+    private func syntheticEmbedding(for text: String, dimensions: Int) -> [Float] {
+        var vector = [Float](repeating: 0, count: max(dimensions, 1))
+        for (index, byte) in text.utf8.enumerated() {
+            vector[index % vector.count] += Float(byte) / 255.0
+        }
+        return l2Normalize(vector)
+    }
+#endif
+
     deinit {
-        lock.lock()
-        unloadInternal()
-        lock.unlock()
+        stateCondition.lock()
+        waitForOperationDrainLocked()
+        unloadInternalLocked()
+        pendingUnload = false
+        stateCondition.broadcast()
+        stateCondition.unlock()
     }
 }
+
+private enum BorrowedEmbeddingState {
+    case native(context: OpaquePointer, vocab: OpaquePointer, dimensions: Int)
+#if DEBUG
+    case synthetic(configuration: EmbeddingSyntheticTestingConfiguration)
+#endif
+}
+
+#if DEBUG
+nonisolated private struct EmbeddingSyntheticTestingConfiguration: Sendable {
+    let dimensions: Int
+    let embedDelaySeconds: TimeInterval
+}
+#endif
 
 nonisolated enum EmbeddingRunnerError: Error, Sendable, LocalizedError {
     case modelLoadFailed
