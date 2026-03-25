@@ -74,6 +74,11 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     private var prefixSnapshotModelID: String?
     private var prefixSnapshotTokenizerID: String = "unknown-tokenizer"
     private var modelSessionID: UUID = UUID()
+#if DEBUG
+    typealias SyntheticLoadConfigurationProvider = @Sendable (String, Int32, Int32) -> LlamaSyntheticTestingConfiguration?
+    private var syntheticTestingState: LlamaSyntheticTestingState?
+    private var syntheticLoadConfigurationProvider: SyntheticLoadConfigurationProvider?
+#endif
 
     // MARK: – Lock helpers
 
@@ -135,6 +140,71 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         }
     }
 
+#if DEBUG
+    func installSyntheticModelForTesting(
+        at path: String = "synthetic://gguf",
+        nCtx: Int32 = 2048,
+        nGPULayers: Int32 = 0,
+        configuration: LlamaSyntheticTestingConfiguration
+    ) {
+        withLock {
+            installSyntheticModelLocked(path: path, nCtx: nCtx, nGPULayers: nGPULayers, configuration: configuration)
+        }
+        setupLifecycleObservers()
+    }
+
+    func setSyntheticLoadConfigurationProviderForTesting(_ provider: SyntheticLoadConfigurationProvider?) {
+        withLock {
+            syntheticLoadConfigurationProvider = provider
+        }
+    }
+
+    private func installSyntheticModelLocked(
+        path: String,
+        nCtx: Int32,
+        nGPULayers: Int32,
+        configuration: LlamaSyntheticTestingConfiguration
+    ) {
+        syntheticTestingState = LlamaSyntheticTestingState(configuration: configuration)
+        nBatch = min(max(nCtx, 1), 512)
+        lastContextPath = path
+        lastNCtx = nCtx
+        lastNGPULayers = nGPULayers
+        sessionTokenCount = 0
+        tokenHistory.removeAll(keepingCapacity: true)
+        consecutiveFailures = 0
+        lastSuccessfulPrediction = Date()
+        lastRecoveryAttempt = nil
+        prefixSnapshotStore.removeAll()
+        modelSessionID = UUID()
+        activeComputeUnits = nGPULayers > 0 ? .cpuAndGPU : .cpuOnly
+        state = .ready
+        pendingUnload = false
+    }
+
+    private func syntheticVocabularySize(for configuration: LlamaSyntheticTestingConfiguration) -> Int {
+        let maxToken = [configuration.plannedTokens.max(), configuration.eogTokens.max(), configuration.tokenPieces.keys.max(), configuration.vocabSize]
+            .compactMap { $0 }
+            .max() ?? 2
+        return max(maxToken + 1, 3)
+    }
+
+    private func syntheticLogits(for syntheticState: LlamaSyntheticTestingState) -> [Float] {
+        let configuration = syntheticState.configuration
+        let vocabSize = syntheticVocabularySize(for: configuration)
+        let fallbackToken = configuration.eogTokens.sorted().first ?? 0
+        let generationCursor = syntheticState.generationCursorValue
+        let token = configuration.plannedTokens.indices.contains(generationCursor)
+            ? configuration.plannedTokens[generationCursor]
+            : fallbackToken
+        var logits = [Float](repeating: -12, count: vocabSize)
+        if token >= 0, token < logits.count {
+            logits[token] = 12
+        }
+        return logits
+    }
+#endif
+
     // MARK: – Safe pointer borrowing
     //
     // These helpers read the live C pointers under the condition lock, then
@@ -173,6 +243,22 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// Decode a sequence of tokens using self's live context.
     /// Caller must hold a generation token for self.
     private func decode(_ tokens: [Int]) throws {
+#if DEBUG
+        if let syntheticState = withLock({ syntheticTestingState }) {
+            for token in tokens {
+                try throwIfCancellationPending()
+                syntheticState.beginDecode()
+                defer { syntheticState.endDecode() }
+                let delaySeconds = syntheticState.configuration.decodeDelaySeconds
+                if delaySeconds > 0 {
+                    Thread.sleep(forTimeInterval: delaySeconds)
+                }
+                try throwIfCancellationPending()
+                syntheticState.recordDecodedToken(token)
+            }
+            return
+        }
+#endif
         let ctx = try borrowContextPtr()
         for token in tokens {
             try throwIfCancellationPending()
@@ -188,6 +274,11 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// Read the current logits from self's live context.
     /// Caller must hold a generation token for self.
     private func readLogits() throws -> [Float] {
+#if DEBUG
+        if let syntheticState = withLock({ syntheticTestingState }) {
+            return syntheticLogits(for: syntheticState)
+        }
+#endif
         let (m, ctx) = try borrowModelAndContextPtr()
         guard let vocab = llama_model_get_vocab(m) else { throw LlamaRunnerError.tokenizationFailed }
         let vocabSize = Int(llama_vocab_n_tokens(vocab))
@@ -198,6 +289,12 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// Clear the KV-cache of self's live context. No-op if model not loaded.
     /// Caller must hold a generation token for self.
     private func clearKVCache() {
+#if DEBUG
+        if let syntheticState = withLock({ syntheticTestingState }) {
+            syntheticState.resetForNewSequence()
+            return
+        }
+#endif
         stateCondition.lock()
         let ctx = context
         stateCondition.unlock()
@@ -210,6 +307,11 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// self's vocabulary. Safe to call from within the generation loop.
     func isEOG(_ token: Int) -> Bool {
         withLock {
+#if DEBUG
+            if let syntheticTestingState {
+                return syntheticTestingState.configuration.eogTokens.contains(token)
+            }
+#endif
             guard let m = model, let vocab = llama_model_get_vocab(m) else { return false }
             return llama_vocab_is_eog(vocab, llama_token(token))
         }
@@ -218,6 +320,11 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// Convert a token ID to its UTF-8 string piece using self's vocabulary.
     private func tokenPiece(_ token: Int) -> String {
         withLock {
+#if DEBUG
+            if let syntheticTestingState {
+                return syntheticTestingState.configuration.tokenPieces[token] ?? "<\(token)>"
+            }
+#endif
             guard let m = model, let vocab = llama_model_get_vocab(m) else { return "" }
             var buffer = [CChar](repeating: 0, count: 256)
             let count = llama_token_to_piece(vocab, llama_token(token), &buffer, 256, 0, true)
@@ -230,6 +337,16 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// Tokenize `text` using self's vocabulary.
     /// Returns an empty array when the model is not loaded.
     private func tokenize(_ text: String, addBOS: Bool) -> [Int] {
+#if DEBUG
+        if let syntheticState = withLock({ syntheticTestingState }) {
+            let upperBound = max(syntheticVocabularySize(for: syntheticState.configuration) - 1, 1)
+            let mappedTokens = text.utf8.map { Int($0 % UInt8(upperBound)) + 1 }
+            if addBOS {
+                return [1] + mappedTokens
+            }
+            return mappedTokens
+        }
+#endif
         let utf8Count = Int32(text.utf8.count)
         let maxTokens = utf8Count + (addBOS ? 1 : 0) + 16
         var tokens = [llama_token](repeating: 0, count: Int(maxTokens))
@@ -260,7 +377,12 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
 
     var isLoaded: Bool {
         withLock {
-            model != nil && context != nil && (state == .ready || state == .recovering)
+#if DEBUG
+            if syntheticTestingState != nil {
+                return state == .ready || state == .recovering
+            }
+#endif
+            return model != nil && context != nil && (state == .ready || state == .recovering)
         }
     }
 
@@ -275,6 +397,16 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     var recoveryCount: Int {
         withLock { totalRecoveries }
     }
+
+#if DEBUG
+    func isSyntheticDecodeActiveForTesting() -> Bool {
+        withLock { syntheticTestingState?.hasActiveDecode ?? false }
+    }
+
+    func syntheticDecodeCallCountForTesting() -> Int {
+        withLock { syntheticTestingState?.decodeCallCount ?? 0 }
+    }
+#endif
 
     func configurePrefixSnapshotContext(modelID: String, tokenizerID: String) {
         withLock {
@@ -300,6 +432,18 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
 
         freeNativeResources()
         state = .loading
+
+#if DEBUG
+        if let configuration = syntheticLoadConfigurationProvider?(path, nCtx, gpuLayers) {
+            let delaySeconds = configuration.loadDelaySeconds
+            if delaySeconds > 0 {
+                Thread.sleep(forTimeInterval: delaySeconds)
+            }
+            installSyntheticModelLocked(path: path, nCtx: nCtx, nGPULayers: gpuLayers, configuration: configuration)
+            setupLifecycleObservers()
+            return
+        }
+#endif
 
         var modelParameters = llama_model_default_params()
         modelParameters.n_gpu_layers = gpuLayers
@@ -582,6 +726,17 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     func resetContext() {
         withLock {
             guard activeGenerationCount == 0, !pendingUnload else { return }
+#if DEBUG
+            if let syntheticTestingState {
+                syntheticTestingState.resetForNewSequence()
+                sessionTokenCount = 0
+                tokenHistory.removeAll(keepingCapacity: true)
+                lastSuccessfulPrediction = Date()
+                consecutiveFailures = 0
+                state = .ready
+                return
+            }
+#endif
             guard let ctx = context else {
                 sessionTokenCount = 0
                 tokenHistory.removeAll(keepingCapacity: true)
@@ -604,6 +759,23 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
 
     func saveState() -> LlamaSessionSnapshot? {
         withLock {
+#if DEBUG
+            if let syntheticTestingState, state == .ready || state == .recovering {
+                let data = syntheticTestingState.serializedState()
+                return LlamaSessionSnapshot(
+                    modelPath: lastContextPath ?? "",
+                    nCtx: lastNCtx,
+                    nGPULayers: lastNGPULayers,
+                    sessionTokenCount: sessionTokenCount,
+                    tokenHistory: tokenHistory,
+                    serializedState: data,
+                    modelID: prefixSnapshotModelID ?? lastContextPath ?? "unknown-model",
+                    tokenizerID: prefixSnapshotTokenizerID,
+                    modelSessionID: modelSessionID,
+                    timestamp: Date()
+                )
+            }
+#endif
             guard let context, model != nil, state == .ready || state == .recovering else {
                 return nil
             }
@@ -645,6 +817,23 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         }
 
         try withLock {
+#if DEBUG
+            if let syntheticTestingState {
+                let restored = syntheticTestingState.restore(from: snapshot.serializedState)
+                guard restored else {
+                    throw LlamaRunnerError.stateRestoreFailed
+                }
+                sessionTokenCount = snapshot.sessionTokenCount
+                tokenHistory = snapshot.tokenHistory
+                prefixSnapshotModelID = snapshot.modelID
+                prefixSnapshotTokenizerID = snapshot.tokenizerID
+                modelSessionID = snapshot.modelSessionID
+                lastSuccessfulPrediction = Date()
+                consecutiveFailures = 0
+                state = .ready
+                return
+            }
+#endif
             guard let context, model != nil else {
                 throw LlamaRunnerError.modelNotLoaded
             }
@@ -700,7 +889,12 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         withLock {
             let staleDuration = lastSuccessfulPrediction.map { Date().timeIntervalSince($0) }
             let isStale = staleDuration.map { $0 > healthCheckInterval } ?? false
-            let isHealthy = model != nil && context != nil && (state == .ready || state == .recovering) && consecutiveFailures == 0 && !isStale
+#if DEBUG
+            let hasSyntheticModel = syntheticTestingState != nil
+#else
+            let hasSyntheticModel = false
+#endif
+            let isHealthy = (hasSyntheticModel || (model != nil && context != nil)) && (state == .ready || state == .recovering) && consecutiveFailures == 0 && !isStale
             return HealthStatus(
                 isHealthy: isHealthy,
                 state: state,
@@ -839,6 +1033,12 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         stateCondition.lock()
         removeLifecycleObserversInternal()
         waitForGenerationDrainLocked()
+#if DEBUG
+        let syntheticUnloadDelaySeconds = syntheticTestingState?.configuration.unloadDelaySeconds ?? 0
+        if syntheticUnloadDelaySeconds > 0 {
+            Thread.sleep(forTimeInterval: syntheticUnloadDelaySeconds)
+        }
+#endif
         stateCondition.unlock()
 
         stateCondition.lock()
@@ -858,6 +1058,9 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         }
         context = nil
         model = nil
+#if DEBUG
+        syntheticTestingState = nil
+#endif
         sessionTokenCount = 0
         tokenHistory.removeAll(keepingCapacity: true)
         consecutiveFailures = 0
