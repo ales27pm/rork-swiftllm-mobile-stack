@@ -38,6 +38,7 @@ class ModelLoaderService {
     private var activationTargetModelID: String?
     private let fileSystem = FileSystemService()
     private let keyValueStore: KeyValueStore?
+    private var generationDrainHandler: (() async -> Void)?
 
     init(keyValueStore: KeyValueStore? = nil) {
         self.keyValueStore = keyValueStore
@@ -45,6 +46,16 @@ class ModelLoaderService {
         restorePreferredModelSelection()
         restorePreferredEmbeddingModelSelection()
         restorePreferredDraftModelSelection()
+    }
+
+    func setGenerationDrainHandler(_ handler: @escaping () async -> Void) {
+        generationDrainHandler = handler
+    }
+
+    private func drainGenerationIfNeeded() async {
+        if let generationDrainHandler {
+            await generationDrainHandler()
+        }
     }
 
     var preferredModelID: String? {
@@ -1205,12 +1216,20 @@ class ModelLoaderService {
     }
 
     func activateDraftModel(_ modelID: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.activateDraftModelAfterDraining(modelID)
+        }
+    }
+
+    private func activateDraftModelAfterDraining(_ modelID: String) async {
         guard let manifest = availableModels.first(where: { $0.id == modelID && $0.isDraft }),
               case .some(.ready) = modelStatuses[modelID],
               let modelURL = loadModelPath(forModelID: modelID) else {
             return
         }
 
+        await drainGenerationIfNeeded()
         draftLlamaRunner.unload()
 
         let targetCtx: Int32
@@ -1236,12 +1255,27 @@ class ModelLoaderService {
     }
 
     func deactivateDraftModel() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.deactivateDraftModelAfterDraining()
+        }
+    }
+
+    private func deactivateDraftModelAfterDraining() async {
+        await drainGenerationIfNeeded()
         activeDraftModelID = nil
         draftLlamaRunner.unload()
         persistPreferredDraftModelID(nil)
     }
 
     func deleteModel(_ modelID: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.deleteModelAfterDraining(modelID)
+        }
+    }
+
+    private func deleteModelAfterDraining(_ modelID: String) async {
         guard let manifest = availableModels.first(where: { $0.id == modelID }) else { return }
 
         if manifest.isEmbedding {
@@ -1249,6 +1283,7 @@ class ModelLoaderService {
             return
         }
 
+        await drainGenerationIfNeeded()
         downloadTasks[modelID]?.cancel()
         downloadTasks.removeValue(forKey: modelID)
         activationTask?.cancel()
@@ -1362,6 +1397,8 @@ class ModelLoaderService {
         activeModelID = modelID
         activeFormat = manifest.format
 
+        await drainGenerationIfNeeded()
+
         do {
             switch manifest.format {
             case .coreML:
@@ -1408,7 +1445,7 @@ class ModelLoaderService {
                     at: modelURL.path,
                     nCtx: Int32(manifest.contextLength)
                 )
-                loadDraftRunnerIfPossible(for: manifest)
+                await loadDraftRunnerIfPossibleAfterDraining(for: manifest)
             }
 
             if persistSelection {
@@ -1432,6 +1469,14 @@ class ModelLoaderService {
     }
 
     func loadDraftRunnerIfPossible(for targetManifest: ModelManifest) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.loadDraftRunnerIfPossibleAfterDraining(for: targetManifest)
+        }
+    }
+
+    private func loadDraftRunnerIfPossibleAfterDraining(for targetManifest: ModelManifest) async {
+        await drainGenerationIfNeeded()
         guard !targetManifest.isDraft else {
             activeDraftModelID = nil
             draftLlamaRunner.unload()

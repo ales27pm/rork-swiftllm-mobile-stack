@@ -131,6 +131,9 @@ struct ContentView: View {
 
         let engine = InferenceEngine(metricsLogger: metricsLogger, thermalGovernor: thermalGovernor)
         inferenceEngine = engine
+        modelLoader.setGenerationDrainHandler { [weak engine] in
+            await engine?.cancelAndDrain()
+        }
 
         let convService = ConversationService(database: database, keyValueStore: keyValueStore)
         conversationService = convService

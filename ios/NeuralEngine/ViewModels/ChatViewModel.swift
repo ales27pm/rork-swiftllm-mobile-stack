@@ -410,6 +410,14 @@ class ChatViewModel {
                 self.statusMessage = "Ready"
                 self.expectedResponseLength = nil
 
+                if metrics.fallbackMode == "generationCancelled" {
+                    self.fallbackRetryCount = 0
+                    if self.messages[assistantIndex].content.isEmpty {
+                        self.messages.remove(at: assistantIndex)
+                    }
+                    return
+                }
+
                 let fullContent = self.messages[assistantIndex].content
 
                 if fullContent.isEmpty && metrics.totalTokens == 0 {

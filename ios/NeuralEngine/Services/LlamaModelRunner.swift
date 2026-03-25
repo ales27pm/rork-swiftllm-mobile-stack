@@ -112,9 +112,11 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// Sets pendingUnload = true and blocks until activeGenerationCount == 0.
     private func waitForGenerationDrainLocked() {
         pendingUnload = true
-        let deadline = Date(timeIntervalSinceNow: 10.0)
+        if state != .idle {
+            state = .disposing
+        }
         while activeGenerationCount > 0 {
-            stateCondition.wait(until: deadline)
+            stateCondition.wait(until: Date(timeIntervalSinceNow: 0.1))
         }
     }
 
@@ -125,6 +127,12 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         let pending = pendingUnload
         stateCondition.unlock()
         return pending
+    }
+
+    private func throwIfCancellationPending(_ otherRunner: LlamaModelRunner? = nil) throws {
+        if isCancellationPending() || otherRunner?.isCancellationPending() == true {
+            throw LlamaRunnerError.generationCancelled
+        }
     }
 
     // MARK: – Safe pointer borrowing
@@ -151,7 +159,8 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         stateCondition.lock()
         defer { stateCondition.unlock() }
         guard let m = model, let c = context else { throw LlamaRunnerError.modelNotLoaded }
-        guard state == .ready || state == .recovering else { throw LlamaRunnerError.invalidState(state) }
+        let isOperationalState = state == .ready || state == .recovering || (state == .disposing && activeGenerationCount > 0)
+        guard isOperationalState else { throw LlamaRunnerError.invalidState(state) }
         return (m, c)
     }
 
@@ -166,6 +175,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     private func decode(_ tokens: [Int]) throws {
         let ctx = try borrowContextPtr()
         for token in tokens {
+            try throwIfCancellationPending()
             var mutableToken = llama_token(token)
             let batch = withUnsafeMutablePointer(to: &mutableToken) { ptr in
                 llama_batch_get_one(ptr, 1)
@@ -400,18 +410,20 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         }
 
         do {
-            // Clear the KV-cache and prefill the prompt.
+            try throwIfCancellationPending(effectiveDraftRunner)
             clearKVCache()
             let prefillStart = Date()
             try decode(promptTokens)
+            try throwIfCancellationPending(effectiveDraftRunner)
             var currentLogits = try readLogits()
             let prefillDuration = Date().timeIntervalSince(prefillStart)
             let prefillTPS = Double(promptTokens.count) / max(prefillDuration, 0.001)
 
-            // Prime the draft runner with the same prompt tokens.
             var currentDraftLogits: [Float]? = nil
             if let dr = effectiveDraftRunner {
+                try throwIfCancellationPending(dr)
                 try dr.prime(with: promptTokens)
+                try throwIfCancellationPending(dr)
                 currentDraftLogits = try dr.captureCurrentLogits()
             }
 
@@ -427,9 +439,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             let decodeStart = Date()
 
             while generatedCount < samplingConfig.maxTokens && !shouldStop() {
-
-                // Cooperative cancellation: exit quickly so the drain can proceed.
-                if isCancellationPending() { break }
+                try throwIfCancellationPending(effectiveDraftRunner)
 
                 if let dr = effectiveDraftRunner,
                    let draftLogits = currentDraftLogits {
@@ -524,6 +534,11 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
                 speculativeVerifyLatencyMS: verificationCount > 0 ? cumulativeVerificationLatencyMS / Double(verificationCount) : 0,
                 speculativeVerificationCount: verificationCount
             )
+        } catch let error as LlamaRunnerError {
+            if case .generationCancelled = error {
+                throw error
+            }
+            try recordPredictionFailure(error)
         } catch {
             try recordPredictionFailure(error)
         }
@@ -554,6 +569,11 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
                 state = .ready
             }
             return logits
+        } catch let error as LlamaRunnerError {
+            if case .generationCancelled = error {
+                throw error
+            }
+            try recordPredictionFailure(error)
         } catch {
             try recordPredictionFailure(error)
         }
@@ -617,6 +637,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         guard snapshot.isValid else {
             throw LlamaRunnerError.snapshotExpired
         }
+        try throwIfCancellationPending()
 
         let currentPath = withLock { lastContextPath }
         if currentPath != snapshot.modelPath || !isLoaded {
@@ -887,6 +908,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         generatedCount: Int,
         onToken: @escaping (String) -> Void
     ) throws -> SpeculativeStepResult {
+        try throwIfCancellationPending(draftRunner)
         guard let targetSnapshot = saveState(), let draftSnapshot = draftRunner.saveState() else {
             return SpeculativeStepResult(
                 committedTokens: [],
@@ -909,6 +931,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         var draftHistory = allTokens
 
         for index in 0..<maxDraft {
+            try throwIfCancellationPending(draftRunner)
             let context = Array(draftHistory.suffix(64))
             let draftDistribution = sampler.prepareDistribution(logits: rollingDraftLogits, recentTokens: context)
             let token = sampler.sample(from: draftDistribution)
@@ -962,6 +985,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         var verificationContext = allTokens
 
         for index in proposedTokens.indices {
+            try throwIfCancellationPending(draftRunner)
             let proposedToken = proposedTokens[index]
             let recentTokens = Array(verificationContext.suffix(64))
             let targetDistribution = sampler.prepareDistribution(logits: targetLogitSpan[index], recentTokens: recentTokens)
@@ -1011,6 +1035,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         var firstTokenTimeMS: Double?
 
         if !committedTokens.isEmpty {
+            try throwIfCancellationPending(draftRunner)
             try decode(committedTokens)
             nextTargetLogits = try readLogits()
 
@@ -1227,6 +1252,7 @@ nonisolated enum LlamaRunnerError: Error, Sendable, LocalizedError {
     case snapshotExpired
     case stateRestoreFailed
     case modelEvicted
+    case generationCancelled
 
     var errorDescription: String? {
         switch self {
@@ -1241,6 +1267,7 @@ nonisolated enum LlamaRunnerError: Error, Sendable, LocalizedError {
         case .snapshotExpired: return "Session snapshot has expired"
         case .stateRestoreFailed: return "Failed to restore GGUF state snapshot"
         case .modelEvicted: return "GGUF context became unavailable and requires reload"
+        case .generationCancelled: return "GGUF generation was cancelled during a runner transition"
         }
     }
 }

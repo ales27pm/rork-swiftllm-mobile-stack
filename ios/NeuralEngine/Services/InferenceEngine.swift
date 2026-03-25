@@ -882,6 +882,36 @@ class InferenceEngine {
                     onComplete(metrics)
                     self.isGenerating = false
                 }
+            } catch let error as LlamaRunnerError {
+                if case .generationCancelled = error {
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
+                        self.isGenerating = false
+                        onComplete(GenerationMetrics(
+                            timeToFirstToken: 0, prefillTokensPerSecond: 0,
+                            decodeTokensPerSecond: 0, totalTokens: 0,
+                            totalDuration: 0, acceptedSpeculativeTokens: 0,
+                            rejectedSpeculativeTokens: 0,
+                            zeroTokenProbeLatencyMS: self.lastProbeLatencyMS,
+                            recoveryRetryCount: self.lastRecoveryRetryCount,
+                            fallbackMode: "generationCancelled"
+                        ))
+                    }
+                    return
+                }
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.isGenerating = false
+                    onComplete(GenerationMetrics(
+                        timeToFirstToken: 0, prefillTokensPerSecond: 0,
+                        decodeTokensPerSecond: 0, totalTokens: 0,
+                        totalDuration: 0, acceptedSpeculativeTokens: 0,
+                        rejectedSpeculativeTokens: 0,
+                        zeroTokenProbeLatencyMS: self.lastProbeLatencyMS,
+                        recoveryRetryCount: self.lastRecoveryRetryCount,
+                        fallbackMode: self.activeFallbackMode
+                    ))
+                }
             } catch {
                 await MainActor.run { [weak self] in
                     guard let self else { return }
@@ -905,13 +935,18 @@ class InferenceEngine {
         generationTask = nil
         decodeEngine.stop()
         prefillEngine.cancel()
-        // For CoreML the Task runs on MainActor and sets isGenerating = false when done.
-        // For GGUF the detached Task sets isGenerating = false via MainActor.run when it
-        // exits the generation loop (cooperative cancellation via Task.isCancelled /
-        // LlamaModelRunner.pendingUnload).  We still clear it here so the UI is
-        // immediately responsive; a rapid re-attempt while the old GGUF task is still
-        // draining will be rejected by tryAcquireGenerationToken() and return an error
-        // rather than causing a use-after-free.
+        isGenerating = false
+    }
+
+    func cancelAndDrain() async {
+        let task = generationTask
+        task?.cancel()
+        decodeEngine.stop()
+        prefillEngine.cancel()
+        if let task {
+            await task.value
+        }
+        generationTask = nil
         isGenerating = false
     }
 
