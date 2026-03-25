@@ -358,13 +358,32 @@ extension DiagnosticEngine {
         guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
 
         let userInput = "I'm curious about how neural networks learn from data"
+        let thermalMode = thermalGovernor?.currentMode ?? .maxPerformance
+        let budget = ContextAssembler.budgetForMode(thermalMode)
+        let timeoutSeconds: Double
+
+        switch thermalMode {
+        case .maxPerformance:
+            timeoutSeconds = 25
+        case .balanced:
+            timeoutSeconds = 35
+        case .coolDown:
+            timeoutSeconds = 50
+        case .emergency:
+            timeoutSeconds = 35
+        }
 
         CognitionEngine.resetSignature()
         let frame = CognitionEngine.process(userText: userInput, conversationHistory: [], memoryService: mem)
         let memResults = mem.searchMemories(query: userInput, maxResults: 5)
         let systemPrompt = ContextAssembler.assembleSystemPrompt(
-            frame: frame, memoryResults: memResults, conversationHistory: [],
-            toolsEnabled: false, isVoiceMode: false, preferredResponseLanguageCode: nil
+            frame: frame,
+            memoryResults: memResults,
+            conversationHistory: [],
+            toolsEnabled: false,
+            isVoiceMode: false,
+            preferredResponseLanguageCode: nil,
+            budget: budget
         )
         CognitionEngine.resetSignature()
 
@@ -374,11 +393,11 @@ extension DiagnosticEngine {
         ]
 
         var config = SamplingConfig()
-        config.maxTokens = 200
+        config.maxTokens = thermalMode == .coolDown || thermalMode == .emergency ? 50 : 200
         config.temperature = 0.7
 
         let start = Date()
-        let (output, metrics) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 25)
+        let (output, metrics) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: timeoutSeconds)
         let duration = Date().timeIntervalSince(start)
 
         var checks = 0
@@ -400,11 +419,11 @@ extension DiagnosticEngine {
         if topicRelevant { checks += 1; details.append("Response is topic-relevant: ✓") }
         else { details.append("Response is topic-relevant: ✗") }
 
-        let underTimeLimit = duration < 25.0
-        if underTimeLimit { checks += 1; details.append("Under time limit: ✓ (\(String(format: "%.1f", duration))s)") }
-        else { details.append("Under time limit: ✗ (\(String(format: "%.1f", duration))s)") }
+        let underTimeLimit = duration < timeoutSeconds
+        if underTimeLimit { checks += 1; details.append("Under time limit (\(Int(timeoutSeconds))s): ✓ (\(String(format: "%.1f", duration))s)") }
+        else { details.append("Under time limit (\(Int(timeoutSeconds))s): ✗ (\(String(format: "%.1f", duration))s)") }
 
-        details.append("Prompt: \(systemPrompt.count) chars, Intent: \(frame.intent.primary.rawValue)")
+        details.append("Prompt: \(systemPrompt.count) chars, Intent: \(frame.intent.primary.rawValue), thermalMode=\(thermalMode.rawValue) budget=\(String(describing: budget))")
         if let m = metrics {
             details.append("TTFT: \(String(format: "%.0f", m.timeToFirstToken))ms, Decode: \(String(format: "%.1f", m.decodeTokensPerSecond)) tok/s")
         }

@@ -13,6 +13,10 @@ struct ChatView: View {
                     diagnosticBanner(error)
                 }
 
+                if viewModel.shouldShowCoolingAdvisory {
+                    coolingAdvisoryBanner
+                }
+
                 if viewModel.messages.isEmpty {
                     emptyState
                 } else {
@@ -335,6 +339,30 @@ struct ChatView: View {
         .fullScreenCover(isPresented: $showSpeechMode) {
             SpeechModeView(viewModel: speechViewModel)
         }
+    }
+
+    private var coolingAdvisoryBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "thermometer.medium")
+                .foregroundStyle(.orange)
+
+            Text(viewModel.coolingAdvisoryMessage)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.orange.opacity(0.08))
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundStyle(.orange.opacity(0.2)),
+            alignment: .bottom
+        )
+        .accessibilityElement(children: .combine)
+        .transition(.move(edge: .top).combined(with: .opacity))
+        .animation(.spring(duration: 0.3), value: viewModel.shouldShowCoolingAdvisory)
     }
 
     private func diagnosticBanner(_ error: WrappedError) -> some View {

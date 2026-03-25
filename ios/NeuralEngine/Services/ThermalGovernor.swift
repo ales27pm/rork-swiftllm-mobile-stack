@@ -18,6 +18,7 @@ class ThermalGovernor {
     var totalThrottleEvents: Int = 0
     var lastEscalationDate: Date?
     var peakThermalState: ProcessInfo.ThermalState = .nominal
+    var continuousSeriousStart: Date?
 
     private var monitorTask: Task<Void, Never>?
     private var memorySource: DispatchSourceMemoryPressure?
@@ -25,6 +26,7 @@ class ThermalGovernor {
     var metricsLogger: MetricsLogger?
     private var thermalObserver: NSObjectProtocol?
     private var previousThermalState: ProcessInfo.ThermalState = .nominal
+    private var lastThermalSampleDate: Date = .now
 
     func startMonitoring() {
         guard !isMonitoring else { return }
@@ -55,7 +57,7 @@ class ThermalGovernor {
         switch thermalState {
         case .nominal: return 0
         case .fair: return 0.02
-        case .serious: return 0.05
+        case .serious: return 0.02
         case .critical: return 0
         @unknown default: return 0
         }
@@ -79,6 +81,12 @@ class ThermalGovernor {
 
     var shouldSuspendInference: Bool {
         currentPenalty >= 1.0 || thermalState == .critical || memoryPressureLevel == .critical
+    }
+
+    var shouldShowCoolingAdvisory: Bool {
+        guard thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue else { return false }
+        guard let continuousSeriousStart else { return false }
+        return lastThermalSampleDate.timeIntervalSince(continuousSeriousStart) >= 90
     }
 
     var diagnosticSummary: String {
@@ -107,10 +115,18 @@ class ThermalGovernor {
     }
 
     private func handleThermalStateChange() {
+        let sampleDate = Date()
         let newState = ProcessInfo.processInfo.thermalState
         let oldState = previousThermalState
         previousThermalState = newState
         thermalState = newState
+        lastThermalSampleDate = sampleDate
+
+        if newState.rawValue >= ProcessInfo.ThermalState.serious.rawValue {
+            continuousSeriousStart = continuousSeriousStart ?? sampleDate
+        } else {
+            continuousSeriousStart = nil
+        }
 
         if newState.rawValue > peakThermalState.rawValue {
             peakThermalState = newState
@@ -120,7 +136,7 @@ class ThermalGovernor {
         currentMode = chooseMode(thermalState: newState, memoryPressure: memoryPressureLevel)
 
         if newState.rawValue > oldState.rawValue {
-            lastEscalationDate = Date()
+            lastEscalationDate = sampleDate
             NotificationCenter.default.post(name: .thermalStateEscalated, object: nil, userInfo: [
                 "previousState": oldState.rawValue,
                 "newState": newState.rawValue,
@@ -129,12 +145,16 @@ class ThermalGovernor {
         }
 
         if newState == .critical {
-            totalThrottleEvents += 1
             inferenceThrottled = true
-            metricsLogger?.recordThrottleEvent(thermalState: "Critical", penalty: currentPenalty)
-            NotificationCenter.default.post(name: .forceInferenceStop, object: nil)
+            if oldState != .critical {
+                totalThrottleEvents += 1
+                metricsLogger?.recordThrottleEvent(thermalState: "Critical", penalty: currentPenalty)
+                NotificationCenter.default.post(name: .forceInferenceStop, object: nil)
+            }
         } else if newState == .serious {
-            metricsLogger?.recordThrottleEvent(thermalState: "Serious", penalty: currentPenalty)
+            if oldState != .serious {
+                metricsLogger?.recordThrottleEvent(thermalState: "Serious", penalty: currentPenalty)
+            }
         } else if newState == .nominal || newState == .fair {
             inferenceThrottled = false
         }
@@ -169,10 +189,7 @@ class ThermalGovernor {
         monitorTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                let state = ProcessInfo.processInfo.thermalState
-                if state != self.thermalState {
-                    self.handleThermalStateChange()
-                }
+                self.handleThermalStateChange()
                 try? await Task.sleep(for: .seconds(5))
             }
         }

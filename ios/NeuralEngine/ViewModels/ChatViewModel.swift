@@ -603,6 +603,14 @@ class ChatViewModel {
         inferenceEngine.hasModel
     }
 
+    var shouldShowCoolingAdvisory: Bool {
+        thermalGovernor.shouldShowCoolingAdvisory
+    }
+
+    var coolingAdvisoryMessage: String {
+        "Device is warm — responses may be slower. Consider pausing to let it cool."
+    }
+
     func syncEngineFormat() {
         inferenceEngine.updateFormat(modelLoader.activeFormat)
     }
