@@ -9,12 +9,6 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         let metadata: PrefixStateSnapshotMetadata
     }
 
-    private struct GenerationState {
-        let context: OpaquePointer
-        let vocab: OpaquePointer
-        let vocabSize: Int
-    }
-
     private struct SpeculativeStepResult {
         let committedTokens: [Int]
         let acceptedCount: Int
@@ -29,13 +23,11 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
 
     // MARK: – Locking
     //
-    // All mutable state is protected by stateCondition (an NSCondition, which
-    // is also a mutex). Two extra fields manage the generation-drain protocol:
+    // All mutable state is protected by stateCondition (an NSCondition).
     //
-    //   activeGenerationCount – number of "generation regions" currently in
-    //     flight that hold raw C pointers (context / model). Any path that
-    //     calls llama_decode / llama_get_logits_ith etc. must hold a generation
-    //     token for the duration.
+    //   activeGenerationCount – 0 or 1. Exactly ONE generation region may be
+    //     active per runner at a time. Any path that calls llama_decode or reads
+    //     raw C pointers must hold the generation token for its full duration.
     //
     //   pendingUnload – set to true by unload()/loadModel() BEFORE they wait
     //     for the drain. It makes tryAcquireGenerationToken() return false so
@@ -48,6 +40,10 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     //     activeGenerationCount has reached 0.
     //   • pendingUnload is cleared only after the new model is fully loaded
     //     (or after freeNativeResources() for a plain unload).
+    //   • Raw OpaquePointer values NEVER escape a runner instance. All llama_*
+    //     operations read self.context / self.model under the lock, release the
+    //     lock, then use the pointer — safe because the generation token prevents
+    //     llama_free from running concurrently.
 
     private let stateCondition = NSCondition()
 
@@ -79,7 +75,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     private var prefixSnapshotTokenizerID: String = "unknown-tokenizer"
     private var modelSessionID: UUID = UUID()
 
-    // MARK: – State-condition helpers
+    // MARK: – Lock helpers
 
     private func withLock<T>(_ body: () throws -> T) rethrows -> T {
         stateCondition.lock()
@@ -91,16 +87,17 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
 
     /// Increment the generation reference count, preventing any concurrent
     /// unload from freeing native pointers while we hold a token.
-    /// Returns false if an unload is already pending (caller must not proceed).
+    /// Returns false if an unload is pending or another generation is active.
+    /// Each runner allows at most ONE active generation at a time.
     func tryAcquireGenerationToken() -> Bool {
         stateCondition.lock()
         defer { stateCondition.unlock() }
-        guard !pendingUnload else { return false }
-        activeGenerationCount += 1
+        guard !pendingUnload, activeGenerationCount == 0 else { return false }
+        activeGenerationCount = 1
         return true
     }
 
-    /// Decrement the generation reference count.  Broadcasts on the condition
+    /// Decrement the generation reference count. Broadcasts on the condition
     /// so any thread blocked in waitForGenerationDrainLocked() wakes up.
     func releaseGenerationToken() {
         stateCondition.lock()
@@ -121,13 +118,135 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         }
     }
 
-    /// Checks whether an external cancellation (unload / reload) has been
-    /// requested.  Must be called without holding stateCondition.
+    /// Checks whether an unload / reload cancellation has been requested.
+    /// Must be called WITHOUT holding stateCondition.
     private func isCancellationPending() -> Bool {
         stateCondition.lock()
         let pending = pendingUnload
         stateCondition.unlock()
         return pending
+    }
+
+    // MARK: – Safe pointer borrowing
+    //
+    // These helpers read the live C pointers under the condition lock, then
+    // release the lock before returning. The caller MUST hold a generation
+    // token; that token prevents llama_free from running concurrently, so the
+    // pointers are valid for the entire duration of the caller's token.
+    //
+    // The helpers are private. No raw OpaquePointer value is ever returned
+    // from a method accessible by external call-sites or by other runner
+    // instances. The only cross-instance operations are the higher-level
+    // decode / readLogits / isEOG / tokenPiece methods below, which perform
+    // the complete llama_* operation inside the method body.
+
+    private func borrowContextPtr() throws -> OpaquePointer {
+        stateCondition.lock()
+        defer { stateCondition.unlock() }
+        guard let c = context else { throw LlamaRunnerError.modelNotLoaded }
+        return c
+    }
+
+    private func borrowModelAndContextPtr() throws -> (model: OpaquePointer, context: OpaquePointer) {
+        stateCondition.lock()
+        defer { stateCondition.unlock() }
+        guard let m = model, let c = context else { throw LlamaRunnerError.modelNotLoaded }
+        guard state == .ready || state == .recovering else { throw LlamaRunnerError.invalidState(state) }
+        return (m, c)
+    }
+
+    // MARK: – Self-contained llama operations
+    //
+    // Every method in this section reads self.context / self.model under the
+    // lock at the start, releases the lock, then performs the llama_* call.
+    // No OpaquePointer parameter is accepted or returned.
+
+    /// Decode a sequence of tokens using self's live context.
+    /// Caller must hold a generation token for self.
+    private func decode(_ tokens: [Int]) throws {
+        let ctx = try borrowContextPtr()
+        for token in tokens {
+            var mutableToken = llama_token(token)
+            let batch = withUnsafeMutablePointer(to: &mutableToken) { ptr in
+                llama_batch_get_one(ptr, 1)
+            }
+            let result = llama_decode(ctx, batch)
+            guard result == 0 else { throw LlamaRunnerError.decodeFailed }
+        }
+    }
+
+    /// Read the current logits from self's live context.
+    /// Caller must hold a generation token for self.
+    private func readLogits() throws -> [Float] {
+        let (m, ctx) = try borrowModelAndContextPtr()
+        guard let vocab = llama_model_get_vocab(m) else { throw LlamaRunnerError.tokenizationFailed }
+        let vocabSize = Int(llama_vocab_n_tokens(vocab))
+        guard let ptr = llama_get_logits_ith(ctx, -1) else { throw LlamaRunnerError.invalidLogits }
+        return Array(UnsafeBufferPointer(start: ptr, count: vocabSize))
+    }
+
+    /// Clear the KV-cache of self's live context. No-op if model not loaded.
+    /// Caller must hold a generation token for self.
+    private func clearKVCache() {
+        stateCondition.lock()
+        let ctx = context
+        stateCondition.unlock()
+        guard let ctx else { return }
+        let memory = llama_get_memory(ctx)
+        llama_memory_clear(memory, true)
+    }
+
+    /// Returns true when `token` is an end-of-generation token according to
+    /// self's vocabulary. Safe to call from within the generation loop.
+    func isEOG(_ token: Int) -> Bool {
+        stateCondition.lock()
+        let m = model
+        stateCondition.unlock()
+        guard let m, let vocab = llama_model_get_vocab(m) else { return false }
+        return llama_vocab_is_eog(vocab, llama_token(token))
+    }
+
+    /// Convert a token ID to its UTF-8 string piece using self's vocabulary.
+    private func tokenPiece(_ token: Int) -> String {
+        stateCondition.lock()
+        let m = model
+        stateCondition.unlock()
+        guard let m, let vocab = llama_model_get_vocab(m) else { return "" }
+        var buffer = [CChar](repeating: 0, count: 256)
+        let count = llama_token_to_piece(vocab, llama_token(token), &buffer, 256, 0, true)
+        guard count > 0 else { return "" }
+        buffer[Int(count)] = 0
+        return String(cString: buffer)
+    }
+
+    /// Tokenize `text` using self's vocabulary.
+    /// Returns an empty array when the model is not loaded.
+    private func tokenize(_ text: String, addBOS: Bool) -> [Int] {
+        stateCondition.lock()
+        guard let m = model else { stateCondition.unlock(); return [] }
+        guard let vocab = llama_model_get_vocab(m) else { stateCondition.unlock(); return [] }
+        stateCondition.unlock()
+
+        let utf8Count = Int32(text.utf8.count)
+        let maxTokens = utf8Count + (addBOS ? 1 : 0) + 16
+        var tokens = [llama_token](repeating: 0, count: Int(maxTokens))
+        let count = text.withCString { cString in
+            llama_tokenize(vocab, cString, utf8Count, &tokens, maxTokens, addBOS, true)
+        }
+        guard count >= 0 else { return [] }
+        return Array(tokens.prefix(Int(count))).map(Int.init)
+    }
+
+    /// Decode each token and collect the resulting logits.
+    /// Caller must hold a generation token for self.
+    private func decodeAndCollectAllLogits(_ tokens: [Int]) throws -> [[Float]] {
+        var collected: [[Float]] = []
+        collected.reserveCapacity(tokens.count)
+        for token in tokens {
+            try decode([token])
+            collected.append(try readLogits())
+        }
+        return collected
     }
 
     // MARK: – Public API
@@ -165,7 +284,6 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         gpuLayers = nGPULayers
 #endif
 
-        // Drain any in-flight generation before we free the old context.
         stateCondition.lock()
         waitForGenerationDrainLocked()
         stateCondition.unlock()
@@ -215,8 +333,6 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         modelSessionID = UUID()
         activeComputeUnits = gpuLayers > 0 ? .cpuAndGPU : .cpuOnly
         state = .ready
-
-        // Clear the pending flag now that a new model is ready.
         pendingUnload = false
 
         setupLifecycleObservers()
@@ -257,18 +373,16 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         shouldStop: @escaping () -> Bool
     ) throws -> LlamaGenerationResult {
 
-        // ── Acquire generation tokens ──────────────────────────────────────
-        // We must increment the reference count BEFORE capturing any raw C
-        // pointer.  This prevents a concurrent unload from freeing the context
-        // while we hold it.
-
+        // Acquire generation token BEFORE reading any raw pointer.
+        // This prevents a concurrent unload from freeing the context
+        // while we are decoding.
         guard tryAcquireGenerationToken() else {
             throw LlamaRunnerError.invalidState(currentState)
         }
         defer { releaseGenerationToken() }
 
-        // Acquire a token for the draft runner if it is healthy.  If it can't
-        // be acquired (e.g. mid-deactivation) we fall back to non-speculative.
+        // Acquire a token for the draft runner. If unavailable (e.g.
+        // mid-deactivation) fall back to non-speculative generation.
         let hasDraftToken: Bool
         let effectiveDraftRunner: LlamaModelRunner?
         if let dr = draftRunner, draftCount > 0, dr.tryAcquireGenerationToken() {
@@ -282,24 +396,22 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             if hasDraftToken { draftRunner?.releaseGenerationToken() }
         }
 
-        // ── Snapshot raw pointers under the lock ──────────────────────────
-        // After this point we own both tokens so the pointers cannot be freed.
-        let generationState = try captureGenerationState()
-        let promptTokens = tokenize(vocab: generationState.vocab, text: prompt, addBOS: true)
+        // Tokenize the prompt using self's own vocab (no raw pointer escapes).
+        let promptTokens = tokenize(prompt, addBOS: true)
         guard !promptTokens.isEmpty else {
             throw LlamaRunnerError.tokenizationFailed
         }
 
         do {
-            let memory = llama_get_memory(generationState.context)
-            llama_memory_clear(memory, true)
-
+            // Clear the KV-cache and prefill the prompt.
+            clearKVCache()
             let prefillStart = Date()
-            try decodeTokens(promptTokens, context: generationState.context)
-            var currentLogits = try readCurrentLogits(context: generationState.context, vocabSize: generationState.vocabSize)
+            try decode(promptTokens)
+            var currentLogits = try readLogits()
             let prefillDuration = Date().timeIntervalSince(prefillStart)
             let prefillTPS = Double(promptTokens.count) / max(prefillDuration, 0.001)
 
+            // Prime the draft runner with the same prompt tokens.
             var currentDraftLogits: [Float]? = nil
             if let dr = effectiveDraftRunner {
                 try dr.prime(with: promptTokens)
@@ -319,21 +431,20 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
 
             while generatedCount < samplingConfig.maxTokens && !shouldStop() {
 
-                // Cooperative cancellation: exit the loop if an unload /
-                // reload has been requested so the drain can proceed quickly.
+                // Cooperative cancellation: exit quickly so the drain can proceed.
                 if isCancellationPending() { break }
 
                 if let dr = effectiveDraftRunner,
                    let draftLogits = currentDraftLogits {
                     let maxDraft = min(draftCount, samplingConfig.maxTokens - generatedCount)
                     if maxDraft > 0 {
+                        // performSpeculativeStep uses self and draftRunner exclusively
+                        // through their higher-level decode/readLogits/isEOG methods.
+                        // No raw OpaquePointer is passed between runners.
                         let speculative = try performSpeculativeStep(
                             sampler: sampler,
                             draftRunner: dr,
                             draftLogits: draftLogits,
-                            targetContext: generationState.context,
-                            targetVocab: generationState.vocab,
-                            targetVocabSize: generationState.vocabSize,
                             allTokens: allTokens,
                             targetCurrentLogits: currentLogits,
                             maxDraft: maxDraft,
@@ -372,26 +483,22 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
 
                 let recentTokens = Array(allTokens.suffix(64))
                 let sampledToken = sampler.sample(logits: currentLogits, recentTokens: recentTokens)
-                if llama_vocab_is_eog(generationState.vocab, llama_token(sampledToken)) {
-                    break
-                }
+                if isEOG(sampledToken) { break }
 
                 if generatedCount == 0 {
                     firstTokenTimeMS = Date().timeIntervalSince(prefillStart) * 1000
                 }
 
-                let piece = tokenToPiece(vocab: generationState.vocab, token: llama_token(sampledToken))
-                onToken(piece)
+                onToken(tokenPiece(sampledToken))
 
                 allTokens.append(sampledToken)
                 generatedCount += 1
-                try decodeTokens([sampledToken], context: generationState.context)
-                currentLogits = try readCurrentLogits(context: generationState.context, vocabSize: generationState.vocabSize)
+                try decode([sampledToken])
+                currentLogits = try readLogits()
 
                 if let dr = effectiveDraftRunner {
-                    let draftState = try dr.captureGenerationState()
-                    try dr.decodeTokens([sampledToken], context: draftState.context)
-                    currentDraftLogits = try dr.readCurrentLogits(context: draftState.context, vocabSize: draftState.vocabSize)
+                    try dr.decode([sampledToken])
+                    currentDraftLogits = try dr.readLogits()
                 }
             }
 
@@ -440,14 +547,8 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         }
         defer { releaseGenerationToken() }
 
-        let generationState = try captureGenerationState()
-
         do {
-            let logits = try decodeAndCollectLogits(
-                inputIDs,
-                context: generationState.context,
-                vocabSize: generationState.vocabSize
-            )
+            let logits = try decodeAndCollectAllLogits(inputIDs)
             withLock {
                 sessionTokenCount += inputIDs.count
                 tokenHistory.append(contentsOf: inputIDs)
@@ -462,22 +563,19 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     }
 
     func resetContext() {
-        // If generation is active, skip: generateWithDraft clears the KV cache
-        // at the very start of every run, so skipping here is safe.
         stateCondition.lock()
         let generationActive = activeGenerationCount > 0
         stateCondition.unlock()
         if generationActive { return }
 
         withLock {
-            guard let context else {
+            guard let ctx = context else {
                 sessionTokenCount = 0
                 tokenHistory.removeAll(keepingCapacity: true)
                 state = .idle
                 return
             }
-
-            let memory = llama_get_memory(context)
+            let memory = llama_get_memory(ctx)
             llama_memory_clear(memory, true)
             sessionTokenCount = 0
             tokenHistory.removeAll(keepingCapacity: true)
@@ -724,15 +822,11 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     }
 
     func unload() {
-        // 1. Signal pending unload and drain all in-flight generation.
-        //    waitForGenerationDrainLocked sets pendingUnload = true and waits
-        //    until activeGenerationCount reaches 0.
         stateCondition.lock()
         removeLifecycleObserversInternal()
         waitForGenerationDrainLocked()
         stateCondition.unlock()
 
-        // 2. Free native resources — safe because no generation is in flight.
         stateCondition.lock()
         freeNativeResources()
         pendingUnload = false
@@ -741,8 +835,6 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
 
     // MARK: – Private helpers
 
-    /// Free llama C objects and reset all derived state.
-    /// Must be called while stateCondition IS locked.
     private func freeNativeResources() {
         if let context {
             llama_free(context)
@@ -763,32 +855,11 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         state = .idle
     }
 
-    private func captureGenerationState() throws -> GenerationState {
-        stateCondition.lock()
-        defer { stateCondition.unlock() }
-
-        guard let model, let context else {
-            throw LlamaRunnerError.modelNotLoaded
-        }
-        guard state == .ready || state == .recovering else {
-            throw LlamaRunnerError.invalidState(state)
-        }
-        guard let vocab = llama_model_get_vocab(model) else {
-            throw LlamaRunnerError.tokenizationFailed
-        }
-
-        return GenerationState(
-            context: context,
-            vocab: vocab,
-            vocabSize: Int(llama_vocab_n_tokens(vocab))
-        )
-    }
-
+    /// Prime the draft runner: clear its KV-cache and decode `tokens`.
+    /// Must be called while the draft runner's generation token is held.
     private func prime(with tokens: [Int]) throws {
-        let generationState = try captureGenerationState()
-        let memory = llama_get_memory(generationState.context)
-        llama_memory_clear(memory, true)
-        try decodeTokens(tokens, context: generationState.context)
+        clearKVCache()
+        try decode(tokens)
         withLock {
             sessionTokenCount = tokens.count
             tokenHistory = tokens
@@ -798,18 +869,24 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         }
     }
 
+    /// Read the current logits from this runner's context.
+    /// Must be called while this runner's generation token is held.
     private func captureCurrentLogits() throws -> [Float] {
-        let generationState = try captureGenerationState()
-        return try readCurrentLogits(context: generationState.context, vocabSize: generationState.vocabSize)
+        return try readLogits()
     }
+
+    // MARK: – Speculative decoding
+    //
+    // performSpeculativeStep takes no raw pointer parameters.
+    // All llama_* operations on the target (self) and the draft runner go
+    // through the self-contained decode / readLogits / isEOG / tokenPiece
+    // methods defined above.  Both generation tokens (target + draft) are
+    // held by the caller (generateWithDraft) for the entire duration.
 
     private func performSpeculativeStep(
         sampler: Sampler,
         draftRunner: LlamaModelRunner,
         draftLogits: [Float],
-        targetContext: OpaquePointer,
-        targetVocab: OpaquePointer,
-        targetVocabSize: Int,
         allTokens: [Int],
         targetCurrentLogits: [Float],
         maxDraft: Int,
@@ -831,9 +908,6 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             )
         }
 
-        // Snapshot draft state – draft token already has a generation token
-        // held by the caller (generateWithDraft), so captureGenerationState is safe.
-        let draftState = try draftRunner.captureGenerationState()
         let draftStart = Date()
         var proposedTokens: [Int] = []
         var draftLogitSnapshots: [[Float]] = []
@@ -850,13 +924,11 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             draftTokenProbabilities.append(draftDistribution.probability(of: token))
             draftHistory.append(token)
 
-            if llama_vocab_is_eog(draftState.vocab, llama_token(token)) {
-                break
-            }
+            if draftRunner.isEOG(token) { break }
 
             if index < maxDraft - 1 {
-                try draftRunner.decodeTokens([token], context: draftState.context)
-                rollingDraftLogits = try draftRunner.readCurrentLogits(context: draftState.context, vocabSize: draftState.vocabSize)
+                try draftRunner.decode([token])
+                rollingDraftLogits = try draftRunner.readLogits()
             }
         }
 
@@ -882,8 +954,8 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         for index in proposedTokens.indices {
             targetLogitSpan.append(rollingTargetLogits)
             if index < proposedTokens.count - 1 {
-                try decodeTokens([proposedTokens[index]], context: targetContext)
-                rollingTargetLogits = try readCurrentLogits(context: targetContext, vocabSize: targetVocabSize)
+                try decode([proposedTokens[index]])
+                rollingTargetLogits = try readLogits()
             }
         }
 
@@ -907,7 +979,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             if sampler.uniformSample() <= acceptance {
                 acceptedTokens.append(proposedToken)
                 verificationContext.append(proposedToken)
-                if llama_vocab_is_eog(targetVocab, llama_token(proposedToken)) {
+                if isEOG(proposedToken) {
                     hitEOS = true
                     break
                 }
@@ -917,7 +989,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             rejectedCount = proposedTokens.count - index
             let draftDistribution = sampler.probabilityDistribution(logits: draftLogitSnapshots[index], recentTokens: recentTokens)
             correctionToken = sampler.sampleResidual(target: targetDistribution.probabilities, draft: draftDistribution)
-            if let correctionToken, llama_vocab_is_eog(targetVocab, llama_token(correctionToken)) {
+            if let correctionToken, isEOG(correctionToken) {
                 hitEOS = true
             }
             break
@@ -927,14 +999,14 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
 
         var committedTokens: [Int] = []
         for token in acceptedTokens {
-            if llama_vocab_is_eog(targetVocab, llama_token(token)) {
+            if isEOG(token) {
                 hitEOS = true
                 break
             }
             committedTokens.append(token)
         }
         if !hitEOS, let correctionToken {
-            if llama_vocab_is_eog(targetVocab, llama_token(correctionToken)) {
+            if isEOG(correctionToken) {
                 hitEOS = true
             } else {
                 committedTokens.append(correctionToken)
@@ -946,24 +1018,23 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         var firstTokenTimeMS: Double?
 
         if !committedTokens.isEmpty {
-            try decodeTokens(committedTokens, context: targetContext)
-            nextTargetLogits = try readCurrentLogits(context: targetContext, vocabSize: targetVocabSize)
+            try decode(committedTokens)
+            nextTargetLogits = try readLogits()
 
-            try draftRunner.decodeTokens(committedTokens, context: draftState.context)
-            nextDraftLogits = try draftRunner.readCurrentLogits(context: draftState.context, vocabSize: draftState.vocabSize)
+            try draftRunner.decode(committedTokens)
+            nextDraftLogits = try draftRunner.readLogits()
 
             for (offset, token) in committedTokens.enumerated() {
                 if firstTokenTimeMS == nil && generatedCount + offset == 0 {
                     firstTokenTimeMS = Date().timeIntervalSince(prefillStart) * 1000
                 }
-                let piece = tokenToPiece(vocab: targetVocab, token: llama_token(token))
-                onToken(piece)
+                onToken(tokenPiece(token))
             }
         }
 
         return SpeculativeStepResult(
             committedTokens: committedTokens,
-            acceptedCount: acceptedTokens.filter { !llama_vocab_is_eog(targetVocab, llama_token($0)) }.count,
+            acceptedCount: acceptedTokens.filter { !isEOG($0) }.count,
             rejectedCount: rejectedCount,
             hitEOS: hitEOS,
             nextTargetLogits: nextTargetLogits,
@@ -973,6 +1044,8 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             firstTokenTimeMS: firstTokenTimeMS
         )
     }
+
+    // MARK: – Lifecycle observers
 
     private func setupLifecycleObservers() {
         removeLifecycleObserversInternal()
@@ -1028,60 +1101,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         }
     }
 
-    private func tokenize(vocab: OpaquePointer, text: String, addBOS: Bool) -> [Int] {
-        let utf8Count = Int32(text.utf8.count)
-        let maxTokens = utf8Count + (addBOS ? 1 : 0) + 16
-        var tokens = [llama_token](repeating: 0, count: Int(maxTokens))
-
-        let count = text.withCString { cString in
-            llama_tokenize(vocab, cString, utf8Count, &tokens, maxTokens, addBOS, true)
-        }
-        guard count >= 0 else { return [] }
-
-        return Array(tokens.prefix(Int(count))).map(Int.init)
-    }
-
-    private func tokenToPiece(vocab: OpaquePointer, token: llama_token) -> String {
-        var buffer = [CChar](repeating: 0, count: 256)
-        let count = llama_token_to_piece(vocab, token, &buffer, 256, 0, true)
-        if count > 0 {
-            buffer[Int(count)] = 0
-            return String(cString: buffer)
-        }
-        return ""
-    }
-
-    func decodeTokens(_ tokens: [Int], context: OpaquePointer) throws {
-        for token in tokens {
-            var mutableToken = llama_token(token)
-            let batch = withUnsafeMutablePointer(to: &mutableToken) { pointer in
-                llama_batch_get_one(pointer, 1)
-            }
-            let result = llama_decode(context, batch)
-            if result != 0 {
-                throw LlamaRunnerError.decodeFailed
-            }
-        }
-    }
-
-    func readCurrentLogits(context: OpaquePointer, vocabSize: Int) throws -> [Float] {
-        guard let logitsPointer = llama_get_logits_ith(context, -1) else {
-            throw LlamaRunnerError.invalidLogits
-        }
-        return Array(UnsafeBufferPointer(start: logitsPointer, count: vocabSize))
-    }
-
-    private func decodeAndCollectLogits(_ tokens: [Int], context: OpaquePointer, vocabSize: Int) throws -> [[Float]] {
-        var collected: [[Float]] = []
-        collected.reserveCapacity(tokens.count)
-
-        for token in tokens {
-            try decodeTokens([token], context: context)
-            collected.append(try readCurrentLogits(context: context, vocabSize: vocabSize))
-        }
-
-        return collected
-    }
+    // MARK: – Misc private helpers
 
     private func recordPredictionFailure(_ error: Error) throws -> Never {
         withLock {
@@ -1127,6 +1147,8 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         stateCondition.unlock()
     }
 }
+
+// MARK: – Supporting value types
 
 nonisolated struct LlamaGenerationResult: Sendable {
     let promptTokenCount: Int
