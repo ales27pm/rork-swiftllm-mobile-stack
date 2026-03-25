@@ -27,7 +27,33 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         let firstTokenTimeMS: Double?
     }
 
-    private let lock = NSLock()
+    // MARK: – Locking
+    //
+    // All mutable state is protected by stateCondition (an NSCondition, which
+    // is also a mutex). Two extra fields manage the generation-drain protocol:
+    //
+    //   activeGenerationCount – number of "generation regions" currently in
+    //     flight that hold raw C pointers (context / model). Any path that
+    //     calls llama_decode / llama_get_logits_ith etc. must hold a generation
+    //     token for the duration.
+    //
+    //   pendingUnload – set to true by unload()/loadModel() BEFORE they wait
+    //     for the drain. It makes tryAcquireGenerationToken() return false so
+    //     no new generation can start, and it is checked cooperatively inside
+    //     the generation loop so the active generator exits quickly.
+    //
+    // Invariants:
+    //   • stateCondition is NEVER held while calling any llama_* C function.
+    //   • llama_free / llama_model_free are ONLY called after
+    //     activeGenerationCount has reached 0.
+    //   • pendingUnload is cleared only after the new model is fully loaded
+    //     (or after freeNativeResources() for a plain unload).
+
+    private let stateCondition = NSCondition()
+
+    private var activeGenerationCount: Int = 0
+    private var pendingUnload: Bool = false
+
     private var model: OpaquePointer?
     private var context: OpaquePointer?
     private var state: RunnerState = .idle
@@ -53,11 +79,58 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     private var prefixSnapshotTokenizerID: String = "unknown-tokenizer"
     private var modelSessionID: UUID = UUID()
 
+    // MARK: – State-condition helpers
+
     private func withLock<T>(_ body: () throws -> T) rethrows -> T {
-        lock.lock()
-        defer { lock.unlock() }
+        stateCondition.lock()
+        defer { stateCondition.unlock() }
         return try body()
     }
+
+    // MARK: – Generation-token protocol
+
+    /// Increment the generation reference count, preventing any concurrent
+    /// unload from freeing native pointers while we hold a token.
+    /// Returns false if an unload is already pending (caller must not proceed).
+    func tryAcquireGenerationToken() -> Bool {
+        stateCondition.lock()
+        defer { stateCondition.unlock() }
+        guard !pendingUnload else { return false }
+        activeGenerationCount += 1
+        return true
+    }
+
+    /// Decrement the generation reference count.  Broadcasts on the condition
+    /// so any thread blocked in waitForGenerationDrainLocked() wakes up.
+    func releaseGenerationToken() {
+        stateCondition.lock()
+        activeGenerationCount -= 1
+        if activeGenerationCount == 0 {
+            stateCondition.broadcast()
+        }
+        stateCondition.unlock()
+    }
+
+    /// Must be called while stateCondition IS locked.
+    /// Sets pendingUnload = true and blocks until activeGenerationCount == 0.
+    private func waitForGenerationDrainLocked() {
+        pendingUnload = true
+        let deadline = Date(timeIntervalSinceNow: 10.0)
+        while activeGenerationCount > 0 {
+            stateCondition.wait(until: deadline)
+        }
+    }
+
+    /// Checks whether an external cancellation (unload / reload) has been
+    /// requested.  Must be called without holding stateCondition.
+    private func isCancellationPending() -> Bool {
+        stateCondition.lock()
+        let pending = pendingUnload
+        stateCondition.unlock()
+        return pending
+    }
+
+    // MARK: – Public API
 
     var isLoaded: Bool {
         withLock {
@@ -92,10 +165,15 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         gpuLayers = nGPULayers
 #endif
 
-        lock.lock()
-        defer { lock.unlock() }
+        // Drain any in-flight generation before we free the old context.
+        stateCondition.lock()
+        waitForGenerationDrainLocked()
+        stateCondition.unlock()
 
-        unloadInternal()
+        stateCondition.lock()
+        defer { stateCondition.unlock() }
+
+        freeNativeResources()
         state = .loading
 
         var modelParameters = llama_model_default_params()
@@ -103,6 +181,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
 
         guard let loadedModel = llama_model_load_from_file(path, modelParameters) else {
             state = .idle
+            pendingUnload = false
             throw LlamaRunnerError.modelLoadFailed
         }
 
@@ -117,6 +196,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         guard let loadedContext = llama_init_from_model(loadedModel, contextParameters) else {
             llama_model_free(loadedModel)
             state = .idle
+            pendingUnload = false
             throw LlamaRunnerError.contextCreationFailed
         }
 
@@ -135,6 +215,9 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         modelSessionID = UUID()
         activeComputeUnits = gpuLayers > 0 ? .cpuAndGPU : .cpuOnly
         state = .ready
+
+        // Clear the pending flag now that a new model is ready.
+        pendingUnload = false
 
         setupLifecycleObservers()
     }
@@ -173,6 +256,34 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         onToken: @escaping (String) -> Void,
         shouldStop: @escaping () -> Bool
     ) throws -> LlamaGenerationResult {
+
+        // ── Acquire generation tokens ──────────────────────────────────────
+        // We must increment the reference count BEFORE capturing any raw C
+        // pointer.  This prevents a concurrent unload from freeing the context
+        // while we hold it.
+
+        guard tryAcquireGenerationToken() else {
+            throw LlamaRunnerError.invalidState(currentState)
+        }
+        defer { releaseGenerationToken() }
+
+        // Acquire a token for the draft runner if it is healthy.  If it can't
+        // be acquired (e.g. mid-deactivation) we fall back to non-speculative.
+        let hasDraftToken: Bool
+        let effectiveDraftRunner: LlamaModelRunner?
+        if let dr = draftRunner, draftCount > 0, dr.tryAcquireGenerationToken() {
+            hasDraftToken = true
+            effectiveDraftRunner = dr
+        } else {
+            hasDraftToken = false
+            effectiveDraftRunner = nil
+        }
+        defer {
+            if hasDraftToken { draftRunner?.releaseGenerationToken() }
+        }
+
+        // ── Snapshot raw pointers under the lock ──────────────────────────
+        // After this point we own both tokens so the pointers cannot be freed.
         let generationState = try captureGenerationState()
         let promptTokens = tokenize(vocab: generationState.vocab, text: prompt, addBOS: true)
         guard !promptTokens.isEmpty else {
@@ -189,15 +300,10 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             let prefillDuration = Date().timeIntervalSince(prefillStart)
             let prefillTPS = Double(promptTokens.count) / max(prefillDuration, 0.001)
 
-            let speculativeDraftRunner: LlamaModelRunner? = {
-                guard let draftRunner, draftRunner.isLoaded, draftCount > 0 else { return nil }
-                return draftRunner
-            }()
-
             var currentDraftLogits: [Float]? = nil
-            if let speculativeDraftRunner {
-                try speculativeDraftRunner.prime(with: promptTokens)
-                currentDraftLogits = try speculativeDraftRunner.captureCurrentLogits()
+            if let dr = effectiveDraftRunner {
+                try dr.prime(with: promptTokens)
+                currentDraftLogits = try dr.captureCurrentLogits()
             }
 
             let sampler = Sampler(config: samplingConfig)
@@ -212,13 +318,18 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             let decodeStart = Date()
 
             while generatedCount < samplingConfig.maxTokens && !shouldStop() {
-                if let speculativeDraftRunner,
+
+                // Cooperative cancellation: exit the loop if an unload /
+                // reload has been requested so the drain can proceed quickly.
+                if isCancellationPending() { break }
+
+                if let dr = effectiveDraftRunner,
                    let draftLogits = currentDraftLogits {
                     let maxDraft = min(draftCount, samplingConfig.maxTokens - generatedCount)
                     if maxDraft > 0 {
                         let speculative = try performSpeculativeStep(
                             sampler: sampler,
-                            draftRunner: speculativeDraftRunner,
+                            draftRunner: dr,
                             draftLogits: draftLogits,
                             targetContext: generationState.context,
                             targetVocab: generationState.vocab,
@@ -239,8 +350,8 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
                             cumulativeVerificationLatencyMS += speculative.verificationLatencyMS
                         }
 
-                        if firstTokenTimeMS == 0, let firstTokenTime = speculative.firstTokenTimeMS {
-                            firstTokenTimeMS = firstTokenTime
+                        if firstTokenTimeMS == 0, let t = speculative.firstTokenTimeMS {
+                            firstTokenTimeMS = t
                         }
 
                         currentLogits = speculative.nextTargetLogits
@@ -255,9 +366,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
                             continue
                         }
 
-                        if speculative.hitEOS {
-                            break
-                        }
+                        if speculative.hitEOS { break }
                     }
                 }
 
@@ -279,10 +388,10 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
                 try decodeTokens([sampledToken], context: generationState.context)
                 currentLogits = try readCurrentLogits(context: generationState.context, vocabSize: generationState.vocabSize)
 
-                if let speculativeDraftRunner {
-                    let draftState = try speculativeDraftRunner.captureGenerationState()
-                    try speculativeDraftRunner.decodeTokens([sampledToken], context: draftState.context)
-                    currentDraftLogits = try speculativeDraftRunner.readCurrentLogits(context: draftState.context, vocabSize: draftState.vocabSize)
+                if let dr = effectiveDraftRunner {
+                    let draftState = try dr.captureGenerationState()
+                    try dr.decodeTokens([sampledToken], context: draftState.context)
+                    currentDraftLogits = try dr.readCurrentLogits(context: draftState.context, vocabSize: draftState.vocabSize)
                 }
             }
 
@@ -290,13 +399,13 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             let decodeDuration = Date().timeIntervalSince(decodeStart)
             let decodeTPS = Double(generatedCount) / max(decodeDuration, 0.001)
 
-            lock.lock()
-            sessionTokenCount = allTokens.count
-            tokenHistory = allTokens
-            lastSuccessfulPrediction = Date()
-            consecutiveFailures = 0
-            state = .ready
-            lock.unlock()
+            withLock {
+                sessionTokenCount = allTokens.count
+                tokenHistory = allTokens
+                lastSuccessfulPrediction = Date()
+                consecutiveFailures = 0
+                state = .ready
+            }
 
             return LlamaGenerationResult(
                 promptTokenCount: promptTokens.count,
@@ -326,6 +435,11 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             throw LlamaRunnerError.emptyInput
         }
 
+        guard tryAcquireGenerationToken() else {
+            throw LlamaRunnerError.invalidState(currentState)
+        }
+        defer { releaseGenerationToken() }
+
         let generationState = try captureGenerationState()
 
         do {
@@ -334,13 +448,13 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
                 context: generationState.context,
                 vocabSize: generationState.vocabSize
             )
-            lock.lock()
-            sessionTokenCount += inputIDs.count
-            tokenHistory.append(contentsOf: inputIDs)
-            lastSuccessfulPrediction = Date()
-            consecutiveFailures = 0
-            state = .ready
-            lock.unlock()
+            withLock {
+                sessionTokenCount += inputIDs.count
+                tokenHistory.append(contentsOf: inputIDs)
+                lastSuccessfulPrediction = Date()
+                consecutiveFailures = 0
+                state = .ready
+            }
             return logits
         } catch {
             try recordPredictionFailure(error)
@@ -348,23 +462,29 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     }
 
     func resetContext() {
-        lock.lock()
-        defer { lock.unlock() }
+        // If generation is active, skip: generateWithDraft clears the KV cache
+        // at the very start of every run, so skipping here is safe.
+        stateCondition.lock()
+        let generationActive = activeGenerationCount > 0
+        stateCondition.unlock()
+        if generationActive { return }
 
-        guard let context else {
+        withLock {
+            guard let context else {
+                sessionTokenCount = 0
+                tokenHistory.removeAll(keepingCapacity: true)
+                state = .idle
+                return
+            }
+
+            let memory = llama_get_memory(context)
+            llama_memory_clear(memory, true)
             sessionTokenCount = 0
             tokenHistory.removeAll(keepingCapacity: true)
-            state = .idle
-            return
+            lastSuccessfulPrediction = Date()
+            consecutiveFailures = 0
+            state = model != nil ? .ready : .idle
         }
-
-        let memory = llama_get_memory(context)
-        llama_memory_clear(memory, true)
-        sessionTokenCount = 0
-        tokenHistory.removeAll(keepingCapacity: true)
-        lastSuccessfulPrediction = Date()
-        consecutiveFailures = 0
-        state = model != nil ? .ready : .idle
     }
 
     func resetState() {
@@ -488,9 +608,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             if let lastRecoveryAttempt {
                 let backoff = recoveryBackoffBase * pow(2.0, Double(min(totalRecoveries, 5)))
                 let elapsed = Date().timeIntervalSince(lastRecoveryAttempt)
-                if elapsed < backoff {
-                    return nil
-                }
+                if elapsed < backoff { return nil }
             }
 
             state = .recovering
@@ -606,13 +724,26 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     }
 
     func unload() {
-        lock.lock()
+        // 1. Signal pending unload and drain all in-flight generation.
+        //    waitForGenerationDrainLocked sets pendingUnload = true and waits
+        //    until activeGenerationCount reaches 0.
+        stateCondition.lock()
         removeLifecycleObserversInternal()
-        unloadInternal()
-        lock.unlock()
+        waitForGenerationDrainLocked()
+        stateCondition.unlock()
+
+        // 2. Free native resources — safe because no generation is in flight.
+        stateCondition.lock()
+        freeNativeResources()
+        pendingUnload = false
+        stateCondition.unlock()
     }
 
-    private func unloadInternal() {
+    // MARK: – Private helpers
+
+    /// Free llama C objects and reset all derived state.
+    /// Must be called while stateCondition IS locked.
+    private func freeNativeResources() {
         if let context {
             llama_free(context)
         }
@@ -633,8 +764,8 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     }
 
     private func captureGenerationState() throws -> GenerationState {
-        lock.lock()
-        defer { lock.unlock() }
+        stateCondition.lock()
+        defer { stateCondition.unlock() }
 
         guard let model, let context else {
             throw LlamaRunnerError.modelNotLoaded
@@ -658,13 +789,13 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         let memory = llama_get_memory(generationState.context)
         llama_memory_clear(memory, true)
         try decodeTokens(tokens, context: generationState.context)
-        lock.lock()
-        sessionTokenCount = tokens.count
-        tokenHistory = tokens
-        lastSuccessfulPrediction = Date()
-        consecutiveFailures = 0
-        state = .ready
-        lock.unlock()
+        withLock {
+            sessionTokenCount = tokens.count
+            tokenHistory = tokens
+            lastSuccessfulPrediction = Date()
+            consecutiveFailures = 0
+            state = .ready
+        }
     }
 
     private func captureCurrentLogits() throws -> [Float] {
@@ -700,6 +831,8 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             )
         }
 
+        // Snapshot draft state – draft token already has a generation token
+        // held by the caller (generateWithDraft), so captureGenerationState is safe.
         let draftState = try draftRunner.captureGenerationState()
         let draftStart = Date()
         var proposedTokens: [Int] = []
@@ -873,18 +1006,19 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     }
 
     private func handleEnterBackground() {
-        lock.lock()
-        isBackgrounded = true
-        backgroundTimestamp = Date()
-        lock.unlock()
+        withLock {
+            isBackgrounded = true
+            backgroundTimestamp = Date()
+        }
     }
 
     private func handleEnterForeground() {
-        lock.lock()
-        isBackgrounded = false
-        let enteredBackgroundAt = backgroundTimestamp
-        backgroundTimestamp = nil
-        lock.unlock()
+        let enteredBackgroundAt: Date? = withLock {
+            isBackgrounded = false
+            let ts = backgroundTimestamp
+            backgroundTimestamp = nil
+            return ts
+        }
 
         if let enteredBackgroundAt {
             let duration = Date().timeIntervalSince(enteredBackgroundAt)
@@ -917,7 +1051,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         return ""
     }
 
-    private func decodeTokens(_ tokens: [Int], context: OpaquePointer) throws {
+    func decodeTokens(_ tokens: [Int], context: OpaquePointer) throws {
         for token in tokens {
             var mutableToken = llama_token(token)
             let batch = withUnsafeMutablePointer(to: &mutableToken) { pointer in
@@ -930,7 +1064,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         }
     }
 
-    private func readCurrentLogits(context: OpaquePointer, vocabSize: Int) throws -> [Float] {
+    func readCurrentLogits(context: OpaquePointer, vocabSize: Int) throws -> [Float] {
         guard let logitsPointer = llama_get_logits_ith(context, -1) else {
             throw LlamaRunnerError.invalidLogits
         }
@@ -950,14 +1084,14 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     }
 
     private func recordPredictionFailure(_ error: Error) throws -> Never {
-        lock.lock()
-        consecutiveFailures += 1
-        let failures = consecutiveFailures
-        if failures >= 3 {
-            state = .evicted
+        withLock {
+            consecutiveFailures += 1
+            if consecutiveFailures >= 3 {
+                state = .evicted
+            }
         }
-        lock.unlock()
 
+        let failures = withLock { consecutiveFailures }
         if failures >= 3 {
             throw LlamaRunnerError.modelEvicted
         }
@@ -985,15 +1119,12 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     }
 
     deinit {
-        if let observer = backgroundObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        if let observer = foregroundObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        lock.lock()
-        unloadInternal()
-        lock.unlock()
+        removeLifecycleObserversInternal()
+        stateCondition.lock()
+        waitForGenerationDrainLocked()
+        freeNativeResources()
+        pendingUnload = false
+        stateCondition.unlock()
     }
 }
 

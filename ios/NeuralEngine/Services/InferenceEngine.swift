@@ -905,6 +905,13 @@ class InferenceEngine {
         generationTask = nil
         decodeEngine.stop()
         prefillEngine.cancel()
+        // For CoreML the Task runs on MainActor and sets isGenerating = false when done.
+        // For GGUF the detached Task sets isGenerating = false via MainActor.run when it
+        // exits the generation loop (cooperative cancellation via Task.isCancelled /
+        // LlamaModelRunner.pendingUnload).  We still clear it here so the UI is
+        // immediately responsive; a rapid re-attempt while the old GGUF task is still
+        // draining will be rejected by tryAcquireGenerationToken() and return an error
+        // rather than causing a use-after-free.
         isGenerating = false
     }
 
@@ -916,6 +923,9 @@ class InferenceEngine {
         speculationPolicy.reset()
         currentText = ""
         modelRunner?.resetState()
+        // resetContext() is safe here: LlamaModelRunner.resetContext() is a no-op
+        // when a generation is still draining (activeGenerationCount > 0), so we
+        // cannot race with an in-flight llama_decode call.
         llamaRunner?.resetContext()
         draftLlamaRunner?.resetContext()
         draftEngine.resetDraftState()
