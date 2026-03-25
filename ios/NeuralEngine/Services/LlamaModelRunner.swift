@@ -239,6 +239,18 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         }
     }
 
+    private func waitForOutstandingBackendWorkLocked(reason: String) {
+#if DEBUG
+        if let syntheticTestingState {
+            syntheticTestingState.waitForPendingDecodeCompletion()
+            return
+        }
+#endif
+        guard let context else { return }
+        logDebug("Synchronizing backend work reason=\(reason)")
+        llama_synchronize(context)
+    }
+
 #if DEBUG
     func installSyntheticModelForTesting(
         at path: String = "synthetic://gguf",
@@ -363,6 +375,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
                 }
                 try throwIfCancellationPending()
                 syntheticState.recordDecodedToken(token)
+                syntheticState.scheduleDecodeCompletion()
             }
             return
         }
@@ -516,6 +529,10 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
 #if DEBUG
     func isSyntheticDecodeActiveForTesting() -> Bool {
         withLock { syntheticTestingState?.hasActiveDecode ?? false }
+    }
+
+    func isSyntheticBackendCompletionPendingForTesting() -> Bool {
+        withLock { syntheticTestingState?.hasPendingDecodeCompletion ?? false }
     }
 
     func syntheticDecodeCallCountForTesting() -> Int {
@@ -879,6 +896,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             guard activeGenerationCount == 0, !pendingUnload else { return }
 #if DEBUG
             if let syntheticTestingState {
+                syntheticTestingState.waitForPendingDecodeCompletion()
                 syntheticTestingState.resetForNewSequence()
                 sessionTokenCount = 0
                 tokenHistory.removeAll(keepingCapacity: true)
@@ -894,6 +912,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
                 state = .idle
                 return
             }
+            waitForOutstandingBackendWorkLocked(reason: "resetContext")
             let memory = llama_get_memory(ctx)
             llama_memory_clear(memory, true)
             sessionTokenCount = 0
@@ -1247,6 +1266,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     // MARK: – Private helpers
 
     private func freeNativeResources() {
+        waitForOutstandingBackendWorkLocked(reason: "freeNativeResources")
         if let context {
             llama_free(context)
         }

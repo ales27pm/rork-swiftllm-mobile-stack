@@ -6,6 +6,7 @@ nonisolated struct LlamaSyntheticTestingConfiguration: Sendable {
     let eogTokens: Set<Int>
     let tokenPieces: [Int: String]
     let decodeDelaySeconds: TimeInterval
+    let decodeCompletionDelaySeconds: TimeInterval
     let unloadDelaySeconds: TimeInterval
     let loadDelaySeconds: TimeInterval
     let vocabSize: Int
@@ -15,6 +16,7 @@ nonisolated struct LlamaSyntheticTestingConfiguration: Sendable {
         eogTokens: Set<Int> = [0],
         tokenPieces: [Int: String] = [:],
         decodeDelaySeconds: TimeInterval = 0,
+        decodeCompletionDelaySeconds: TimeInterval = 0,
         unloadDelaySeconds: TimeInterval = 0,
         loadDelaySeconds: TimeInterval = 0,
         vocabSize: Int = 32
@@ -23,6 +25,7 @@ nonisolated struct LlamaSyntheticTestingConfiguration: Sendable {
         self.eogTokens = eogTokens
         self.tokenPieces = tokenPieces
         self.decodeDelaySeconds = decodeDelaySeconds
+        self.decodeCompletionDelaySeconds = decodeCompletionDelaySeconds
         self.unloadDelaySeconds = unloadDelaySeconds
         self.loadDelaySeconds = loadDelaySeconds
         self.vocabSize = vocabSize
@@ -38,10 +41,12 @@ nonisolated final class LlamaSyntheticTestingState: @unchecked Sendable {
     let configuration: LlamaSyntheticTestingConfiguration
 
     private let lock = NSLock()
+    private let completionCondition = NSCondition()
     private var generationCursor: Int = 0
     private var decodedTokens: [Int] = []
     private var activeDecodeCount: Int = 0
     private var decodeCallCountValue: Int = 0
+    private var pendingDecodeCompletionCount: Int = 0
 
     init(configuration: LlamaSyntheticTestingConfiguration) {
         self.configuration = configuration
@@ -65,6 +70,12 @@ nonisolated final class LlamaSyntheticTestingState: @unchecked Sendable {
         return generationCursor
     }
 
+    var hasPendingDecodeCompletion: Bool {
+        completionCondition.lock()
+        defer { completionCondition.unlock() }
+        return pendingDecodeCompletionCount > 0
+    }
+
     func beginDecode() {
         lock.lock()
         activeDecodeCount += 1
@@ -85,6 +96,38 @@ nonisolated final class LlamaSyntheticTestingState: @unchecked Sendable {
             generationCursor += 1
         }
         lock.unlock()
+    }
+
+    func scheduleDecodeCompletion() {
+        let delaySeconds = configuration.decodeCompletionDelaySeconds
+        guard delaySeconds > 0 else { return }
+
+        completionCondition.lock()
+        pendingDecodeCompletionCount += 1
+        completionCondition.unlock()
+
+        Thread.detachNewThread { [weak self] in
+            guard let self else { return }
+            Thread.sleep(forTimeInterval: delaySeconds)
+            self.finishScheduledDecodeCompletion()
+        }
+    }
+
+    func waitForPendingDecodeCompletion() {
+        completionCondition.lock()
+        while pendingDecodeCompletionCount > 0 {
+            completionCondition.wait()
+        }
+        completionCondition.unlock()
+    }
+
+    private func finishScheduledDecodeCompletion() {
+        completionCondition.lock()
+        pendingDecodeCompletionCount = max(pendingDecodeCompletionCount - 1, 0)
+        if pendingDecodeCompletionCount == 0 {
+            completionCondition.broadcast()
+        }
+        completionCondition.unlock()
     }
 
     func resetForNewSequence() {

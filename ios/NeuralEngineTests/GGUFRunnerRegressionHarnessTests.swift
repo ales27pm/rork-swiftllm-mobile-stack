@@ -37,6 +37,62 @@ struct GGUFRunnerRegressionHarnessTests {
         #expect(runner.currentState == .idle)
     }
 
+    @Test func unloadWaitsForOutstandingSyntheticBackendCompletion_afterGenerationStops() async {
+        let runner = LlamaModelRunner()
+        runner.installSyntheticModelForTesting(
+            configuration: LlamaSyntheticTestingConfiguration(
+                plannedTokens: [5, 0],
+                eogTokens: [0],
+                tokenPieces: [5: "A"],
+                decodeCompletionDelaySeconds: 0.35,
+                vocabSize: 16
+            )
+        )
+
+        let generationResult: Result<LlamaGenerationResult, Error> = await Task.detached(priority: .userInitiated) {
+            do {
+                let result = try runner.generate(
+                    prompt: "z",
+                    maxTokens: 4,
+                    temperature: 0.7,
+                    topK: 8,
+                    topP: 1.0,
+                    repetitionPenalty: 1.0,
+                    onToken: { _ in },
+                    shouldStop: { false }
+                )
+                return .success(result)
+            } catch {
+                return .failure(error)
+            }
+        }.value
+
+        switch generationResult {
+        case .success:
+            #expect(true)
+        case .failure(let error):
+            Issue.record("Expected successful generation before unload, got \(error.localizedDescription)")
+            return
+        }
+
+        let pendingCompletion = await waitUntil(timeout: .seconds(2)) {
+            runner.isSyntheticBackendCompletionPendingForTesting()
+        }
+        #expect(pendingCompletion)
+        guard pendingCompletion else { return }
+
+        let startedAt = Date()
+        await Task.detached(priority: .userInitiated) {
+            runner.unload()
+        }.value
+        let elapsed = Date().timeIntervalSince(startedAt)
+
+        #expect(elapsed >= 0.15)
+        #expect(!runner.isSyntheticBackendCompletionPendingForTesting())
+        #expect(!runner.isLoaded)
+        #expect(runner.currentState == .idle)
+    }
+
     @Test func saveStateDuringActiveDecode_returnsNilInsteadOfTouchingLiveContext() async {
         let runner = LlamaModelRunner()
         runner.installSyntheticModelForTesting(
