@@ -1,8 +1,59 @@
 import Foundation
 
+nonisolated enum PromptBudget: Sendable {
+    case full
+    case compact
+    case minimal
+
+    var injectionTokenBudget: Int {
+        switch self {
+        case .full: return 2000
+        case .compact: return 800
+        case .minimal: return 200
+        }
+    }
+
+    var maxInjections: Int {
+        switch self {
+        case .full: return 10
+        case .compact: return 4
+        case .minimal: return 2
+        }
+    }
+
+    var includeReasoning: Bool {
+        switch self {
+        case .full, .compact: return true
+        case .minimal: return false
+        }
+    }
+
+    var includeConversationSummary: Bool {
+        switch self {
+        case .full: return true
+        case .compact, .minimal: return false
+        }
+    }
+
+    var includeToolStrategy: Bool {
+        switch self {
+        case .full, .compact: return true
+        case .minimal: return false
+        }
+    }
+}
+
 struct ContextAssembler {
     private static let injectionTokenBudget = 2000
     private static let conversationSummaryThreshold = 12
+
+    static func budgetForMode(_ mode: RuntimeMode) -> PromptBudget {
+        switch mode {
+        case .maxPerformance: return .full
+        case .balanced: return .compact
+        case .coolDown, .emergency: return .minimal
+        }
+    }
 
     static func assembleSystemPrompt(
         frame: CognitionFrame,
@@ -11,12 +62,16 @@ struct ContextAssembler {
         toolsEnabled: Bool,
         isVoiceMode: Bool,
         preferredResponseLanguageCode: String?,
-        detectedRecognitionLanguageCode: String? = nil
+        detectedRecognitionLanguageCode: String? = nil,
+        budget: PromptBudget = .full
     ) -> String {
         var sections: [String] = []
 
         sections.append(buildCoreIdentity())
-        sections.append(buildToolStrategy())
+
+        if budget.includeToolStrategy {
+            sections.append(buildToolStrategy())
+        }
 
         let memorySection = buildMemorySection(memoryResults: memoryResults)
         if !memorySection.isEmpty { sections.append(memorySection) }
@@ -24,13 +79,15 @@ struct ContextAssembler {
         let cognitiveState = buildCognitiveStateSummary(frame: frame)
         sections.append(cognitiveState)
 
-        let cognitionInjections = buildCognitionInjections(frame: frame)
+        let cognitionInjections = buildCognitionInjections(frame: frame, budget: budget)
         if !cognitionInjections.isEmpty { sections.append(cognitionInjections) }
 
-        let reasoningSection = buildReasoningSection(frame: frame)
-        if !reasoningSection.isEmpty { sections.append(reasoningSection) }
+        if budget.includeReasoning {
+            let reasoningSection = buildReasoningSection(frame: frame)
+            if !reasoningSection.isEmpty { sections.append(reasoningSection) }
+        }
 
-        if conversationHistory.count > conversationSummaryThreshold {
+        if budget.includeConversationSummary && conversationHistory.count > conversationSummaryThreshold {
             let summary = buildConversationSummary(history: conversationHistory)
             if !summary.isEmpty { sections.append(summary) }
         }
@@ -38,7 +95,7 @@ struct ContextAssembler {
         let userLocationOverride = buildUserProvidedLocationOverride(history: conversationHistory)
         if !userLocationOverride.isEmpty { sections.append(userLocationOverride) }
 
-        if toolsEnabled {
+        if toolsEnabled && budget.includeToolStrategy {
             sections.append(ToolExecutor.buildToolsPrompt())
         }
 
@@ -180,17 +237,23 @@ struct ContextAssembler {
         return parts.joined(separator: "\n")
     }
 
-    private static func buildCognitionInjections(frame: CognitionFrame) -> String {
+    private static func buildCognitionInjections(frame: CognitionFrame, budget: PromptBudget = .full) -> String {
         guard !frame.injections.isEmpty else { return "" }
+
+        let tokenBudget = budget.injectionTokenBudget
+        let maxCount = budget.maxInjections
 
         var parts: [String] = ["[Cognitive Guidance]"]
         var tokenCount = 0
+        var injectionCount = 0
 
         for injection in frame.injections {
-            guard tokenCount + injection.estimatedTokens <= injectionTokenBudget else { break }
+            guard injectionCount < maxCount else { break }
+            guard tokenCount + injection.estimatedTokens <= tokenBudget else { break }
             guard !injection.content.isEmpty else { continue }
             parts.append("[\(injection.type.rawValue)] \(injection.content)")
             tokenCount += injection.estimatedTokens
+            injectionCount += 1
         }
 
         return parts.count > 1 ? parts.joined(separator: "\n") : ""

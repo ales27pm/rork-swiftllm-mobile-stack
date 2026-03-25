@@ -334,6 +334,23 @@ class ChatViewModel {
         }
     }
 
+    private var lastPromptBudget: PromptBudget = .full
+    private var fallbackRetryCount: Int = 0
+    private let maxFallbackRetries: Int = 2
+
+    private func promptBudgetForCurrentState() -> PromptBudget {
+        let modeBudget = ContextAssembler.budgetForMode(thermalGovernor.currentMode)
+        if fallbackRetryCount == 1 {
+            switch modeBudget {
+            case .full: return .compact
+            case .compact, .minimal: return .minimal
+            }
+        } else if fallbackRetryCount >= 2 {
+            return .minimal
+        }
+        return modeBudget
+    }
+
     private func generateResponse(userText: String, toolContext: [[String: String]] = [], toolIteration: Int) {
         let assistantMessage = Message(role: .assistant, content: "", isStreaming: true)
         messages.append(assistantMessage)
@@ -354,13 +371,17 @@ class ChatViewModel {
         let associativeResults = memoryService.getAssociativeMemories(query: userText, directResults: memoryResults)
         let allMemoryResults = memoryResults + associativeResults
 
+        let budget = promptBudgetForCurrentState()
+        lastPromptBudget = budget
+
         let enrichedSystemPrompt = ContextAssembler.assembleSystemPrompt(
             frame: frame,
             memoryResults: allMemoryResults,
             conversationHistory: messages,
             toolsEnabled: toolsEnabled,
             isVoiceMode: isVoiceMode,
-            preferredResponseLanguageCode: isVoiceMode ? speechLanguageCode : nil
+            preferredResponseLanguageCode: isVoiceMode ? speechLanguageCode : nil,
+            budget: budget
         )
 
         var chatMessages: [[String: String]] = [
@@ -392,11 +413,20 @@ class ChatViewModel {
                 let fullContent = self.messages[assistantIndex].content
 
                 if fullContent.isEmpty && metrics.totalTokens == 0 {
+                    if self.fallbackRetryCount < self.maxFallbackRetries {
+                        self.fallbackRetryCount += 1
+                        self.messages.remove(at: assistantIndex)
+                        self.statusMessage = "Retrying with lighter prompt..."
+                        self.generateResponse(userText: userText, toolContext: toolContext, toolIteration: toolIteration)
+                        return
+                    }
+
+                    self.fallbackRetryCount = 0
                     let wrapped = WrappedError(
                         domain: .inference,
                         severity: .warning,
                         userMessage: "No response generated. Reloading model...",
-                        technicalDetail: "0 tokens generated, duration=\(metrics.totalDuration)s",
+                        technicalDetail: "0 tokens after \(self.maxFallbackRetries) budget reductions, duration=\(metrics.totalDuration)s",
                         recoveryAction: .reloadModel
                     )
                     self.lastError = wrapped
@@ -404,7 +434,10 @@ class ChatViewModel {
                         guard let self else { return }
                         await self.autoReloadModel()
                     }
+                    return
                 }
+
+                self.fallbackRetryCount = 0
 
                 if self.toolsEnabled && ToolCallParser.containsToolCall(fullContent) {
                     self.statusMessage = "Executing tools..."
