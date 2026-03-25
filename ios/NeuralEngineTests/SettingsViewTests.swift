@@ -25,9 +25,29 @@ struct SettingsViewTests {
         #expect(rebuilt.samplerSeed == nil)
     }
 
-    @Test func toolCategoriesExposeExpectedSections() {
-        #expect(SettingsToolCategory.defaults.count == 8)
-        #expect(SettingsToolCategory.defaults.map(\.title).contains("Location & Maps"))
-        #expect(SettingsToolCategory.defaults.map(\.title).contains("Sharing & Messaging"))
+    @Test func samplingDraftResetRestoresDefaults() {
+        var draft = SamplingDraft(
+            temperature: 1.6,
+            topK: 90,
+            topP: 0.5,
+            repetitionPenalty: 1.8,
+            maxTokens: 1024
+        )
+
+        draft.resetToDefaults()
+
+        #expect(draft == SamplingDraft.defaults)
+        #expect(draft.makeConfig().temperature == SamplingConfig().temperature)
+        #expect(draft.makeConfig().topK == SamplingConfig().topK)
+        #expect(draft.makeConfig().topP == SamplingConfig().topP)
+        #expect(draft.makeConfig().repetitionPenalty == SamplingConfig().repetitionPenalty)
+        #expect(draft.makeConfig().maxTokens == SamplingConfig().maxTokens)
+    }
+
+    @Test func settingsDestinationsRemainHashable() {
+        let destinations: Set<SettingsDestination> = [.personas, .customPrompt, .models, .weather, .diagnostics]
+
+        #expect(destinations.count == 5)
+        #expect(destinations.contains(.diagnostics))
     }
 }

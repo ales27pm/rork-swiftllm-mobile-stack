@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import UIKit
 
 struct SettingsView: View {
     @Bindable var chatViewModel: ChatViewModel
@@ -15,205 +16,96 @@ struct SettingsView: View {
     var memoryService: MemoryService?
     var conversationService: ConversationService?
 
-    @State private var draftSampling = SamplingDraft()
+    @State private var samplingDraft: SamplingDraft = .defaults
     @State private var hfToken: String = ""
-    @State private var isTokenVisible = false
+    @State private var isTokenVisible: Bool = false
     @State private var tokenSaveState: TokenSaveState = .idle
     @State private var selectedSpeechLanguageCode: String?
     @State private var selectedSpeechVoiceIdentifier: String?
+    @State private var isAdvancedSamplingExpanded: Bool = false
+    @State private var modelManagerViewModel: ModelManagerViewModel?
+    @State private var didLoadSettings: Bool = false
+    @State private var showsResetConfirmation: Bool = false
 
     private let secureStore = SecureStore()
     private let hfTokenKey = "hf_api_token"
 
     var body: some View {
         Form {
-            overviewSection
-            modelBehaviorSection
-            systemPromptSection
-            toolsSection
-            weatherSection
-            speechSection
-            accessSection
-            runtimeSection
-            engineSection
-            diagnosticsSection
+            assistantSection
+            voiceSection
+            generationSection
+
+            if modelLoader != nil {
+                modelsSection
+            }
+
+            privacySection
+            supportSection
         }
         .navigationTitle(AppStrings.settingsTitle)
         .navigationBarTitleDisplayMode(.large)
-        .onAppear(perform: loadConfig)
+        .navigationDestination(for: SettingsDestination.self) { destination in
+            destinationView(for: destination)
+        }
+        .task {
+            loadSettings()
+        }
+        .onChange(of: samplingDraft) { _, _ in
+            guard didLoadSettings else { return }
+            applySamplingChanges()
+        }
+        .onChange(of: selectedSpeechLanguageCode) { _, newValue in
+            guard didLoadSettings else { return }
+            speechViewModel.updateSpeechLanguage(code: newValue)
+            selectedSpeechLanguageCode = speechViewModel.selectedSpeechLanguageCode
+            selectedSpeechVoiceIdentifier = speechViewModel.selectedSpeechVoiceIdentifier
+        }
+        .onChange(of: selectedSpeechVoiceIdentifier) { oldValue, newValue in
+            guard didLoadSettings, oldValue != newValue else { return }
+            speechViewModel.updateSpeechVoice(identifier: newValue)
+            selectedSpeechVoiceIdentifier = speechViewModel.selectedSpeechVoiceIdentifier
+        }
         .onChange(of: chatViewModel.systemPrompt) { _, _ in
+            guard didLoadSettings else { return }
             chatViewModel.saveSettings()
         }
-    }
-
-    private func loadConfig() {
-        draftSampling = SamplingDraft(config: chatViewModel.samplingConfig)
-        hfToken = secureStore.getString(hfTokenKey) ?? ""
-        selectedSpeechLanguageCode = speechViewModel.selectedSpeechLanguageCode
-        selectedSpeechVoiceIdentifier = speechViewModel.selectedSpeechVoiceIdentifier
-    }
-
-    private func applySamplingChanges() {
-        chatViewModel.samplingConfig = draftSampling.makeConfig()
-        chatViewModel.saveSettings()
-    }
-
-    private func saveToken() {
-        let trimmedToken = hfToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        let didPersist: Bool
-
-        if trimmedToken.isEmpty {
-            secureStore.delete(hfTokenKey)
-            hfToken = ""
-            didPersist = true
-        } else {
-            didPersist = secureStore.setString(trimmedToken, forKey: hfTokenKey)
-            if didPersist {
-                hfToken = trimmedToken
-            }
+        .onChange(of: hfToken) { oldValue, newValue in
+            guard oldValue != newValue, tokenSaveState != .idle else { return }
+            tokenSaveState = .idle
         }
-
-        tokenSaveState = didPersist ? .saved : .failed
-
-        guard didPersist else { return }
-
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            if tokenSaveState == .saved {
-                tokenSaveState = .idle
+        .alert("Reset Assistant Settings", isPresented: $showsResetConfirmation) {
+            Button("Reset", role: .destructive) {
+                resetAssistantSettings()
             }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This resets assistant persona, custom instructions, tool calling, generation tuning, and voice preferences to their defaults.")
         }
     }
 
-    private var overviewSection: some View {
+    private var assistantSection: some View {
         Section {
-            statusRow(
-                title: "Runtime Mode",
-                subtitle: runtimeSummaryText,
-                icon: thermalGovernor.currentMode.icon,
-                tint: runtimeAccentColor
-            )
-
-            statusRow(
-                title: "Speech",
-                subtitle: speechSummaryText,
-                icon: "waveform",
-                tint: .blue
-            )
-
-            statusRow(
-                title: "Tools",
-                subtitle: chatViewModel.toolsEnabled ? "Device capabilities are available during chat." : "Tool calling is disabled for generation.",
-                icon: chatViewModel.toolsEnabled ? "hammer.fill" : "hammer",
-                tint: chatViewModel.toolsEnabled ? .orange : .secondary
-            )
-        } header: {
-            Label("Overview", systemImage: "slider.horizontal.below.rectangle")
-        } footer: {
-            Text("Review the current assistant configuration before changing generation, speech, or device access behavior.")
-        }
-    }
-
-    private var modelBehaviorSection: some View {
-        Section {
-            samplingControl(
-                title: AppStrings.temperature,
-                description: "Balances determinism versus creativity.",
-                value: $draftSampling.temperature,
-                range: 0...2,
-                step: 0.05,
-                format: "%.2f"
-            )
-            samplingControl(
-                title: AppStrings.topK,
-                description: "Limits the number of tokens considered at each step.",
-                value: $draftSampling.topK,
-                range: 1...100,
-                step: 1,
-                format: "%.0f"
-            )
-            samplingControl(
-                title: AppStrings.topP,
-                description: "Narrows token selection using cumulative probability.",
-                value: $draftSampling.topP,
-                range: 0...1,
-                step: 0.05,
-                format: "%.2f"
-            )
-            samplingControl(
-                title: AppStrings.repetitionPenalty,
-                description: "Discourages repeated phrasing across long outputs.",
-                value: $draftSampling.repetitionPenalty,
-                range: 1...2,
-                step: 0.05,
-                format: "%.2f"
-            )
-            samplingControl(
-                title: AppStrings.maxTokens,
-                description: "Caps the maximum assistant response length.",
-                value: $draftSampling.maxTokens,
-                range: 128...8192,
-                step: 128,
-                format: "%.0f"
-            )
-        } header: {
-            Label("Model Behavior", systemImage: "dial.high")
-        } footer: {
-            Text(AppStrings.samplingFooter)
-        }
-    }
-
-    private func samplingControl(
-        title: String,
-        description: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        step: Double,
-        format: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.headline)
-                    Text(description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Text(String(format: format, value.wrappedValue))
-                    .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.secondary)
+            NavigationLink(value: SettingsDestination.personas) {
+                navigationRow(
+                    title: "Assistant Persona",
+                    subtitle: activePersonaDescription,
+                    systemImage: activePersonaIcon,
+                    tint: activePersonaTint,
+                    value: activePersonaName
+                )
             }
 
-            Slider(value: value, in: range, step: step) { _ in
-                applySamplingChanges()
+            NavigationLink(value: SettingsDestination.customPrompt) {
+                navigationRow(
+                    title: "Custom Instructions",
+                    subtitle: customPromptSummary,
+                    systemImage: "text.quote",
+                    tint: .purple,
+                    value: isUsingDefaultPrompt ? "Default" : "Customized"
+                )
             }
-        }
-        .padding(.vertical, 4)
-    }
 
-    private var systemPromptSection: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Assistant Instructions")
-                    .font(.headline)
-                Text("This prompt is prepended to every conversation and shapes the assistant’s voice, safety, and priorities.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextEditor(text: $chatViewModel.systemPrompt)
-                    .font(.subheadline)
-                    .frame(minHeight: 140)
-            }
-        } header: {
-            Label(AppStrings.systemPromptTitle, systemImage: "text.quote")
-        } footer: {
-            Text(AppStrings.systemPromptFooter)
-        }
-    }
-
-    private var toolsSection: some View {
-        Section {
             Toggle(isOn: Binding(
                 get: { chatViewModel.toolsEnabled },
                 set: {
@@ -223,62 +115,19 @@ struct SettingsView: View {
             )) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Device Tool Calling")
-                    Text("Allow the assistant to use on-device capabilities when a conversation requires them.")
+                    Text("Allow the assistant to use on-device capabilities like location, calendar, contacts, camera, notifications, and sharing when a request needs them.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
-
-            if chatViewModel.toolsEnabled {
-                ForEach(SettingsToolCategory.defaults) { category in
-                    HStack(spacing: 12) {
-                        Image(systemName: category.icon)
-                            .foregroundStyle(.orange)
-                            .frame(width: 22)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(category.title)
-                            Text(category.description)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
         } header: {
-            Label("Tools", systemImage: "hammer.fill")
+            Text("Assistant")
         } footer: {
-            Text("Disable tool calling when you want pure text-only inference without using device integrations.")
+            Text("Keep frequently changed assistant behavior here. Use the iOS Settings app for permission grants.")
         }
     }
 
-    private var weatherSection: some View {
-        Section {
-            NavigationLink {
-                WeatherView()
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "cloud.sun.fill")
-                        .foregroundStyle(.blue)
-                        .frame(width: 24)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Local Weather")
-                            .font(.headline)
-                        Text("View current conditions and forecasts powered by Apple Weather.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
-            }
-        } header: {
-            Label("Weather", systemImage: "cloud.sun")
-        } footer: {
-            Text("Weather data is fetched with WeatherKit and uses your device location when permission is available.")
-        }
-    }
-
-    private var speechSection: some View {
+    private var voiceSection: some View {
         Section {
             Toggle(isOn: Binding(
                 get: { speechViewModel.isAutoListenEnabled },
@@ -286,13 +135,13 @@ struct SettingsView: View {
             )) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Auto-Listen")
-                    Text("Resume listening automatically after spoken responses complete.")
+                    Text("Resume listening after spoken replies finish so voice mode can continue hands-free.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            Picker("Speech Language", selection: $selectedSpeechLanguageCode) {
+            Picker("Response Language", selection: $selectedSpeechLanguageCode) {
                 Text("System Default")
                     .tag(Optional<String>.none)
 
@@ -301,13 +150,8 @@ struct SettingsView: View {
                         .tag(Optional(option.code))
                 }
             }
-            .onChange(of: selectedSpeechLanguageCode) { _, newValue in
-                speechViewModel.updateSpeechLanguage(code: newValue)
-                selectedSpeechVoiceIdentifier = nil
-                speechViewModel.updateSpeechVoice(identifier: nil)
-            }
 
-            Picker("Speech Voice", selection: $selectedSpeechVoiceIdentifier) {
+            Picker("Voice", selection: $selectedSpeechVoiceIdentifier) {
                 Text("System Default")
                     .tag(Optional<String>.none)
 
@@ -316,18 +160,126 @@ struct SettingsView: View {
                         .tag(Optional(voice.identifier))
                 }
             }
-            .onChange(of: selectedSpeechVoiceIdentifier) { _, newValue in
-                speechViewModel.updateSpeechVoice(identifier: newValue)
-            }
         } header: {
-            Label("Speech", systemImage: "waveform")
+            Text("Voice")
         } footer: {
-            Text("Language and voice changes apply to speech output, speech recognition input, and voice-mode replies.")
+            Text("Voice selections apply to speech output and help align voice mode responses with your preferred language.")
         }
     }
 
-    private var accessSection: some View {
+    private var generationSection: some View {
         Section {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Temperature")
+                            .font(.headline)
+                        Text("Lower values stay focused. Higher values explore more varied phrasing.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(samplingDraft.temperature.formatted(.number.precision(.fractionLength(2))))
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+
+                Slider(value: $samplingDraft.temperature, in: 0...2, step: 0.05)
+
+                HStack {
+                    Text("Focused")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("Creative")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 4)
+
+            Stepper(value: $samplingDraft.maxTokens, in: 128...8192, step: 128) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Maximum Response Length")
+                    Text("Cap long replies to control latency and memory use.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            LabeledContent("Current Limit") {
+                Text("\(Int(samplingDraft.maxTokens)) tokens")
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+
+            DisclosureGroup("Advanced Sampling", isExpanded: $isAdvancedSamplingExpanded) {
+                VStack(spacing: 18) {
+                    advancedSlider(
+                        title: AppStrings.topK,
+                        description: "Limit how many next-token candidates are considered.",
+                        value: $samplingDraft.topK,
+                        range: 1...100,
+                        step: 1,
+                        fractionDigits: 0
+                    )
+
+                    advancedSlider(
+                        title: AppStrings.topP,
+                        description: "Keep only the most probable candidates until this cumulative threshold is reached.",
+                        value: $samplingDraft.topP,
+                        range: 0.2...1,
+                        step: 0.05,
+                        fractionDigits: 2
+                    )
+
+                    advancedSlider(
+                        title: AppStrings.repetitionPenalty,
+                        description: "Reduce repeated phrases across longer answers.",
+                        value: $samplingDraft.repetitionPenalty,
+                        range: 1...2,
+                        step: 0.05,
+                        fractionDigits: 2
+                    )
+
+                    Button("Reset Generation Controls") {
+                        samplingDraft.resetToDefaults()
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.top, 12)
+            }
+        } header: {
+            Text("Generation")
+        } footer: {
+            Text("Most people only need temperature and maximum response length. Open advanced sampling only when you are tuning model behavior intentionally.")
+        }
+    }
+
+    private var modelsSection: some View {
+        Section {
+            NavigationLink(value: SettingsDestination.models) {
+                navigationRow(
+                    title: "Manage Models",
+                    subtitle: "Switch chat, draft, and embedding models. Download or remove local models.",
+                    systemImage: "square.stack.3d.up",
+                    tint: .indigo,
+                    value: chatModelSummary
+                )
+            }
+
+            LabeledContent("Draft Model") {
+                Text(draftModelSummary)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+            }
+
+            LabeledContent("Embedding Model") {
+                Text(embeddingModelSummary)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+            }
+
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
                     Image(systemName: "key.fill")
@@ -372,151 +324,314 @@ struct SettingsView: View {
                 }
             }
         } header: {
-            Label("Access", systemImage: "server.rack")
+            Text("Models & Downloads")
         } footer: {
-            Text("A Hugging Face token is only required for downloading gated models. Generate one at huggingface.co/settings/tokens.")
+            Text("Use a Hugging Face token only for gated model downloads. It stays in the keychain, not in app defaults.")
         }
     }
 
-    private var runtimeSection: some View {
+    private var privacySection: some View {
         Section {
-            runtimeMetricRow(title: AppStrings.thermalState, value: thermalGovernor.thermalLevel.rawValue, icon: "thermometer.medium", tint: thermalAccentColor)
-            runtimeMetricRow(title: AppStrings.runtimeMode, value: thermalGovernor.currentMode.rawValue, icon: thermalGovernor.currentMode.icon, tint: runtimeAccentColor)
-            runtimeMetricRow(title: AppStrings.maxDraftTokens, value: "\(thermalGovernor.currentMode.maxDraftTokens)", icon: "number", tint: .blue)
-            runtimeMetricRow(title: AppStrings.speculativeDecoding, value: thermalGovernor.currentMode.speculativeEnabled ? AppStrings.enabled : AppStrings.disabled, icon: "bolt.fill", tint: thermalGovernor.currentMode.speculativeEnabled ? .green : .secondary)
-            runtimeMetricRow(title: "Memory Pressure", value: thermalGovernor.memoryPressureLevel.rawValue.capitalized, icon: "memorychip", tint: .purple)
-            runtimeMetricRow(title: "Current Memory", value: String(format: "%.0f MB", thermalGovernor.currentMemoryUsageMB), icon: "internaldrive", tint: .teal)
-        } header: {
-            Label(AppStrings.runtimeTitle, systemImage: "cpu")
-        } footer: {
-            Text("Runtime mode adapts automatically from thermal and memory conditions, so these values are read-only diagnostics.")
-        }
-    }
-
-    private func runtimeMetricRow(title: String, value: String, icon: String, tint: Color) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .foregroundStyle(tint)
-                .frame(width: 22)
-            Text(title)
-            Spacer()
-            Text(value)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.trailing)
-        }
-    }
-
-    private var diagnosticsSection: some View {
-        Section {
-            NavigationLink {
-                DiagnosticsView(
-                    database: database ?? DatabaseService(),
-                    keyValueStore: keyValueStore ?? KeyValueStore(),
-                    secureStore: diagSecureStore ?? SecureStore(),
-                    fileSystem: fileSystem ?? FileSystemService(),
-                    memoryService: memoryService,
-                    conversationService: conversationService,
-                    metricsLogger: metricsLogger ?? MetricsLogger(),
-                    thermalGovernor: thermalGovernor,
-                    modelLoader: modelLoader ?? ModelLoaderService(),
-                    inferenceEngine: inferenceEngine
+            NavigationLink(value: SettingsDestination.weather) {
+                navigationRow(
+                    title: "Location & Weather",
+                    subtitle: "Check weather access and verify that location-based answers have the context they need.",
+                    systemImage: "cloud.sun",
+                    tint: .blue
                 )
+            }
+
+            Button {
+                openAppSettings()
             } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "stethoscope")
-                        .foregroundStyle(.purple)
-                        .frame(width: 24)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Run Diagnostics")
-                            .font(.headline)
-                        Text("Test all subsystems, generate a downloadable report.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
+                actionRow(
+                    title: "Open App Settings",
+                    subtitle: "Manage camera, microphone, speech, notifications, contacts, calendar, and location permissions in iOS Settings.",
+                    systemImage: "gearshape",
+                    tint: .secondary
+                )
+            }
+            .buttonStyle(.plain)
+        } header: {
+            Text("Privacy & Permissions")
+        }
+    }
+
+    private var supportSection: some View {
+        Section {
+            NavigationLink(value: SettingsDestination.diagnostics) {
+                navigationRow(
+                    title: "Run Diagnostics",
+                    subtitle: "Test storage, model loading, memory, speech, and local services when something feels off.",
+                    systemImage: "stethoscope",
+                    tint: .green
+                )
+            }
+
+            Button(role: .destructive) {
+                showsResetConfirmation = true
+            } label: {
+                actionRow(
+                    title: "Reset Assistant Settings",
+                    subtitle: "Restore the app’s assistant behavior and voice preferences to their defaults without deleting models or conversations.",
+                    systemImage: "arrow.counterclockwise",
+                    tint: .red
+                )
             }
         } header: {
-            Label("Diagnostics", systemImage: "waveform.path.ecg")
-        } footer: {
-            Text("Runs exhaustive real tests on every subsystem and produces a shareable log file.")
+            Text("Support")
         }
     }
 
-    private var engineSection: some View {
-        Section {
-            aboutRow(label: "Backends", value: "CoreML + llama.cpp (GGUF)")
-            aboutRow(label: "Architecture", value: "Split Prefill / Decode + Paged KV")
-            aboutRow(label: "KV Cache", value: "Paged Arena (128 tokens / page)")
-            aboutRow(label: "Speculation", value: "Adaptive Draft Length")
-            aboutRow(label: "Prefix Cache", value: "Hash-based (8 entries)")
-        } header: {
-            Label("Engine", systemImage: "gearshape.2")
-        } footer: {
-            Text("These values document the current local inference stack shipping with the app build.")
+    @ViewBuilder
+    private func destinationView(for destination: SettingsDestination) -> some View {
+        switch destination {
+        case .personas:
+            SystemPromptTemplatesView(chatViewModel: chatViewModel)
+        case .customPrompt:
+            CustomPromptEditor(chatViewModel: chatViewModel)
+        case .models:
+            if let modelManagerViewModel {
+                ModelManagerView(viewModel: modelManagerViewModel)
+            } else {
+                ContentUnavailableView("Models Unavailable", systemImage: "square.stack.3d.up")
+            }
+        case .weather:
+            WeatherView()
+        case .diagnostics:
+            DiagnosticsView(
+                database: database ?? DatabaseService(),
+                keyValueStore: keyValueStore ?? KeyValueStore(),
+                secureStore: diagSecureStore ?? SecureStore(),
+                fileSystem: fileSystem ?? FileSystemService(),
+                memoryService: memoryService,
+                conversationService: conversationService,
+                metricsLogger: metricsLogger ?? MetricsLogger(),
+                thermalGovernor: thermalGovernor,
+                modelLoader: modelLoader ?? ModelLoaderService(),
+                inferenceEngine: inferenceEngine
+            )
         }
     }
 
-    private func aboutRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-            Spacer()
-            Text(value)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.trailing)
-        }
-    }
-
-    private func statusRow(title: String, subtitle: String, icon: String, tint: Color) -> some View {
+    private func navigationRow(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        tint: Color,
+        value: String? = nil
+    ) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
+            Image(systemName: systemImage)
                 .foregroundStyle(tint)
                 .frame(width: 24)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.headline)
+                    .foregroundStyle(.primary)
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 12)
+
+            if let value {
+                Text(value)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(2)
             }
         }
         .padding(.vertical, 4)
     }
 
-    private var runtimeSummaryText: String {
-        "\(thermalGovernor.currentMode.rawValue) • \(thermalGovernor.thermalLevel.rawValue) thermal • \(thermalGovernor.memoryPressureLevel.rawValue.capitalized) memory"
+    private func actionRow(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        tint: Color
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
     }
 
-    private var speechSummaryText: String {
-        let languageSummary = selectedSpeechLanguageCode ?? "System Default"
-        let voiceSummary = selectedSpeechVoiceIdentifier == nil ? "Default Voice" : "Custom Voice"
-        return "\(languageSummary) • \(voiceSummary)"
-    }
+    private func advancedSlider(
+        title: String,
+        description: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        step: Double,
+        fractionDigits: Int
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.headline)
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(value.wrappedValue.formatted(.number.precision(.fractionLength(fractionDigits))))
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
 
-    private var runtimeAccentColor: Color {
-        switch thermalGovernor.currentMode {
-        case .maxPerformance:
-            return .green
-        case .balanced:
-            return .blue
-        case .coolDown:
-            return .orange
-        case .emergency:
-            return .red
+            Slider(value: value, in: range, step: step)
         }
     }
 
-    private var thermalAccentColor: Color {
-        switch thermalGovernor.thermalLevel {
-        case .nominal:
+    private func loadSettings() {
+        samplingDraft = SamplingDraft(config: chatViewModel.samplingConfig)
+        hfToken = secureStore.getString(hfTokenKey) ?? ""
+        selectedSpeechLanguageCode = speechViewModel.selectedSpeechLanguageCode
+        selectedSpeechVoiceIdentifier = speechViewModel.selectedSpeechVoiceIdentifier
+
+        if modelManagerViewModel == nil, let modelLoader {
+            modelManagerViewModel = ModelManagerViewModel(modelLoader: modelLoader)
+        }
+
+        didLoadSettings = true
+    }
+
+    private func applySamplingChanges() {
+        chatViewModel.samplingConfig = samplingDraft.makeConfig()
+        chatViewModel.saveSettings()
+    }
+
+    private func saveToken() {
+        let trimmedToken = hfToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        let didPersist: Bool
+
+        if trimmedToken.isEmpty {
+            secureStore.delete(hfTokenKey)
+            hfToken = ""
+            didPersist = true
+        } else {
+            didPersist = secureStore.setString(trimmedToken, forKey: hfTokenKey)
+            if didPersist {
+                hfToken = trimmedToken
+            }
+        }
+
+        tokenSaveState = didPersist ? .saved : .failed
+
+        guard didPersist else { return }
+
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            if tokenSaveState == .saved {
+                tokenSaveState = .idle
+            }
+        }
+    }
+
+    private func resetAssistantSettings() {
+        didLoadSettings = false
+        samplingDraft.resetToDefaults()
+        chatViewModel.samplingConfig = samplingDraft.makeConfig()
+        chatViewModel.systemPrompt = SystemPromptTemplate.builtIn[0].prompt
+        chatViewModel.toolsEnabled = true
+        speechViewModel.isAutoListenEnabled = true
+        speechViewModel.updateSpeechLanguage(code: nil)
+        speechViewModel.updateSpeechVoice(identifier: nil)
+        selectedSpeechLanguageCode = speechViewModel.selectedSpeechLanguageCode
+        selectedSpeechVoiceIdentifier = speechViewModel.selectedSpeechVoiceIdentifier
+        chatViewModel.saveSettings()
+        didLoadSettings = true
+    }
+
+    private func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
+    }
+
+    private var isUsingDefaultPrompt: Bool {
+        chatViewModel.systemPrompt == SystemPromptTemplate.builtIn[0].prompt
+    }
+
+    private var activePersona: SystemPromptTemplate? {
+        SystemPromptTemplate.builtIn.first { $0.prompt == chatViewModel.systemPrompt }
+    }
+
+    private var activePersonaName: String {
+        activePersona?.name ?? "Custom"
+    }
+
+    private var activePersonaDescription: String {
+        activePersona?.description ?? "A custom prompt is shaping every response."
+    }
+
+    private var activePersonaIcon: String {
+        activePersona?.icon ?? "slider.horizontal.below.rectangle"
+    }
+
+    private var activePersonaTint: Color {
+        color(for: activePersona?.accentColorName)
+    }
+
+    private var customPromptSummary: String {
+        let trimmedPrompt = chatViewModel.systemPrompt
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedPrompt.isEmpty else {
+            return "No custom instructions yet."
+        }
+
+        return String(trimmedPrompt.prefix(90)) + (trimmedPrompt.count > 90 ? "…" : "")
+    }
+
+    private var chatModelSummary: String {
+        guard let modelLoader else { return "None" }
+        return modelSummary(modelLoader.activeModel) ?? "None"
+    }
+
+    private var draftModelSummary: String {
+        guard let modelLoader else { return "Off" }
+        return modelSummary(modelLoader.activeDraftModel) ?? "Off"
+    }
+
+    private var embeddingModelSummary: String {
+        guard let modelLoader else { return "None" }
+        return modelSummary(modelLoader.activeEmbeddingModel) ?? "None"
+    }
+
+    private func modelSummary(_ manifest: ModelManifest?) -> String? {
+        guard let manifest else { return nil }
+        return "\(manifest.name) \(manifest.variant)"
+    }
+
+    private func color(for name: String?) -> Color {
+        switch name {
+        case "green":
             return .green
-        case .fair:
-            return .yellow
-        case .serious:
+        case "purple":
+            return .purple
+        case "orange":
             return .orange
-        case .critical:
+        case "teal":
+            return .teal
+        case "red":
             return .red
+        default:
+            return .blue
         }
     }
 
@@ -539,12 +654,22 @@ struct SettingsView: View {
     }
 }
 
-struct SamplingDraft: Equatable {
+nonisolated enum SettingsDestination: Hashable, Sendable {
+    case personas
+    case customPrompt
+    case models
+    case weather
+    case diagnostics
+}
+
+nonisolated struct SamplingDraft: Equatable, Sendable {
     var temperature: Double
     var topK: Double
     var topP: Double
     var repetitionPenalty: Double
     var maxTokens: Double
+
+    static let defaults: SamplingDraft = .init(config: SamplingConfig())
 
     init(
         temperature: Double = 0.8,
@@ -579,27 +704,13 @@ struct SamplingDraft: Equatable {
             samplerSeed: nil
         )
     }
+
+    mutating func resetToDefaults() {
+        self = Self.defaults
+    }
 }
 
-struct SettingsToolCategory: Identifiable, Equatable {
-    let id: String
-    let title: String
-    let description: String
-    let icon: String
-
-    static let defaults: [SettingsToolCategory] = [
-        .init(id: "location", title: "Location & Maps", description: "Use map lookups, directions, weather, and local context.", icon: "location.fill"),
-        .init(id: "device", title: "Battery & Device", description: "Read battery, device, and environment signals.", icon: "battery.100percent"),
-        .init(id: "calendar", title: "Calendar & Events", description: "Review and create event-related actions.", icon: "calendar"),
-        .init(id: "contacts", title: "Contacts", description: "Reference people and communication targets.", icon: "person.2.fill"),
-        .init(id: "notifications", title: "Notifications", description: "Schedule reminders and alerts when supported.", icon: "bell.fill"),
-        .init(id: "screen", title: "Screen & Haptics", description: "Coordinate visual feedback and haptic responses.", icon: "sun.max.fill"),
-        .init(id: "sharing", title: "Sharing & Messaging", description: "Send content into system share flows.", icon: "square.and.arrow.up"),
-        .init(id: "time", title: "Date & Time", description: "Work with calendars, clocks, and scheduling context.", icon: "clock.fill")
-    ]
-}
-
-enum TokenSaveState: Equatable {
+private enum TokenSaveState: Equatable {
     case idle
     case saved
     case failed
@@ -629,7 +740,7 @@ enum TokenSaveState: Equatable {
     var buttonColor: Color {
         switch self {
         case .idle:
-            return .accentColor
+            return .blue
         case .saved:
             return .green
         case .failed:

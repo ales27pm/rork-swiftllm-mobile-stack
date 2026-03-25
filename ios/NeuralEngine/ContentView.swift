@@ -157,6 +157,7 @@ struct ContentView: View {
         speechViewModel.onSpeechSettingsChanged = { [weak chatVM] voiceIdentifier, languageCode in
             chatVM?.setSpeechSettings(voiceIdentifier: voiceIdentifier, languageCode: languageCode)
         }
+        speechViewModel.configurePersistence(keyValueStore)
 
         _ = speechViewModel.initializeFromPersistedSettings(
             voiceIdentifier: chatVM.speechVoiceIdentifier,

@@ -33,6 +33,10 @@ nonisolated struct SpeechLanguageOption: Identifiable, Hashable, Sendable {
 
 @Observable
 class SpeechViewModel {
+    private enum StorageKeys {
+        static let isAutoListenEnabled: String = "speech_auto_listen_enabled"
+    }
+
     var state: SpeechModeState = .idle
     var displayText: String = ""
     var responseText: String = ""
@@ -41,7 +45,11 @@ class SpeechViewModel {
     var errorMessage: String?
     var lastError: WrappedError?
     var conversationTranscript: [VoiceTranscriptEntry] = []
-    var isAutoListenEnabled: Bool = true
+    var isAutoListenEnabled: Bool = true {
+        didSet {
+            persistAutoListenPreference()
+        }
+    }
     var turnCount: Int = 0
     var sessionDuration: TimeInterval = 0
     var statusMessage: String = "Idle"
@@ -55,6 +63,7 @@ class SpeechViewModel {
     var onSpeechSettingsChanged: ((String?, String?) -> Void)?
 
     private var chatViewModel: ChatViewModel?
+    private var keyValueStore: KeyValueStore?
     private var sessionStartTime: Date?
     private var sessionTimer: Timer?
     private var bargeInMonitor: Timer?
@@ -86,6 +95,11 @@ class SpeechViewModel {
 
     func attach(to chatViewModel: ChatViewModel) {
         self.chatViewModel = chatViewModel
+    }
+
+    func configurePersistence(_ keyValueStore: KeyValueStore) {
+        self.keyValueStore = keyValueStore
+        restorePreferences()
     }
 
     func dismissError() {
@@ -488,6 +502,16 @@ class SpeechViewModel {
         let resolvedSettings = (synthesisService.currentVoiceIdentifier(), resolvedLanguageCode)
         onSpeechSettingsChanged?(resolvedSettings.0, resolvedSettings.1)
         return resolvedSettings
+    }
+
+    private func restorePreferences() {
+        if let persistedAutoListen = keyValueStore?.getBool(StorageKeys.isAutoListenEnabled) {
+            isAutoListenEnabled = persistedAutoListen
+        }
+    }
+
+    private func persistAutoListenPreference() {
+        keyValueStore?.setBool(isAutoListenEnabled, forKey: StorageKeys.isAutoListenEnabled)
     }
 
     @discardableResult
