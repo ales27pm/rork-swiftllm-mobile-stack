@@ -275,10 +275,43 @@ struct LlamaRunnerLifetimeTests {
         runner.resetContext()
         runner.resetState()
         if acquired { runner.releaseGenerationToken() }
-        // Runner should still allow a new token after the reset no-op.
         let again = runner.tryAcquireGenerationToken()
         #expect(again)
         if again { runner.releaseGenerationToken() }
+    }
+
+    @Test("Helpers remain safe while unload is draining")
+    func helpersRemainSafeWhileUnloadDrains() async {
+        let runner = LlamaModelRunner()
+        let acquired = runner.tryAcquireGenerationToken()
+        #expect(acquired)
+
+        let unloadStarted = DispatchSemaphore(value: 0)
+        let unloadFinished = DispatchSemaphore(value: 0)
+
+        Thread.detachNewThread {
+            unloadStarted.signal()
+            runner.unload()
+            unloadFinished.signal()
+        }
+
+        unloadStarted.wait()
+        Thread.sleep(forTimeInterval: 0.05)
+
+        runner.resetContext()
+        runner.resetState()
+        #expect(!runner.isEOG(1))
+
+        let blocked = runner.tryAcquireGenerationToken()
+        #expect(!blocked)
+
+        runner.releaseGenerationToken()
+        let waited = unloadFinished.wait(timeout: .now() + 5)
+        #expect(waited == .success)
+
+        let reacquired = runner.tryAcquireGenerationToken()
+        #expect(reacquired)
+        if reacquired { runner.releaseGenerationToken() }
     }
 
     // MARK: – healthCheck reflects post-unload state correctly

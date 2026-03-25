@@ -35,15 +35,15 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     //     the generation loop so the active generator exits quickly.
     //
     // Invariants:
-    //   • stateCondition is NEVER held while calling any llama_* C function.
     //   • llama_free / llama_model_free are ONLY called after
     //     activeGenerationCount has reached 0.
     //   • pendingUnload is cleared only after the new model is fully loaded
     //     (or after freeNativeResources() for a plain unload).
-    //   • Raw OpaquePointer values NEVER escape a runner instance. All llama_*
-    //     operations read self.context / self.model under the lock, release the
-    //     lock, then use the pointer — safe because the generation token prevents
-    //     llama_free from running concurrently.
+    //   • Long-running decode paths do NOT hold stateCondition while calling
+    //     llama_decode. Short vocabulary/state helpers may run under the lock so
+    //     model/context lifetime cannot change while they touch native state.
+    //   • Raw OpaquePointer values NEVER escape a runner instance. Decode/read
+    //     operations borrow pointers only while a generation token is held.
 
     private let stateCondition = NSCondition()
 
@@ -199,42 +199,39 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// Returns true when `token` is an end-of-generation token according to
     /// self's vocabulary. Safe to call from within the generation loop.
     func isEOG(_ token: Int) -> Bool {
-        stateCondition.lock()
-        let m = model
-        stateCondition.unlock()
-        guard let m, let vocab = llama_model_get_vocab(m) else { return false }
-        return llama_vocab_is_eog(vocab, llama_token(token))
+        withLock {
+            guard let m = model, let vocab = llama_model_get_vocab(m) else { return false }
+            return llama_vocab_is_eog(vocab, llama_token(token))
+        }
     }
 
     /// Convert a token ID to its UTF-8 string piece using self's vocabulary.
     private func tokenPiece(_ token: Int) -> String {
-        stateCondition.lock()
-        let m = model
-        stateCondition.unlock()
-        guard let m, let vocab = llama_model_get_vocab(m) else { return "" }
-        var buffer = [CChar](repeating: 0, count: 256)
-        let count = llama_token_to_piece(vocab, llama_token(token), &buffer, 256, 0, true)
-        guard count > 0 else { return "" }
-        buffer[Int(count)] = 0
-        return String(cString: buffer)
+        withLock {
+            guard let m = model, let vocab = llama_model_get_vocab(m) else { return "" }
+            var buffer = [CChar](repeating: 0, count: 256)
+            let count = llama_token_to_piece(vocab, llama_token(token), &buffer, 256, 0, true)
+            guard count > 0 else { return "" }
+            buffer[Int(count)] = 0
+            return String(cString: buffer)
+        }
     }
 
     /// Tokenize `text` using self's vocabulary.
     /// Returns an empty array when the model is not loaded.
     private func tokenize(_ text: String, addBOS: Bool) -> [Int] {
-        stateCondition.lock()
-        guard let m = model else { stateCondition.unlock(); return [] }
-        guard let vocab = llama_model_get_vocab(m) else { stateCondition.unlock(); return [] }
-        stateCondition.unlock()
-
         let utf8Count = Int32(text.utf8.count)
         let maxTokens = utf8Count + (addBOS ? 1 : 0) + 16
         var tokens = [llama_token](repeating: 0, count: Int(maxTokens))
-        let count = text.withCString { cString in
-            llama_tokenize(vocab, cString, utf8Count, &tokens, maxTokens, addBOS, true)
+
+        return withLock {
+            guard let m = model, let vocab = llama_model_get_vocab(m) else { return [] }
+            let count = text.withCString { cString in
+                llama_tokenize(vocab, cString, utf8Count, &tokens, maxTokens, addBOS, true)
+            }
+            guard count >= 0 else { return [] }
+            return Array(tokens.prefix(Int(count))).map(Int.init)
         }
-        guard count >= 0 else { return [] }
-        return Array(tokens.prefix(Int(count))).map(Int.init)
     }
 
     /// Decode each token and collect the resulting logits.
@@ -563,12 +560,8 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     }
 
     func resetContext() {
-        stateCondition.lock()
-        let generationActive = activeGenerationCount > 0
-        stateCondition.unlock()
-        if generationActive { return }
-
         withLock {
+            guard activeGenerationCount == 0, !pendingUnload else { return }
             guard let ctx = context else {
                 sessionTokenCount = 0
                 tokenHistory.removeAll(keepingCapacity: true)
