@@ -908,8 +908,9 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         resetContext()
     }
 
-    func saveState() -> LlamaSessionSnapshot? {
+    private func saveStateWhileHoldingGenerationToken() -> LlamaSessionSnapshot? {
         withLock {
+            guard activeGenerationCount > 0 else { return nil }
 #if DEBUG
             if let syntheticTestingState, state == .ready || state == .recovering {
                 let data = syntheticTestingState.serializedState()
@@ -956,18 +957,17 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         }
     }
 
-    func restoreFromSnapshot(_ snapshot: LlamaSessionSnapshot) throws {
-        guard snapshot.isValid else {
-            throw LlamaRunnerError.snapshotExpired
-        }
-        try throwIfCancellationPending()
+    func saveState() -> LlamaSessionSnapshot? {
+        guard tryAcquireGenerationToken(reason: "saveState") else { return nil }
+        defer { releaseGenerationToken() }
+        return saveStateWhileHoldingGenerationToken()
+    }
 
-        let currentPath = withLock { lastContextPath }
-        if currentPath != snapshot.modelPath || !isLoaded {
-            try loadModel(at: snapshot.modelPath, nCtx: snapshot.nCtx, nGPULayers: snapshot.nGPULayers)
-        }
-
+    private func restoreStateToCurrentContextWhileHoldingGenerationToken(_ snapshot: LlamaSessionSnapshot) throws {
         try withLock {
+            guard activeGenerationCount > 0 else {
+                throw LlamaRunnerError.generationInProgress
+            }
 #if DEBUG
             if let syntheticTestingState {
                 let restored = syntheticTestingState.restore(from: snapshot.serializedState)
@@ -1006,6 +1006,41 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             consecutiveFailures = 0
             state = .ready
         }
+    }
+
+    func restoreFromSnapshot(_ snapshot: LlamaSessionSnapshot) throws {
+        guard snapshot.isValid else {
+            throw LlamaRunnerError.snapshotExpired
+        }
+        try throwIfCancellationPending()
+
+        guard tryAcquireGenerationToken(reason: "restoreState") else {
+            throw LlamaRunnerError.generationInProgress
+        }
+
+        let needsLoad = withLock { () -> Bool in
+#if DEBUG
+            let hasResidentModel = syntheticTestingState != nil || (model != nil && context != nil)
+#else
+            let hasResidentModel = model != nil && context != nil
+#endif
+            return lastContextPath != snapshot.modelPath || !hasResidentModel
+        }
+
+        if !needsLoad {
+            defer { releaseGenerationToken() }
+            try restoreStateToCurrentContextWhileHoldingGenerationToken(snapshot)
+            return
+        }
+
+        releaseGenerationToken()
+        try loadModel(at: snapshot.modelPath, nCtx: snapshot.nCtx, nGPULayers: snapshot.nGPULayers)
+
+        guard tryAcquireGenerationToken(reason: "restoreState") else {
+            throw LlamaRunnerError.generationInProgress
+        }
+        defer { releaseGenerationToken() }
+        try restoreStateToCurrentContextWhileHoldingGenerationToken(snapshot)
     }
 
     func runZeroTokenProbe() -> ZeroTokenProbeResult {
@@ -1278,7 +1313,8 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         onToken: @escaping (String) -> Void
     ) throws -> SpeculativeStepResult {
         try throwIfCancellationPending(draftRunner)
-        guard let targetSnapshot = saveState(), let draftSnapshot = draftRunner.saveState() else {
+        guard let targetSnapshot = saveStateWhileHoldingGenerationToken(),
+              let draftSnapshot = draftRunner.saveStateWhileHoldingGenerationToken() else {
             return SpeculativeStepResult(
                 committedTokens: [],
                 acceptedCount: 0,
@@ -1346,8 +1382,8 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         }
 
         try throwIfCancellationPending(draftRunner)
-        try restoreFromSnapshot(targetSnapshot)
-        try draftRunner.restoreFromSnapshot(draftSnapshot)
+        try restoreStateToCurrentContextWhileHoldingGenerationToken(targetSnapshot)
+        try draftRunner.restoreStateToCurrentContextWhileHoldingGenerationToken(draftSnapshot)
         try throwIfCancellationPending(draftRunner)
 
         var acceptedTokens: [Int] = []
@@ -1629,6 +1665,7 @@ nonisolated enum LlamaRunnerError: Error, Sendable, LocalizedError {
     case stateRestoreFailed
     case modelEvicted
     case generationCancelled
+    case generationInProgress
 
     var errorDescription: String? {
         switch self {
@@ -1644,6 +1681,7 @@ nonisolated enum LlamaRunnerError: Error, Sendable, LocalizedError {
         case .stateRestoreFailed: return "Failed to restore GGUF state snapshot"
         case .modelEvicted: return "GGUF context became unavailable and requires reload"
         case .generationCancelled: return "GGUF generation was cancelled during a runner transition"
+        case .generationInProgress: return "GGUF runner is busy with an active generation"
         }
     }
 }

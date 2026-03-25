@@ -37,6 +37,78 @@ struct GGUFRunnerRegressionHarnessTests {
         #expect(runner.currentState == .idle)
     }
 
+    @Test func saveStateDuringActiveDecode_returnsNilInsteadOfTouchingLiveContext() async {
+        let runner = LlamaModelRunner()
+        runner.installSyntheticModelForTesting(
+            configuration: LlamaSyntheticTestingConfiguration(
+                plannedTokens: [5, 6, 7, 0],
+                eogTokens: [0],
+                tokenPieces: [5: "A", 6: "B", 7: "C"],
+                decodeDelaySeconds: 0.03,
+                vocabSize: 16
+            )
+        )
+
+        let idleSnapshot = runner.saveState()
+        #expect(idleSnapshot != nil)
+
+        let generationTask = makeGenerationTask(runner: runner, prompt: longPrompt)
+        let enteredDecode = await waitUntil(timeout: .seconds(5)) {
+            runner.isSyntheticDecodeActiveForTesting()
+        }
+        #expect(enteredDecode)
+        guard enteredDecode else { return }
+
+        let snapshotDuringDecode = runner.saveState()
+        #expect(snapshotDuringDecode == nil)
+
+        generationTask.cancel()
+        let generationResult = await generationTask.value
+        #expect(isGenerationCancelled(generationResult))
+    }
+
+    @Test func restoreFromSnapshotDuringActiveDecode_failsFastWithGenerationInProgress() async {
+        let runner = LlamaModelRunner()
+        runner.installSyntheticModelForTesting(
+            configuration: LlamaSyntheticTestingConfiguration(
+                plannedTokens: [8, 9, 10, 0],
+                eogTokens: [0],
+                tokenPieces: [8: "X", 9: "Y", 10: "Z"],
+                decodeDelaySeconds: 0.03,
+                vocabSize: 16
+            )
+        )
+
+        guard let snapshot = runner.saveState() else {
+            Issue.record("Expected idle runner snapshot")
+            return
+        }
+
+        let generationTask = makeGenerationTask(runner: runner, prompt: longPrompt)
+        let enteredDecode = await waitUntil(timeout: .seconds(5)) {
+            runner.isSyntheticDecodeActiveForTesting()
+        }
+        #expect(enteredDecode)
+        guard enteredDecode else { return }
+
+        do {
+            try runner.restoreFromSnapshot(snapshot)
+            Issue.record("restoreFromSnapshot should fail while generation owns the runner")
+        } catch let error as LlamaRunnerError {
+            if case .generationInProgress = error {
+                #expect(true)
+            } else {
+                Issue.record("Unexpected runner error: \(error.localizedDescription)")
+            }
+        } catch {
+            Issue.record("Unexpected error: \(error.localizedDescription)")
+        }
+
+        generationTask.cancel()
+        let generationResult = await generationTask.value
+        #expect(isGenerationCancelled(generationResult))
+    }
+
     @Test func forceReloadDuringActiveDecode_drainsThenReloads() async throws {
         let context = try makeLoaderContext(prefix: "force-reload")
         defer {
@@ -303,6 +375,64 @@ struct GGUFRunnerRegressionHarnessTests {
             await completionRecorder.hasValue
         }
         #expect(completed)
+        #expect(!engine.isGenerating)
+        let metrics = await completionRecorder.value
+        #expect(metrics?.fallbackMode == "generationCancelled")
+    }
+
+    @Test func inferenceEngineCancel_followedByDrain_waitsForExistingGGUFTask() async {
+        let runner = LlamaModelRunner()
+        runner.installSyntheticModelForTesting(
+            configuration: LlamaSyntheticTestingConfiguration(
+                plannedTokens: [4, 5, 6, 0],
+                eogTokens: [0],
+                tokenPieces: [4: "a", 5: "b", 6: "c"],
+                decodeDelaySeconds: 0.12,
+                vocabSize: 16
+            )
+        )
+
+        let engine = InferenceEngine(metricsLogger: MetricsLogger(), thermalGovernor: ThermalGovernor())
+        engine.attachRunner(
+            CoreMLModelRunner(),
+            llamaRunner: runner,
+            draftLlamaRunner: nil,
+            tokenizer: TokenizerService(),
+            format: .gguf
+        )
+
+        let completionRecorder = CompletionRecorder()
+        engine.generate(
+            messages: [["role": "user", "content": longPrompt]],
+            systemPrompt: "",
+            samplingConfig: SamplingConfig(
+                temperature: 0.7,
+                topK: 8,
+                topP: 1.0,
+                repetitionPenalty: 1.0,
+                maxTokens: 16,
+                stopSequences: [],
+                samplerSeed: 17
+            ),
+            onToken: { _ in },
+            onComplete: { metrics in
+                Task {
+                    await completionRecorder.record(metrics)
+                }
+            }
+        )
+
+        let enteredDecode = await waitUntil(timeout: .seconds(5)) {
+            runner.isSyntheticDecodeActiveForTesting()
+        }
+        #expect(enteredDecode)
+        guard enteredDecode else { return }
+
+        engine.cancel(reason: "testCancel")
+        await engine.cancelAndDrain(reason: "followUpDrain")
+
+        #expect(await completionRecorder.hasValue)
+        #expect(!runner.isSyntheticDecodeActiveForTesting())
         #expect(!engine.isGenerating)
         let metrics = await completionRecorder.value
         #expect(metrics?.fallbackMode == "generationCancelled")

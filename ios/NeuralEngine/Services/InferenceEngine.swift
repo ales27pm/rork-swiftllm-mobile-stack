@@ -957,10 +957,8 @@ class InferenceEngine {
         }
         logNotice("Cancellation requested reason=\(reason) format=\(activeFormat.rawValue) hasTask=\(generationTask != nil)")
         generationTask?.cancel()
-        generationTask = nil
         decodeEngine.stop()
         prefillEngine.cancel()
-        isGenerating = false
     }
 
     func cancelAndDrain(reason: String = "drain") async {
