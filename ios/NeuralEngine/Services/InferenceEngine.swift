@@ -32,6 +32,7 @@ class InferenceEngine {
     private var draftLlamaRunner: LlamaModelRunner?
     private var tokenizer: TokenizerService?
     private var activeFormat: ModelFormat = .coreML
+    private var ggufChatTemplateStyle: GGUFChatTemplateStyle = .chatML
 
     private let slidingWindowSize: Int = 1536
     private let evictionThreshold: Int = 1800
@@ -125,13 +126,15 @@ class InferenceEngine {
         llamaRunner: LlamaModelRunner,
         draftLlamaRunner: LlamaModelRunner?,
         tokenizer: TokenizerService,
-        format: ModelFormat
+        format: ModelFormat,
+        ggufChatTemplateStyle: GGUFChatTemplateStyle = .chatML
     ) {
         self.modelRunner = runner
         self.llamaRunner = llamaRunner
         self.draftLlamaRunner = draftLlamaRunner
         self.tokenizer = tokenizer
         self.activeFormat = format
+        self.ggufChatTemplateStyle = ggufChatTemplateStyle
         hasValidatedCurrentSession = false
         activeFallbackMode = "none"
         logNotice("Attached runners format=\(format.rawValue) hasDraftRunner=\(draftLlamaRunner != nil)")
@@ -155,6 +158,10 @@ class InferenceEngine {
 
     func updateFormat(_ format: ModelFormat) {
         self.activeFormat = format
+    }
+
+    func updateGGUFChatTemplateStyle(_ style: GGUFChatTemplateStyle) {
+        self.ggufChatTemplateStyle = style
     }
 
     func setRecoveryHandler(_ handler: @escaping () -> Void) {
@@ -779,7 +786,7 @@ class InferenceEngine {
         metricsLogger.beginGeneration()
         metricsLogger.currentMetrics.zeroTokenProbeLatencyMS = 0
 
-        let prompt = Self.buildChatMLPrompt(messages: messages)
+        let prompt = Self.buildGGUFPrompt(messages: messages, style: ggufChatTemplateStyle)
         let mode = thermalGovernor.currentMode
         var thermalAdjustedConfig = samplingConfig
         let tempBoost = thermalGovernor.adaptiveTemperatureBoost
@@ -1143,6 +1150,79 @@ class InferenceEngine {
             )
         } catch {
             return nil
+        }
+    }
+
+    private static func normalizedGGUFMessages(messages: [[String: String]], style: GGUFChatTemplateStyle) -> [(role: String, content: String)] {
+        var normalized: [(role: String, content: String)] = []
+        var gemmaSystemPreamble: [String] = []
+
+        for message in messages {
+            let rawRole = message["role"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "user"
+            let rawContent = message["content"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !rawContent.isEmpty else { continue }
+
+            switch style {
+            case .gemma2:
+                switch rawRole {
+                case "system":
+                    gemmaSystemPreamble.append(rawContent)
+                case "assistant":
+                    normalized.append((role: "assistant", content: rawContent))
+                case "user":
+                    normalized.append((role: "user", content: rawContent))
+                default:
+                    normalized.append((role: "user", content: "[\(rawRole)]\n\(rawContent)"))
+                }
+            case .chatML, .llama3:
+                let normalizedRole: String
+                switch rawRole {
+                case "system", "user", "assistant":
+                    normalizedRole = rawRole
+                default:
+                    normalizedRole = "user"
+                }
+
+                let normalizedContent = normalizedRole == rawRole
+                    ? rawContent
+                    : "[\(rawRole)]\n\(rawContent)"
+                normalized.append((role: normalizedRole, content: normalizedContent))
+            }
+        }
+
+        if style == .gemma2, !gemmaSystemPreamble.isEmpty {
+            let preamble = gemmaSystemPreamble.joined(separator: "\n\n")
+            if let firstUserIndex = normalized.firstIndex(where: { $0.role == "user" }) {
+                normalized[firstUserIndex].content = preamble + "\n\n" + normalized[firstUserIndex].content
+            } else {
+                normalized.insert((role: "user", content: preamble), at: 0)
+            }
+        }
+
+        return normalized
+    }
+
+    static func buildGGUFPrompt(messages: [[String: String]], style: GGUFChatTemplateStyle) -> String {
+        let normalized = normalizedGGUFMessages(messages: messages, style: style)
+
+        switch style {
+        case .chatML:
+            return buildChatMLPrompt(messages: normalized.map { ["role": $0.role, "content": $0.content] })
+        case .llama3:
+            var result = ""
+            for message in normalized {
+                result += "<|start_header_id|>\(message.role)<|end_header_id|>\n\n\(message.content)<|eot_id|>"
+            }
+            result += "<|start_header_id|>assistant<|end_header_id|>\n\n"
+            return result
+        case .gemma2:
+            var result = ""
+            for message in normalized {
+                let role = message.role == "assistant" ? "model" : "user"
+                result += "<start_of_turn>\(role)\n\(message.content)<end_of_turn>\n"
+            }
+            result += "<start_of_turn>model\n"
+            return result
         }
     }
 

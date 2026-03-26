@@ -13,9 +13,9 @@ class MemoryService {
     var reembeddingProgress: Double = 0
     private var reembeddingTask: Task<Void, Never>?
 
-    init(database: DatabaseService, embeddingLLMService: EmbeddingLLMService = .shared) {
+    init(database: DatabaseService, embeddingLLMService: EmbeddingLLMService? = nil) {
         self.database = database
-        self.embeddingLLMService = embeddingLLMService
+        self.embeddingLLMService = embeddingLLMService ?? .shared
         self.vectorStore = VectorStore(database: database)
         createTables()
         loadMemories()

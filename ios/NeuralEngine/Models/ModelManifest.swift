@@ -51,6 +51,49 @@ nonisolated struct ModelManifest: Identifiable, Sendable, Codable {
     }
 
     var downloadURL: String { "https://huggingface.co/\(repoID)" }
+
+    var draftCompatibilityIdentifier: String {
+        let combined = [id, repoID, tokenizerRepoID ?? "", modelFilePattern]
+            .joined(separator: " ")
+            .lowercased()
+
+        if combined.contains("dolphin3.0-qwen2.5") || (combined.contains("dolphin") && combined.contains("qwen2.5")) {
+            return "dolphin-qwen2.5"
+        }
+
+        if combined.contains("dolphin3.0-llama3.2") || (combined.contains("dolphin") && (combined.contains("llama-3.2") || combined.contains("llama3.2"))) {
+            return "dolphin-llama3.2"
+        }
+
+        if combined.contains("smollm2") {
+            return "smollm2"
+        }
+
+        if combined.contains("qwen2.5") {
+            return "qwen2.5"
+        }
+
+        if combined.contains("llama-3.2") || combined.contains("llama3.2") {
+            return "llama3.2"
+        }
+
+        if combined.contains("gemma-2") || combined.contains("gemma 2") {
+            return "gemma2"
+        }
+
+        return architecture.rawValue
+    }
+
+    var ggufChatTemplateStyle: GGUFChatTemplateStyle {
+        switch draftCompatibilityIdentifier {
+        case "dolphin-llama3.2", "llama3.2":
+            return .llama3
+        case "gemma2":
+            return .gemma2
+        default:
+            return .chatML
+        }
+    }
 }
 
 nonisolated struct ModelRecommendation: Sendable, Codable, Equatable {
@@ -73,6 +116,12 @@ nonisolated enum ModelArchitecture: String, Sendable, Codable {
 nonisolated enum ModelFormat: String, Sendable, Codable {
     case coreML
     case gguf
+}
+
+nonisolated enum GGUFChatTemplateStyle: String, Sendable, Codable {
+    case chatML
+    case llama3
+    case gemma2
 }
 
 nonisolated enum ModelStatus: Sendable, Equatable {

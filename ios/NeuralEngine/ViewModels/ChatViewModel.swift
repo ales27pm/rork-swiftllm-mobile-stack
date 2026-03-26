@@ -68,7 +68,8 @@ class ChatViewModel {
             llamaRunner: modelLoader.llamaRunner,
             draftLlamaRunner: modelLoader.draftLlamaRunner,
             tokenizer: modelLoader.tokenizer,
-            format: modelLoader.activeFormat
+            format: modelLoader.activeFormat,
+            ggufChatTemplateStyle: modelLoader.activeModel?.ggufChatTemplateStyle ?? .chatML
         )
         inferenceEngine.setRecoverableWarningHandler { [weak self] warning in
             guard let self else { return }
@@ -166,7 +167,8 @@ class ChatViewModel {
             llamaRunner: modelLoader.llamaRunner,
             draftLlamaRunner: modelLoader.draftLlamaRunner,
             tokenizer: modelLoader.tokenizer,
-            format: modelLoader.activeFormat
+            format: modelLoader.activeFormat,
+            ggufChatTemplateStyle: manifest.ggufChatTemplateStyle
         )
 
         loadingProgress = 1.0
@@ -621,6 +623,8 @@ class ChatViewModel {
 
     func syncEngineFormat() {
         inferenceEngine.updateFormat(modelLoader.activeFormat)
+        let style = modelLoader.activeModel?.ggufChatTemplateStyle ?? .chatML
+        inferenceEngine.updateGGUFChatTemplateStyle(style)
     }
 
     func saveSettings() {

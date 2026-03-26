@@ -1214,7 +1214,7 @@ class ModelLoaderService {
             manifest.isDraft &&
             manifest.format == .gguf &&
             !manifest.isEmbedding &&
-            manifest.architecture == targetManifest.architecture
+            manifest.draftCompatibilityIdentifier == targetManifest.draftCompatibilityIdentifier
         }
 
         let hasReadyDraft = compatibleDrafts.contains { modelStatuses[$0.id] == .some(.ready) }
@@ -1541,7 +1541,7 @@ class ModelLoaderService {
                 manifest.format == .gguf &&
                 manifest.isDraft &&
                 manifest.id != targetManifest.id &&
-                manifest.architecture == targetManifest.architecture &&
+                manifest.draftCompatibilityIdentifier == targetManifest.draftCompatibilityIdentifier &&
                 modelStatuses[manifest.id] == .ready
             }
             .sorted { lhs, rhs in
