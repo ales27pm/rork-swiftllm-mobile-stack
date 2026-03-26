@@ -38,6 +38,14 @@ class InferenceEngine {
     private let evictionThreshold: Int = 1800
     private let zeroTokenProbeLatencyThresholdMS: Double = 350
 
+    private let stallTimeoutPrefill: TimeInterval = 120
+    private let stallTimeoutDecode: TimeInterval = 30
+    private let degenerateRepeatThreshold: Int = 40
+    private var watchdogTask: Task<Void, Never>?
+    private var lastTokenTimestamp: Date = Date()
+    private var prefillPhaseComplete: Bool = false
+    private var degenerateCharBuffer: [Character] = []
+
     private var recoveryInProgress: Bool = false
     private var hasValidatedCurrentSession: Bool = false
     private var lastProbeLatencyMS: Double = 0
@@ -45,6 +53,7 @@ class InferenceEngine {
     private var activeFallbackMode: String = "none"
     private var onRecoveryNeeded: (() -> Void)?
     private var onRecoverableWarning: ((String) -> Void)?
+    private var lastCancellationReason: String = ""
     private var forceStopObserver: NSObjectProtocol?
     private var thermalEscalationObserver: NSObjectProtocol?
     private var memoryPressureObserver: NSObjectProtocol?
@@ -811,6 +820,12 @@ class InferenceEngine {
             return
         }
 
+        lastTokenTimestamp = Date()
+        prefillPhaseComplete = false
+        degenerateCharBuffer.removeAll()
+        lastCancellationReason = ""
+        startWatchdog(onComplete: onComplete)
+
         generationTask = Task.detached { [weak self] in
             guard let self else { return }
 
@@ -854,6 +869,13 @@ class InferenceEngine {
                     onToken: { token in
                         Task { @MainActor [weak self] in
                             guard let self else { return }
+                            self.lastTokenTimestamp = Date()
+                            self.prefillPhaseComplete = true
+                            if self.detectDegenerateOutput(token) {
+                                self.logNotice("Degenerate output detected — cancelling generation")
+                                self.cancel(reason: "degenerateOutput")
+                                return
+                            }
                             self.currentText += token
                             self.metricsLogger.recordToken()
                             onToken(token)
@@ -867,6 +889,8 @@ class InferenceEngine {
                 self.logNotice("Generation stop format=gguf status=success generatedTokens=\(result.generatedTokenCount) acceptedSpeculative=\(result.acceptedSpeculativeTokens) rejectedSpeculative=\(result.rejectedSpeculativeTokens)")
                 await MainActor.run { [weak self] in
                     guard let self else { return }
+                    self.watchdogTask?.cancel()
+                    self.watchdogTask = nil
                     self.metricsLogger.recordFirstToken()
                     let prefillDuration = Double(result.promptTokenCount) / max(result.prefillTokensPerSecond, 0.001)
                     self.metricsLogger.recordPrefill(tokens: result.promptTokenCount, duration: prefillDuration)
@@ -911,7 +935,12 @@ class InferenceEngine {
                     self.logNotice("Generation stop format=gguf status=cancelled error=\(error.localizedDescription)")
                     await MainActor.run { [weak self] in
                         guard let self else { return }
+                        self.watchdogTask?.cancel()
+                        self.watchdogTask = nil
                         self.isGenerating = false
+                        let cancelFallback = self.lastCancellationReason.contains("watchdogTimeout") || self.lastCancellationReason.contains("degenerateOutput")
+                            ? self.lastCancellationReason
+                            : "generationCancelled"
                         onComplete(GenerationMetrics(
                             timeToFirstToken: 0, prefillTokensPerSecond: 0,
                             decodeTokensPerSecond: 0, totalTokens: 0,
@@ -919,7 +948,7 @@ class InferenceEngine {
                             rejectedSpeculativeTokens: 0,
                             zeroTokenProbeLatencyMS: self.lastProbeLatencyMS,
                             recoveryRetryCount: self.lastRecoveryRetryCount,
-                            fallbackMode: "generationCancelled"
+                            fallbackMode: cancelFallback
                         ))
                     }
                     return
@@ -927,6 +956,8 @@ class InferenceEngine {
                 self.logError("Generation stop format=gguf status=failed error=\(error.localizedDescription)")
                 await MainActor.run { [weak self] in
                     guard let self else { return }
+                    self.watchdogTask?.cancel()
+                    self.watchdogTask = nil
                     self.isGenerating = false
                     onComplete(GenerationMetrics(
                         timeToFirstToken: 0, prefillTokensPerSecond: 0,
@@ -942,6 +973,8 @@ class InferenceEngine {
                 self.logError("Generation stop format=gguf status=failed error=\(error.localizedDescription)")
                 await MainActor.run { [weak self] in
                     guard let self else { return }
+                    self.watchdogTask?.cancel()
+                    self.watchdogTask = nil
                     self.isGenerating = false
                     onComplete(GenerationMetrics(
                         timeToFirstToken: 0, prefillTokensPerSecond: 0,
@@ -957,7 +990,59 @@ class InferenceEngine {
         }
     }
 
+    private func startWatchdog(onComplete: @escaping (GenerationMetrics) -> Void) {
+        watchdogTask?.cancel()
+        watchdogTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard let self, !Task.isCancelled else { return }
+                guard self.isGenerating else { return }
+
+                let elapsed = Date().timeIntervalSince(self.lastTokenTimestamp)
+                let timeout = self.prefillPhaseComplete ? self.stallTimeoutDecode : self.stallTimeoutPrefill
+
+                if elapsed >= timeout {
+                    let phase = self.prefillPhaseComplete ? "decode" : "prefill"
+                    self.logError("Watchdog timeout phase=\(phase) elapsed=\(String(format: "%.1f", elapsed))s threshold=\(Int(timeout))s")
+                    self.cancel(reason: "watchdogTimeout_\(phase)")
+                    self.metricsLogger.recordDiagnostic(DiagnosticEvent(
+                        code: .inferenceThrottled,
+                        message: "Generation stall detected (\(phase) phase, \(Int(elapsed))s without progress). Auto-cancelled.",
+                        severity: .warning,
+                        metadata: ["phase": phase, "elapsedSeconds": String(format: "%.1f", elapsed)]
+                    ))
+                    return
+                }
+            }
+        }
+    }
+
+    private func detectDegenerateOutput(_ token: String) -> Bool {
+        for char in token {
+            degenerateCharBuffer.append(char)
+        }
+        if degenerateCharBuffer.count > degenerateRepeatThreshold * 2 {
+            degenerateCharBuffer.removeFirst(degenerateCharBuffer.count - degenerateRepeatThreshold * 2)
+        }
+        guard degenerateCharBuffer.count >= degenerateRepeatThreshold else { return false }
+        let tail = degenerateCharBuffer.suffix(degenerateRepeatThreshold)
+        let first = tail.first!
+        let allSame = tail.allSatisfy { $0 == first }
+        if allSame {
+            metricsLogger.recordDiagnostic(DiagnosticEvent(
+                code: .inferenceThrottled,
+                message: "Degenerate output detected: '\(first)' repeated \(degenerateRepeatThreshold)+ times",
+                severity: .warning,
+                metadata: ["repeatedChar": String(first), "count": "\(degenerateRepeatThreshold)"]
+            ))
+        }
+        return allSame
+    }
+
     func cancel(reason: String = "user") {
+        lastCancellationReason = reason
+        watchdogTask?.cancel()
+        watchdogTask = nil
         if activeFormat == .gguf {
             llamaRunner?.requestGenerationCancellation(reason: reason)
             draftLlamaRunner?.requestGenerationCancellation(reason: reason)
@@ -969,6 +1054,8 @@ class InferenceEngine {
     }
 
     func cancelAndDrain(reason: String = "drain") async {
+        watchdogTask?.cancel()
+        watchdogTask = nil
         let task = generationTask
         if activeFormat == .gguf {
             llamaRunner?.requestGenerationCancellation(reason: reason)

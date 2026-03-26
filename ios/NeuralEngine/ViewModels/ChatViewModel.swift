@@ -420,6 +420,29 @@ class ChatViewModel {
                     return
                 }
 
+                let isDegenerateOrStall = metrics.fallbackMode.contains("watchdogTimeout") || metrics.fallbackMode.contains("degenerateOutput")
+                if isDegenerateOrStall {
+                    let degenerateContent = self.messages[assistantIndex].content
+                    self.messages.remove(at: assistantIndex)
+                    self.fallbackRetryCount = 0
+                    let detail = degenerateContent.isEmpty
+                        ? "Generation stalled (no tokens produced within timeout)"
+                        : "Degenerate output detected: '\(degenerateContent.prefix(40))...'"
+                    self.lastError = WrappedError(
+                        domain: .inference,
+                        severity: .warning,
+                        userMessage: "Model stalled. Reloading...",
+                        technicalDetail: detail,
+                        recoveryAction: .reloadModel
+                    )
+                    self.statusMessage = "Model stalled. Reloading..."
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        await self.autoReloadModel()
+                    }
+                    return
+                }
+
                 let fullContent = self.messages[assistantIndex].content
 
                 if fullContent.isEmpty && metrics.totalTokens == 0 {
