@@ -13,6 +13,7 @@ The Xcode project now uses configurable build settings:
 
 - `APP_BUNDLE_IDENTIFIER` (default: `com.yourorg.neuralengine`)
 - `DEVELOPMENT_TEAM` is intentionally left blank in project settings
+- Test bundle IDs derive automatically from `APP_BUNDLE_IDENTIFIER` as `.tests` and `.uitests`
 
 This lets you pass your own values from Xcode or `xcodebuild` without editing the project each time.
 
