@@ -1,5 +1,27 @@
 [
   {
+    "id": "apple-foundation-system",
+    "name": "Apple Foundation Model",
+    "variant": "System On-Device (iOS 26+)",
+    "parameterCount": "System",
+    "quantization": "Apple Managed",
+    "sizeBytes": 0,
+    "contextLength": 8192,
+    "architecture": "lfm2",
+    "repoID": "apple/foundation-models",
+    "tokenizerRepoID": null,
+    "modelFilePattern": "builtin://apple-foundation",
+    "isDraft": false,
+    "format": "appleFoundation",
+    "recommendation": {
+      "badge": "Native",
+      "reason": "Uses Apple Foundation Models entirely on-device with streaming output on supported iOS 26+ hardware.",
+      "rank": 0
+    },
+    "isEmbedding": false,
+    "embeddingDimensions": null
+  },
+  {
     "id": "dolphin3-3b-q4-gguf",
     "name": "Dolphin 3.0",
     "variant": "3B Q4 GGUF",

@@ -110,4 +110,14 @@ struct EmbeddingModelManifestTests {
 
         #expect(manifest.embeddingPooling == .mean)
     }
+
+    @Test func modelFormatDecodesAppleFoundation() throws {
+        let payload = #""appleFoundation""#.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(ModelFormat.self, from: payload)
+        #expect(decoded == .appleFoundation)
+    }
+
+    @Test func modelFormatCaseIterableIncludesAppleFoundation() {
+        #expect(ModelFormat.allCases.contains(.appleFoundation))
+    }
 }

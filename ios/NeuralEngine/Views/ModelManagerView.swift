@@ -250,12 +250,12 @@ struct ModelCardView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 
-                        Text(model.format == .gguf ? "GGUF" : "CoreML")
+                        Text(formatLabel)
                             .font(.caption2.bold())
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(model.format == .gguf ? Color.indigo.opacity(0.15) : Color.blue.opacity(0.15))
-                            .foregroundStyle(model.format == .gguf ? .indigo : .blue)
+                            .background(formatChipColor.opacity(0.15))
+                            .foregroundStyle(formatChipColor)
                             .clipShape(Capsule())
                     }
                 }
@@ -319,6 +319,28 @@ struct ModelCardView: View {
         case .dolphin: return .teal
         case .bert: return .mint
         case .lfm2: return .indigo
+        }
+    }
+
+    private var formatLabel: String {
+        switch model.format {
+        case .gguf:
+            return "GGUF"
+        case .coreML:
+            return "CoreML"
+        case .appleFoundation:
+            return "Apple FM"
+        }
+    }
+
+    private var formatChipColor: Color {
+        switch model.format {
+        case .gguf:
+            return .indigo
+        case .coreML:
+            return .blue
+        case .appleFoundation:
+            return .purple
         }
     }
 

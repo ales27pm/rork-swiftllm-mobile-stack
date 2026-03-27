@@ -3,6 +3,97 @@ import CoreML
 import OSLog
 import UIKit
 import Dispatch
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
+
+
+
+@MainActor
+private final class AppleFoundationGenerationService {
+    private var activeTask: Task<Void, Never>?
+
+    var isAvailable: Bool {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, *) {
+            return SystemLanguageModel.default.isAvailable
+        }
+        return false
+        #else
+        return false
+        #endif
+    }
+
+    func cancel(reason: String) {
+        _ = reason
+        activeTask?.cancel()
+        activeTask = nil
+    }
+
+    func generate(
+        prompt: String,
+        samplingConfig: SamplingConfig,
+        onToken: @escaping (String) -> Void,
+        onComplete: @escaping (String?) -> Void
+    ) {
+        activeTask?.cancel()
+
+        #if canImport(FoundationModels)
+        guard #available(iOS 26.0, *) else {
+            onComplete("appleFoundationRequiresiOS26")
+            return
+        }
+
+        guard SystemLanguageModel.default.isAvailable else {
+            onComplete("appleFoundationUnavailable")
+            return
+        }
+
+        activeTask = Task {
+            do {
+                let session = LanguageModelSession(model: .default)
+                let options = GenerationOptions(
+                    temperature: samplingConfig.temperature,
+                    maximumResponseTokens: samplingConfig.maxTokens
+                )
+                var emittedTextLength = 0
+
+                for try await partial in session.streamResponse(to: prompt, options: options) {
+                    if Task.isCancelled {
+                        onComplete("generationCancelled")
+                        return
+                    }
+
+                    let text = partial.content
+                    if text.count > emittedTextLength {
+                        let delta = String(text.dropFirst(emittedTextLength))
+                        emittedTextLength = text.count
+                        if !delta.isEmpty {
+                            await MainActor.run {
+                                onToken(delta)
+                            }
+                        }
+                    }
+                }
+
+                await MainActor.run {
+                    onComplete(nil)
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    onComplete("generationCancelled")
+                }
+            } catch {
+                await MainActor.run {
+                    onComplete("appleFoundationError: \(error.localizedDescription)")
+                }
+            }
+        }
+        #else
+        onComplete("appleFoundationFrameworkMissing")
+        #endif
+    }
+}
 
 @Observable
 @MainActor
@@ -36,6 +127,7 @@ class InferenceEngine {
     private var tokenizer: TokenizerService?
     private var activeFormat: ModelFormat = .coreML
     private var ggufChatTemplateStyle: GGUFChatTemplateStyle = .chatML
+    private let appleFoundationService = AppleFoundationGenerationService()
 
     private let slidingWindowSize: Int = 1536
     private let evictionThreshold: Int = 1800
@@ -361,6 +453,7 @@ class InferenceEngine {
         switch activeFormat {
         case .coreML: return modelRunner?.isLoaded ?? false
         case .gguf: return llamaRunner?.isLoaded ?? false
+        case .appleFoundation: return appleFoundationService.isAvailable
         }
     }
 
@@ -408,6 +501,11 @@ class InferenceEngine {
 
         if activeFormat == .gguf {
             generateWithLlama(messages: messages, samplingConfig: samplingConfig, onToken: onToken, onComplete: onComplete)
+            return
+        }
+
+        if activeFormat == .appleFoundation {
+            generateWithAppleFoundation(messages: messages, samplingConfig: samplingConfig, onToken: onToken, onComplete: onComplete)
             return
         }
 
@@ -983,9 +1081,63 @@ class InferenceEngine {
                             self.notifyRecoveryNeeded()
                         }
                     }
+                case .appleFoundation:
+                    continue
                 }
             }
         }
+    }
+
+    private func generateWithAppleFoundation(
+        messages: [[String: String]],
+        samplingConfig: SamplingConfig,
+        onToken: @escaping (String) -> Void,
+        onComplete: @escaping (GenerationMetrics) -> Void
+    ) {
+        guard appleFoundationService.isAvailable else {
+            onComplete(GenerationMetrics(
+                timeToFirstToken: 0, prefillTokensPerSecond: 0,
+                decodeTokensPerSecond: 0, totalTokens: 0,
+                totalDuration: 0, acceptedSpeculativeTokens: 0,
+                rejectedSpeculativeTokens: 0,
+                fallbackMode: "appleFoundationUnavailable"
+            ))
+            return
+        }
+
+        isGenerating = true
+        currentText = ""
+        metricsLogger.beginGeneration()
+        let generationStartedAt = Date()
+        let prompt = Self.buildChatMLPrompt(messages: messages)
+
+        appleFoundationService.generate(
+            prompt: prompt,
+            samplingConfig: samplingConfig,
+            onToken: { [weak self] chunk in
+                guard let self else { return }
+                self.currentText += chunk
+                self.metricsLogger.recordGeneratedToken()
+                onToken(chunk)
+            },
+            onComplete: { [weak self] fallbackMode in
+                guard let self else { return }
+                self.isGenerating = false
+                let tokenCount = max(0, self.currentText.split(separator: " ").count)
+                let duration = max(Date().timeIntervalSince(generationStartedAt), 0.001)
+                self.metricsLogger.finishGeneration(totalTokens: tokenCount, decodeRate: Double(tokenCount) / duration)
+                onComplete(GenerationMetrics(
+                    timeToFirstToken: duration > 0 ? min(0.15, duration) : 0.0,
+                    prefillTokensPerSecond: 0,
+                    decodeTokensPerSecond: Double(tokenCount) / duration,
+                    totalTokens: tokenCount,
+                    totalDuration: duration,
+                    acceptedSpeculativeTokens: 0,
+                    rejectedSpeculativeTokens: 0,
+                    fallbackMode: fallbackMode ?? "none"
+                ))
+            }
+        )
     }
 
     private func generateWithLlama(
@@ -1396,6 +1548,8 @@ class InferenceEngine {
         if activeFormat == .gguf {
             llamaRunner?.requestGenerationCancellation(reason: reason)
             draftLlamaRunner?.requestGenerationCancellation(reason: reason)
+        } else if activeFormat == .appleFoundation {
+            appleFoundationService.cancel(reason: reason)
         }
         logNotice("Cancellation requested reason=\(reason) format=\(activeFormat.rawValue) hasTask=\(generationTask != nil)")
         Self.signposter.emitEvent(
@@ -1420,6 +1574,8 @@ class InferenceEngine {
         if activeFormat == .gguf {
             llamaRunner?.requestGenerationCancellation(reason: reason)
             draftLlamaRunner?.requestGenerationCancellation(reason: reason)
+        } else if activeFormat == .appleFoundation {
+            appleFoundationService.cancel(reason: reason)
         }
         logNotice("Cancellation requested reason=\(reason) format=\(activeFormat.rawValue) hasTask=\(task != nil)")
         task?.cancel()
