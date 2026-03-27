@@ -1375,6 +1375,8 @@ class InferenceEngine {
         return normalized
     }
 
+    static let lfm25StartOfTextToken: String = "<|startoftext|>"
+
     static func buildGGUFPrompt(messages: [[String: String]], style: GGUFChatTemplateStyle) -> String {
         let normalized = normalizedGGUFMessages(messages: messages, style: style)
 
@@ -1383,7 +1385,7 @@ class InferenceEngine {
             return buildChatMLPrompt(messages: normalized.map { ["role": $0.role, "content": $0.content] })
         case .lfm25:
             let chatMLPrompt = buildChatMLPrompt(messages: normalized.map { ["role": $0.role, "content": $0.content] })
-            return "<|startoftext|>" + chatMLPrompt
+            return lfm25StartOfTextToken + chatMLPrompt
         case .llama3:
             var result = ""
             for message in normalized {

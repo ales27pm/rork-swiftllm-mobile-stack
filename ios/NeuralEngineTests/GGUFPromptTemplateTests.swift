@@ -10,7 +10,8 @@ struct GGUFPromptTemplateTests {
 
         let prompt = InferenceEngine.buildGGUFPrompt(messages: messages, style: .lfm25)
 
-        #expect(prompt.hasPrefix("<|startoftext|><|im_start|>system\nYou are helpful.<|im_end|>\n"))
+        let expectedPrefix = InferenceEngine.lfm25StartOfTextToken + "<|im_start|>system\nYou are helpful.<|im_end|>\n"
+        #expect(prompt.hasPrefix(expectedPrefix))
         #expect(prompt.contains("<|im_start|>user\nSay hi.<|im_end|>\n"))
         #expect(prompt.hasSuffix("<|im_start|>assistant\n"))
     }
