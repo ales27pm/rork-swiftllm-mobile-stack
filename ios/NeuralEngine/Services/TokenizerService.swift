@@ -72,6 +72,9 @@ final class TokenizerService: @unchecked Sendable {
             isRealTokenizer = true
             sourceIdentifier = "hub:\(repoID)"
             detectEOSTokens(loaded)
+            if let realSize = probeVocabularySize(loaded), realSize > 0 {
+                _vocabularySize = realSize
+            }
         }
     }
 
@@ -82,6 +85,9 @@ final class TokenizerService: @unchecked Sendable {
             isRealTokenizer = true
             sourceIdentifier = "dir:\(url.standardizedFileURL.path)"
             detectEOSTokens(loaded)
+            if let realSize = probeVocabularySize(loaded), realSize > 0 {
+                _vocabularySize = realSize
+            }
         }
     }
 
@@ -311,6 +317,20 @@ final class TokenizerService: @unchecked Sendable {
             }
         }
         return result.replacingOccurrences(of: "▁", with: " ")
+    }
+
+    private func probeVocabularySize(_ tok: Tokenizer) -> Int? {
+        var low = 0
+        var high = 256000
+        while low < high {
+            let mid = (low + high) / 2
+            if tok.convertIdToToken(mid) != nil {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low > 0 ? low : nil
     }
 
     private func buildFallbackVocabulary() {

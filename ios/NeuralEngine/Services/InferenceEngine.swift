@@ -606,7 +606,6 @@ class InferenceEngine {
                 fallbackMode: self.activeFallbackMode
             )
 
-            self.isGenerating = false
             onComplete(metrics)
         }
     }
