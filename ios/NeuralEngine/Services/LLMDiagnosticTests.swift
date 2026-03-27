@@ -15,13 +15,16 @@ extension DiagnosticEngine {
             return ("", nil)
         }
 
-        for _ in 0..<100 {
+        for _ in 0..<150 {
             if !ie.isGenerating { break }
             try? await Task.sleep(for: .milliseconds(20))
         }
         if ie.isGenerating {
             await ie.cancelAndDrain(reason: "diagnosticIdleWait")
-            try? await Task.sleep(for: .milliseconds(100))
+        }
+        for _ in 0..<25 {
+            if !ie.isGenerating { break }
+            try? await Task.sleep(for: .milliseconds(20))
         }
         guard !ie.isGenerating else {
             return ("", nil)
@@ -64,9 +67,11 @@ extension DiagnosticEngine {
                 if !ie.isGenerating { break }
                 try? await Task.sleep(for: .milliseconds(20))
             }
+            try? await Task.sleep(for: .milliseconds(50))
             return (generatedText, metricsResult)
         }
 
+        try? await Task.sleep(for: .milliseconds(30))
         return (generatedText.trimmingCharacters(in: .whitespacesAndNewlines), metricsResult)
     }
 
