@@ -37,7 +37,11 @@ nonisolated struct ModelManifest: Identifiable, Sendable, Codable {
         self.recommendation = recommendation
         self.isEmbedding = isEmbedding
         self.embeddingDimensions = embeddingDimensions
-        self.embeddingPooling = embeddingPooling
+        self.embeddingPooling = Self.sanitizeEmbeddingPooling(
+            embeddingPooling,
+            isEmbedding: isEmbedding,
+            manifestID: id
+        )
         self.isCustom = isCustom
     }
 
@@ -65,8 +69,26 @@ nonisolated struct ModelManifest: Identifiable, Sendable, Codable {
         recommendation = try container.decodeIfPresent(ModelRecommendation.self, forKey: .recommendation)
         isEmbedding = try container.decodeIfPresent(Bool.self, forKey: .isEmbedding) ?? false
         embeddingDimensions = try container.decodeIfPresent(Int.self, forKey: .embeddingDimensions)
-        embeddingPooling = try container.decodeIfPresent(EmbeddingPoolingStrategy.self, forKey: .embeddingPooling) ?? .mean
+        let requestedPooling: EmbeddingPoolingStrategy
+        if let rawPooling = try container.decodeIfPresent(String.self, forKey: .embeddingPooling) {
+            requestedPooling = EmbeddingPoolingStrategy(rawValue: rawPooling) ?? .mean
+        } else {
+            requestedPooling = .mean
+        }
+        embeddingPooling = Self.sanitizeEmbeddingPooling(
+            requestedPooling,
+            isEmbedding: isEmbedding,
+            manifestID: id
+        )
         isCustom = try container.decodeIfPresent(Bool.self, forKey: .isCustom) ?? false
+    }
+
+    private static func sanitizeEmbeddingPooling(_ pooling: EmbeddingPoolingStrategy, isEmbedding: Bool, manifestID: String) -> EmbeddingPoolingStrategy {
+        guard !(!isEmbedding && pooling != .mean) else {
+            assertionFailure("Non-embedding manifest '\(manifestID)' cannot use '\(pooling.rawValue)' embedding pooling. Falling back to 'mean'.")
+            return .mean
+        }
+        return pooling
     }
 
     static func customGGUF(repoID: String, fileName: String, name: String, sizeBytes: Int64) -> ModelManifest {
