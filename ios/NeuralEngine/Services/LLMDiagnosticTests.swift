@@ -15,6 +15,14 @@ extension DiagnosticEngine {
             return ("", nil)
         }
 
+        for _ in 0..<50 {
+            if !ie.isGenerating { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        guard !ie.isGenerating else {
+            return ("", nil)
+        }
+
         var generatedText = ""
         var metricsResult: GenerationMetrics?
 
@@ -24,7 +32,6 @@ extension DiagnosticEngine {
                 try? await Task.sleep(for: .seconds(timeoutSeconds))
                 if !resumed {
                     resumed = true
-                    ie.cancel()
                     continuation.resume(returning: false)
                 }
             }
@@ -48,6 +55,8 @@ extension DiagnosticEngine {
         }
 
         if !completed {
+            await ie.cancelAndDrain(reason: "diagnosticTimeout")
+            try? await Task.sleep(for: .milliseconds(50))
             return (generatedText, metricsResult)
         }
 
