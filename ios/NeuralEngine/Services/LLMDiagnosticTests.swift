@@ -15,13 +15,16 @@ extension DiagnosticEngine {
             return ("", nil)
         }
 
-        for _ in 0..<150 {
+        for _ in 0..<250 {
             if !ie.isGenerating { break }
             try? await Task.sleep(for: .milliseconds(20))
         }
         if ie.isGenerating {
             await ie.cancelAndDrain(reason: "diagnosticIdleWait")
-            try? await Task.sleep(for: .milliseconds(50))
+            for _ in 0..<50 {
+                if !ie.isGenerating { break }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
         }
         guard !ie.isGenerating else {
             return ("", nil)
@@ -29,15 +32,23 @@ extension DiagnosticEngine {
 
         var generatedText = ""
         var metricsResult: GenerationMetrics?
+        var timedOut = false
 
-        let completed = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             var resumed = false
             let timeout = Task {
                 try? await Task.sleep(for: .seconds(timeoutSeconds))
                 if !resumed {
                     resumed = true
-                    ie.cancel(reason: "diagnosticTimeout")
-                    continuation.resume(returning: false)
+                    timedOut = true
+                    Task {
+                        await ie.cancelAndDrain(reason: "diagnosticTimeout")
+                        for _ in 0..<50 {
+                            if !ie.isGenerating { break }
+                            try? await Task.sleep(for: .milliseconds(20))
+                        }
+                    }
+                    continuation.resume()
                 }
             }
 
@@ -53,15 +64,17 @@ extension DiagnosticEngine {
                     timeout.cancel()
                     if !resumed {
                         resumed = true
-                        continuation.resume(returning: true)
+                        continuation.resume()
                     }
                 }
             )
         }
 
-        if !completed {
-            await ie.cancelAndDrain(reason: "diagnosticTimeoutDrain")
-            try? await Task.sleep(for: .milliseconds(100))
+        if timedOut {
+            for _ in 0..<100 {
+                if !ie.isGenerating { break }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
             return (generatedText, metricsResult)
         }
 
