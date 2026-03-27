@@ -111,6 +111,7 @@ nonisolated enum ModelArchitecture: String, Sendable, Codable {
     case smolLM = "smollm"
     case dolphin
     case bert
+    case lfm2
 }
 
 nonisolated enum ModelFormat: String, Sendable, Codable {

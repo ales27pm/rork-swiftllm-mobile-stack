@@ -440,6 +440,26 @@
     "embeddingDimensions": null
   },
   {
+    "id": "lfm2.5-1.2b-thinking-q4-gguf",
+    "name": "LFM2.5 Thinking",
+    "variant": "1.2B Q4 GGUF",
+    "parameterCount": "1.2B",
+    "quantization": "Q4_K_M",
+    "sizeBytes": 730896000,
+    "contextLength": 4096,
+    "architecture": "lfm2",
+    "repoID": "mradermacher/Huihui-LFM2.5-1.2B-Thinking-abliterated-GGUF",
+    "tokenizerRepoID": "huihui-ai/Huihui-LFM2.5-1.2B-Thinking-abliterated",
+    "modelFilePattern": "Huihui-LFM2.5-1.2B-Thinking-abliterated.Q4_K_M.gguf",
+    "checksum": "",
+    "tokenizerChecksum": null,
+    "isDraft": false,
+    "format": "gguf",
+    "recommendation": {"badge": "Liquid", "reason": "LiquidAI hybrid architecture — fast prefill and decode with thinking capabilities. Uncensored.", "rank": 3},
+    "isEmbedding": false,
+    "embeddingDimensions": null
+  },
+  {
     "id": "arctic-embed-xs-q8-gguf",
     "name": "Arctic Embed XS",
     "variant": "22M Q8 GGUF",
