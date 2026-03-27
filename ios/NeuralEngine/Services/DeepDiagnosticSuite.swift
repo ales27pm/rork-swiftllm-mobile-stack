@@ -1709,7 +1709,7 @@ extension DiagnosticEngine {
         let hasOutput = !generatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasTokens = metrics.totalTokens > 0
         let reasonable = duration < 60
-        let status: TestStatus = (hasOutput && hasTokens && reasonable) ? .passed : .failed
+        let status: DiagnosticTestStatus = (hasOutput && hasTokens && reasonable) ? .passed : .failed
 
         return TestOutcome(
             status: status,
