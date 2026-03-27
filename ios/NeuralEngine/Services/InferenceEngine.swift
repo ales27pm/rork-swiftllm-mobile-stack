@@ -53,7 +53,7 @@ private final class AppleFoundationGenerationService {
             do {
                 let session = LanguageModelSession(model: .default)
                 let options = GenerationOptions(
-                    temperature: samplingConfig.temperature,
+                    temperature: Double(samplingConfig.temperature),
                     maximumResponseTokens: samplingConfig.maxTokens
                 )
                 var emittedTextLength = 0
@@ -175,28 +175,27 @@ class InferenceEngine {
         return (queueLabel, threadName)
     }
 
-    nonisolated private func createLifecycleSignpost(event: String) -> (id: OSSignpostID, start: ContinuousClock.Instant, identity: (queue: String, thread: String)) {
-        let id = Self.signposter.makeSignpostID()
+    nonisolated private func createLifecycleSignpost(event: String) -> (state: OSSignpostIntervalState, start: ContinuousClock.Instant, identity: (queue: String, thread: String)) {
         let identity = executionIdentity()
         let start = ContinuousClock.now
-        Self.signposter.beginInterval(
+        let state = Self.signposter.beginInterval(
             "SceneLifecycleCallback",
-            id: id,
+            id: .exclusive,
             "event=\(event, privacy: .public) queue=\(identity.queue, privacy: .public) thread=\(identity.thread, privacy: .public)"
         )
-        return (id, start, identity)
+        return (state, start, identity)
     }
 
     nonisolated private func completeLifecycleSignpost(
         event: String,
-        signpost: (id: OSSignpostID, start: ContinuousClock.Instant, identity: (queue: String, thread: String))
+        signpost: (state: OSSignpostIntervalState, start: ContinuousClock.Instant, identity: (queue: String, thread: String))
     ) {
         let duration = signpost.start.duration(to: ContinuousClock.now)
         let elapsedMS = Double(duration.components.seconds) * 1000
             + Double(duration.components.attoseconds) / 1e15
         Self.signposter.endInterval(
             "SceneLifecycleCallback",
-            signpost.id,
+            signpost.state,
             "event=\(event, privacy: .public) elapsedMS=\(elapsedMS, privacy: .public)"
         )
         logNotice("Scene lifecycle callback completed event=\(event) elapsedMS=\(String(format: "%.1f", elapsedMS)) queue=\(signpost.identity.queue) thread=\(signpost.identity.thread)")
@@ -211,23 +210,23 @@ class InferenceEngine {
         contextLength: Int,
         batchSize: Int,
         maxTokens: Int
-    ) -> OSSignpostID {
-        let signpostID = Self.signposter.makeSignpostID()
+    ) -> OSSignpostIntervalState {
+        let signpostID: OSSignpostID = .exclusive
         let identity = executionIdentity()
-        Self.signposter.beginInterval(
+        let signpostState = Self.signposter.beginInterval(
             "InferenceRequest",
             id: signpostID,
             "requestID=\(requestID, privacy: .public) format=\(format.rawValue, privacy: .public) contextLength=\(contextLength, privacy: .public) batchSize=\(batchSize, privacy: .public) maxTokens=\(maxTokens, privacy: .public) queue=\(identity.queue, privacy: .public) thread=\(identity.thread, privacy: .public)"
         )
         logNotice("Inference request start requestID=\(requestID) format=\(format.rawValue) contextLength=\(contextLength) batchSize=\(batchSize) maxTokens=\(maxTokens) queue=\(identity.queue) thread=\(identity.thread)")
-        return signpostID
+        return signpostState
     }
 
-    private func emitInferenceFirstTokenSignpost(requestID: String, signpostID: OSSignpostID) {
+    private func emitInferenceFirstTokenSignpost(requestID: String) {
         let identity = executionIdentity()
         Self.signposter.emitEvent(
             "InferenceFirstToken",
-            id: signpostID,
+            id: .exclusive,
             "requestID=\(requestID, privacy: .public) queue=\(identity.queue, privacy: .public) thread=\(identity.thread, privacy: .public)"
         )
         logNotice("Inference first token requestID=\(requestID) queue=\(identity.queue) thread=\(identity.thread)")
@@ -235,7 +234,7 @@ class InferenceEngine {
 
     private func completeInferenceRequestSignpost(
         requestID: String,
-        signpostID: OSSignpostID,
+        signpostID: OSSignpostIntervalState,
         status: String,
         generatedTokens: Int
     ) {
@@ -281,13 +280,15 @@ class InferenceEngine {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            let newState = notification.userInfo?["newState"] as? Int
-            guard let self,
-                  let newState,
-                  newState >= ProcessInfo.ThermalState.serious.rawValue,
-                  self.isGenerating else { return }
+            Task { @MainActor [weak self] in
+                let newState = notification.userInfo?["newState"] as? Int
+                guard let self,
+                      let newState,
+                      newState >= ProcessInfo.ThermalState.serious.rawValue,
+                      self.isGenerating else { return }
 
-            self.metricsLogger.recordThermalState(self.thermalGovernor.thermalLevel)
+                self.metricsLogger.recordThermalState(self.thermalGovernor.thermalLevel)
+            }
         }
     }
 
@@ -754,7 +755,7 @@ class InferenceEngine {
             self.metricsLogger.recordFirstToken()
             if !emittedFirstTokenSignpost {
                 emittedFirstTokenSignpost = true
-                self.emitInferenceFirstTokenSignpost(requestID: requestID, signpostID: requestSignpostID)
+                self.emitInferenceFirstTokenSignpost(requestID: requestID)
             }
 
             let eosTokens = tokenizer.effectiveEOSTokens
@@ -1117,15 +1118,19 @@ class InferenceEngine {
             onToken: { [weak self] chunk in
                 guard let self else { return }
                 self.currentText += chunk
-                self.metricsLogger.recordGeneratedToken()
+                self.metricsLogger.recordToken()
                 onToken(chunk)
             },
             onComplete: { [weak self] fallbackMode in
                 guard let self else { return }
                 self.isGenerating = false
-                let tokenCount = max(0, self.currentText.split(separator: " ").count)
+                let tokenCount = max(
+                    self.metricsLogger.currentMetrics.totalTokensGenerated,
+                    self.estimatedTokenCount(for: self.currentText)
+                )
                 let duration = max(Date().timeIntervalSince(generationStartedAt), 0.001)
-                self.metricsLogger.finishGeneration(totalTokens: tokenCount, decodeRate: Double(tokenCount) / duration)
+                self.metricsLogger.currentMetrics.decodeTokensPerSecond = Double(tokenCount) / duration
+                self.metricsLogger.endGeneration()
                 onComplete(GenerationMetrics(
                     timeToFirstToken: duration > 0 ? min(0.15, duration) : 0.0,
                     prefillTokensPerSecond: 0,
@@ -1229,6 +1234,7 @@ class InferenceEngine {
                     let recovered = await self.attemptInlineRecovery(runner: llamaRunner, policy: BackoffPolicy.exponential)
                     if !recovered {
                         requestStatus = "failed"
+                        let statusForSignpost = requestStatus
                         await MainActor.run {
                             self.isGenerating = false
                             self.notifyRecoverableWarning("GGUF recovery failed. Please reload the model.")
@@ -1237,7 +1243,7 @@ class InferenceEngine {
                             self.completeInferenceRequestSignpost(
                                 requestID: requestID,
                                 signpostID: requestSignpostID,
-                                status: requestStatus,
+                                status: statusForSignpost,
                                 generatedTokens: self.metricsLogger.currentMetrics.totalTokensGenerated
                             )
                         }
@@ -1273,7 +1279,7 @@ class InferenceEngine {
                             self.currentText += token
                             self.metricsLogger.recordFirstToken()
                             if self.metricsLogger.currentMetrics.totalTokensGenerated == 0 {
-                                self.emitInferenceFirstTokenSignpost(requestID: requestID, signpostID: requestSignpostID)
+                                self.emitInferenceFirstTokenSignpost(requestID: requestID)
                             }
                             self.metricsLogger.recordToken()
                             onToken(token)
@@ -1327,10 +1333,11 @@ class InferenceEngine {
                     )
                     self.isGenerating = false
                     onComplete(metrics)
+                    let statusForSignpost = requestStatus
                     self.completeInferenceRequestSignpost(
                         requestID: requestID,
                         signpostID: requestSignpostID,
-                        status: requestStatus,
+                        status: statusForSignpost,
                         generatedTokens: self.metricsLogger.currentMetrics.totalTokensGenerated
                     )
                 }
@@ -1338,6 +1345,7 @@ class InferenceEngine {
                 if case .generationCancelled = error {
                     self.logNotice("Generation stop format=gguf status=cancelled error=\(error.localizedDescription)")
                     requestStatus = "cancelled"
+                    let statusForSignpost = requestStatus
                     await MainActor.run { [weak self] in
                         guard let self else { return }
                         self.watchdogTask?.cancel()
@@ -1350,7 +1358,7 @@ class InferenceEngine {
                         self.completeInferenceRequestSignpost(
                             requestID: requestID,
                             signpostID: requestSignpostID,
-                            status: requestStatus,
+                            status: statusForSignpost,
                             generatedTokens: self.metricsLogger.currentMetrics.totalTokensGenerated
                         )
                     }
@@ -1358,6 +1366,7 @@ class InferenceEngine {
                 }
                 self.logError("Generation stop format=gguf status=failed error=\(error.localizedDescription)")
                 requestStatus = "failed"
+                let statusForSignpost = requestStatus
                 await MainActor.run { [weak self] in
                     guard let self else { return }
                     self.watchdogTask?.cancel()
@@ -1367,13 +1376,14 @@ class InferenceEngine {
                     self.completeInferenceRequestSignpost(
                         requestID: requestID,
                         signpostID: requestSignpostID,
-                        status: requestStatus,
+                        status: statusForSignpost,
                         generatedTokens: self.metricsLogger.currentMetrics.totalTokensGenerated
                     )
                 }
             } catch {
                 self.logError("Generation stop format=gguf status=failed error=\(error.localizedDescription)")
                 requestStatus = "failed"
+                let statusForSignpost = requestStatus
                 await MainActor.run { [weak self] in
                     guard let self else { return }
                     self.watchdogTask?.cancel()
@@ -1383,7 +1393,7 @@ class InferenceEngine {
                     self.completeInferenceRequestSignpost(
                         requestID: requestID,
                         signpostID: requestSignpostID,
-                        status: requestStatus,
+                        status: statusForSignpost,
                         generatedTokens: self.metricsLogger.currentMetrics.totalTokensGenerated
                     )
                 }
@@ -1555,7 +1565,7 @@ class InferenceEngine {
         Self.signposter.emitEvent(
             "InferenceCancelled",
             id: .exclusive,
-            "reason=\(reason, privacy: .public) format=\(activeFormat.rawValue, privacy: .public)"
+            "reason=\(reason, privacy: .public) format=\(self.activeFormat.rawValue, privacy: .public)"
         )
         generationTask?.cancel()
         decodeEngine.stop()
