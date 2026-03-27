@@ -84,6 +84,12 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     private var prefixSnapshotModelID: String?
     private var prefixSnapshotTokenizerID: String = "unknown-tokenizer"
     private var modelSessionID: UUID = UUID()
+    private let decodeExecutionKey = DispatchSpecificKey<UInt8>()
+    private lazy var decodeExecutionQueue: DispatchQueue = {
+        let queue = DispatchQueue(label: "com.neuralengine.llama.decode", qos: .userInitiated)
+        queue.setSpecific(key: decodeExecutionKey, value: 1)
+        return queue
+    }()
 #if DEBUG
     typealias SyntheticLoadConfigurationProvider = @Sendable (String, Int32, Int32) -> LlamaSyntheticTestingConfiguration?
     private var syntheticTestingState: LlamaSyntheticTestingState?
@@ -108,6 +114,23 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
 
     private func logError(_ message: String) {
         Self.logger.error("\(message, privacy: .public)")
+    }
+
+    private func runOnDecodeQueue<T>(_ work: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: decodeExecutionKey) != nil {
+            return try work()
+        }
+        return try decodeExecutionQueue.sync(execute: work)
+    }
+
+    private func debugGuardDecodeThread(_ operation: String) {
+#if DEBUG
+        if Thread.isMainThread {
+            let message = "Decode thread misuse: \(operation) invoked from main thread"
+            logError(message)
+            assertionFailure(message)
+        }
+#endif
     }
 
     private func ownershipSummaryLocked() -> String {
@@ -360,6 +383,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// Decode a sequence of tokens using self's live context.
     /// Caller must hold a generation token for self.
     private func decode(_ tokens: [Int]) throws {
+        debugGuardDecodeThread("decode")
 #if DEBUG
         if let syntheticState = try withLock({ () throws -> LlamaSyntheticTestingState? in
             try throwIfDecodeDisallowedLocked("decode")
@@ -387,7 +411,10 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             let batch = withUnsafeMutablePointer(to: &mutableToken) { ptr in
                 llama_batch_get_one(ptr, 1)
             }
-            let result = llama_decode(ctx, batch)
+            let result = try runOnDecodeQueue {
+                debugGuardDecodeThread("llama_decode")
+                return llama_decode(ctx, batch)
+            }
             guard result == 0 else { throw LlamaRunnerError.decodeFailed }
         }
     }

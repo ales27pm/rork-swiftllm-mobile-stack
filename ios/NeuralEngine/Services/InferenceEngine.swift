@@ -1,6 +1,7 @@
 import Foundation
 import CoreML
 import OSLog
+import UIKit
 
 @Observable
 @MainActor
@@ -57,6 +58,11 @@ class InferenceEngine {
     private var forceStopObserver: NSObjectProtocol?
     private var thermalEscalationObserver: NSObjectProtocol?
     private var memoryPressureObserver: NSObjectProtocol?
+    private var willResignActiveObserver: NSObjectProtocol?
+    private var didEnterBackgroundObserver: NSObjectProtocol?
+    private var didBecomeActiveObserver: NSObjectProtocol?
+    private let resumeOnDidBecomeActiveDefaultsKey = "inference_resume_on_did_become_active"
+    private var lifecyclePaused: Bool = false
 
     nonisolated private func logNotice(_ message: String) {
         Self.logger.notice("\(message, privacy: .public)")
@@ -79,6 +85,7 @@ class InferenceEngine {
         )
         registerForceStopObserver()
         registerMemoryPressureObserver()
+        registerLifecycleObservers()
     }
 
     private func registerForceStopObserver() {
@@ -128,6 +135,65 @@ class InferenceEngine {
                 ))
             }
         }
+    }
+
+    private func registerLifecycleObservers() {
+        willResignActiveObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleLifecycleSuspend(event: "willResignActive")
+            }
+        }
+
+        didEnterBackgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleLifecycleSuspend(event: "didEnterBackground")
+            }
+        }
+
+        didBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleDidBecomeActive()
+            }
+        }
+    }
+
+    private func handleLifecycleSuspend(event: String) {
+        lifecyclePaused = true
+        guard isGenerating else { return }
+        cancel(reason: "appLifecycle_\(event)")
+    }
+
+    private func handleDidBecomeActive() {
+        if UserDefaults.standard.object(forKey: resumeOnDidBecomeActiveDefaultsKey) == nil {
+            UserDefaults.standard.set(true, forKey: resumeOnDidBecomeActiveDefaultsKey)
+        }
+        let shouldResume = UserDefaults.standard.bool(forKey: resumeOnDidBecomeActiveDefaultsKey)
+        if shouldResume {
+            lifecyclePaused = false
+            logNotice("Lifecycle gate reopened on didBecomeActive")
+        } else {
+            logNotice("Lifecycle gate remains paused on didBecomeActive due to user settings")
+        }
+    }
+
+    private func canStartGenerationForLifecycle() -> Bool {
+        if !lifecyclePaused {
+            return true
+        }
+        let shouldResume = UserDefaults.standard.bool(forKey: resumeOnDidBecomeActiveDefaultsKey)
+        return shouldResume && UIApplication.shared.applicationState == .active
     }
 
     func attachRunner(
@@ -218,6 +284,12 @@ class InferenceEngine {
         onToken: @escaping (String) -> Void,
         onComplete: @escaping (GenerationMetrics) -> Void
     ) {
+        guard canStartGenerationForLifecycle() else {
+            logNotice("Generate rejected reason=lifecyclePaused format=\(activeFormat.rawValue)")
+            onComplete(partialMetrics(since: Date(), fallbackMode: "lifecyclePaused"))
+            return
+        }
+
         guard !isGenerating else {
             logNotice("Generate rejected reason=engineBusy format=\(activeFormat.rawValue)")
             onComplete(busyMetrics())
@@ -1212,6 +1284,18 @@ class InferenceEngine {
         if let observer = memoryPressureObserver {
             NotificationCenter.default.removeObserver(observer)
             memoryPressureObserver = nil
+        }
+        if let observer = willResignActiveObserver {
+            NotificationCenter.default.removeObserver(observer)
+            willResignActiveObserver = nil
+        }
+        if let observer = didEnterBackgroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+            didEnterBackgroundObserver = nil
+        }
+        if let observer = didBecomeActiveObserver {
+            NotificationCenter.default.removeObserver(observer)
+            didBecomeActiveObserver = nil
         }
     }
 
