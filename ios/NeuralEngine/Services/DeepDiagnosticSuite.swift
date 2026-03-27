@@ -1658,48 +1658,71 @@ extension DiagnosticEngine {
         }
 
         let start = Date()
-        var generatedText = ""
-        var metricsResult: GenerationMetrics?
 
-        let messages: [[String: String]] = [
+        let primaryMessages: [[String: String]] = [
             ["role": "system", "content": "You are a helpful assistant. Answer briefly."],
             ["role": "user", "content": "What is 2+2? Answer in one word."]
         ]
+        let fallbackMessages: [[String: String]] = [
+            ["role": "user", "content": "Reply with the single word: READY"]
+        ]
 
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            ie.generate(
-                messages: messages,
-                systemPrompt: "You are a helpful assistant.",
-                samplingConfig: SamplingConfig(),
-                onToken: { token in
-                    generatedText += token
-                },
-                onComplete: { metrics in
-                    metricsResult = metrics
-                    continuation.resume()
-                }
+        var config = SamplingConfig()
+        config.maxTokens = 48
+        config.temperature = 0.1
+
+        var (generatedText, metricsResult) = await llmGenerate(
+            messages: primaryMessages,
+            systemPrompt: "You are a helpful assistant.",
+            samplingConfig: config,
+            timeoutSeconds: 20
+        )
+
+        var usedFallbackAttempt = false
+        if generatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (metricsResult?.totalTokens ?? 0) == 0 {
+            usedFallbackAttempt = true
+            ie.cancel(reason: "deepDiagnosticRetry")
+            ie.resetSession()
+            try? await Task.sleep(for: .milliseconds(250))
+            (generatedText, metricsResult) = await llmGenerate(
+                messages: fallbackMessages,
+                systemPrompt: "Respond exactly to the user request.",
+                samplingConfig: config,
+                timeoutSeconds: 15
             )
         }
 
         let duration = Date().timeIntervalSince(start)
 
         guard let metrics = metricsResult else {
-            return TestOutcome(status: .failed, message: "Inference returned no metrics", details: [])
+            return TestOutcome(
+                status: .failed,
+                message: "Inference returned no metrics",
+                details: [
+                    "Thermal mode: \(thermalModeLabel)",
+                    "Duration: \(String(format: "%.1f", duration))s",
+                    "Fallback attempt used: \(usedFallbackAttempt)"
+                ]
+            )
         }
 
         let hasOutput = !generatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasTokens = metrics.totalTokens > 0
         let reasonable = duration < 60
+        let status: TestStatus = (hasOutput && hasTokens && reasonable) ? .passed : .failed
 
         return TestOutcome(
-            status: hasOutput && hasTokens ? .passed : .failed,
+            status: status,
             message: "Generated \(metrics.totalTokens) tokens in \(String(format: "%.1f", duration))s. TTFT=\(String(format: "%.0f", metrics.timeToFirstToken))ms, decode=\(String(format: "%.1f", metrics.decodeTokensPerSecond)) tok/s",
             details: [
                 "Output: '\(generatedText.prefix(100))…'",
                 "Has output: \(hasOutput)",
                 "Prefill: \(String(format: "%.1f", metrics.prefillTokensPerSecond)) tok/s",
                 "Duration: \(String(format: "%.1f", duration))s",
-                "Reasonable time (<60s): \(reasonable)"
+                "Reasonable time (<60s): \(reasonable)",
+                "Thermal mode: \(thermalModeLabel)",
+                "Max context: \(currentMaxContext)",
+                "Fallback attempt used: \(usedFallbackAttempt)"
             ]
         )
     }

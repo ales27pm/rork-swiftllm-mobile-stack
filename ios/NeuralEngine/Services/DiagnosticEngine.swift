@@ -2117,5 +2117,5 @@ private extension String {
 }
 
 extension ModelFormat: CaseIterable {
-    static var allCases: [ModelFormat] { [.coreML, .gguf, .appleFoundation] }
+    static var allCases: [ModelFormat] { [.appleFoundation] }
 }
