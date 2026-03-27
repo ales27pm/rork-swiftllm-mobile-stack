@@ -740,7 +740,11 @@ class ModelLoaderService {
 
         do {
             embeddingRunner.unload()
-            try embeddingRunner.loadModel(at: modelURL.path, nCtx: Int32(manifest.contextLength))
+            try embeddingRunner.loadModel(
+                at: modelURL.path,
+                nCtx: Int32(manifest.contextLength),
+                pooling: manifest.embeddingPooling
+            )
             activeEmbeddingModelID = modelID
             persistPreferredEmbeddingModelID(modelID)
         } catch {
