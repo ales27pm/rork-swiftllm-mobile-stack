@@ -1,49 +1,15 @@
 import Foundation
 
 struct EmotionAnalyzer {
-    private static let emotionLexicon: [(pattern: String, valence: Double, arousal: Double, label: String)] = [
-        ("happy", 0.8, 0.6, "joy"), ("glad", 0.7, 0.5, "joy"), ("excited", 0.9, 0.9, "excitement"),
-        ("thrilled", 0.9, 0.9, "excitement"), ("love", 0.9, 0.7, "love"), ("adore", 0.9, 0.6, "love"),
-        ("grateful", 0.8, 0.4, "gratitude"), ("thankful", 0.8, 0.4, "gratitude"), ("thanks", 0.7, 0.3, "gratitude"),
-        ("amazing", 0.8, 0.7, "awe"), ("wonderful", 0.8, 0.6, "awe"), ("awesome", 0.8, 0.7, "awe"),
-        ("great", 0.7, 0.5, "joy"), ("good", 0.5, 0.3, "contentment"), ("nice", 0.5, 0.3, "contentment"),
-        ("hopeful", 0.6, 0.4, "hope"), ("optimistic", 0.7, 0.5, "hope"), ("confident", 0.7, 0.5, "confidence"),
-        ("proud", 0.7, 0.6, "pride"), ("relieved", 0.6, 0.2, "relief"), ("calm", 0.5, 0.1, "serenity"),
-        ("peaceful", 0.6, 0.1, "serenity"), ("curious", 0.4, 0.5, "curiosity"), ("interested", 0.4, 0.4, "curiosity"),
-        ("sad", -0.7, 0.3, "sadness"), ("unhappy", -0.6, 0.3, "sadness"), ("depressed", -0.9, 0.2, "sadness"),
-        ("miserable", -0.8, 0.3, "sadness"), ("lonely", -0.6, 0.2, "loneliness"), ("heartbroken", -0.9, 0.5, "grief"),
-        ("angry", -0.7, 0.9, "anger"), ("furious", -0.9, 1.0, "anger"), ("annoyed", -0.5, 0.6, "irritation"),
-        ("frustrated", -0.6, 0.7, "frustration"), ("irritated", -0.5, 0.6, "irritation"), ("mad", -0.7, 0.8, "anger"),
-        ("afraid", -0.6, 0.8, "fear"), ("scared", -0.7, 0.8, "fear"), ("terrified", -0.9, 1.0, "fear"),
-        ("anxious", -0.5, 0.7, "anxiety"), ("worried", -0.5, 0.6, "anxiety"), ("nervous", -0.4, 0.6, "anxiety"),
-        ("stressed", -0.5, 0.7, "stress"), ("overwhelmed", -0.6, 0.8, "stress"), ("burned out", -0.7, 0.3, "exhaustion"),
-        ("confused", -0.3, 0.5, "confusion"), ("lost", -0.4, 0.4, "confusion"), ("stuck", -0.4, 0.5, "frustration"),
-        ("bored", -0.3, 0.1, "boredom"), ("tired", -0.3, 0.1, "fatigue"), ("exhausted", -0.5, 0.1, "fatigue"),
-        ("disappointed", -0.6, 0.4, "disappointment"), ("disgusted", -0.7, 0.6, "disgust"),
-        ("embarrassed", -0.5, 0.6, "embarrassment"), ("ashamed", -0.7, 0.5, "shame"),
-        ("jealous", -0.5, 0.6, "jealousy"), ("guilty", -0.6, 0.4, "guilt"),
-        ("panic", -0.7, 0.9, "fear"), ("panicking", -0.8, 1.0, "fear"), ("panicked", -0.7, 0.8, "fear"),
-        ("desperate", -0.7, 0.8, "stress"), ("hopeless", -0.8, 0.3, "sadness"),
-        ("help", -0.3, 0.6, "need"), ("please", 0.1, 0.3, "politeness"), ("urgent", -0.4, 0.8, "urgency"),
-        ("asap", -0.4, 0.9, "urgency"), ("emergency", -0.6, 1.0, "urgency"),
-        ("need", -0.2, 0.5, "need"), ("struggling", -0.5, 0.6, "frustration"),
-        ("can't", -0.3, 0.5, "frustration"), ("broken", -0.5, 0.5, "sadness"),
-        ("falling apart", -0.8, 0.7, "grief"), ("everything is", -0.1, 0.3, "neutral"),
-    ]
+    private static let emotionLexicon: [(pattern: String, valence: Double, arousal: Double, label: String)] = {
+        guard let entries = ResourceLoader.load([EmotionLexiconEntry].self, from: "emotion_lexicon") else { return [] }
+        return entries.map { ($0.pattern, $0.valence, $0.arousal, $0.label) }
+    }()
 
-    private static let stylePatterns: [(pattern: String, style: String)] = [
-        (#"(?i)\b(therefore|furthermore|consequently|hence|thus|moreover)\b"#, "formal"),
-        (#"(?i)\b(pursuant|hitherto|notwithstanding|aforementioned)\b"#, "formal"),
-        (#"(?i)\b(gonna|wanna|gotta|kinda|sorta|y'all|lol|omg|btw|ngl|fr|bruh)\b"#, "casual"),
-        (#"(?i)[!]{2,}"#, "casual"),
-        (#"(?i)\b(algorithm|function|api|database|server|debug|compile|runtime|stack|heap)\b"#, "technical"),
-        (#"(?i)\b(implement|refactor|optimize|deploy|instantiate|iterate)\b"#, "technical"),
-        (#"(?i)\b(imagine|create|design|brainstorm|inspire|vision|dream)\b"#, "creative"),
-        (#"(?i)\b(story|poem|art|music|creative|novel|paint)\b"#, "creative"),
-        (#"(?i)\b(asap|urgent|immediately|right now|quickly|hurry|deadline)\b"#, "urgent"),
-        (#"(?i)\b(wonder|ponder|reflect|contemplate|think about|muse)\b"#, "reflective"),
-        (#"(?i)\b(meaning|philosophy|purpose|existence|consciousness)\b"#, "reflective"),
-    ]
+    private static let stylePatterns: [(pattern: String, style: String)] = {
+        guard let entries = ResourceLoader.load([StylePatternEntry].self, from: "style_patterns") else { return [] }
+        return entries.map { ($0.pattern, $0.style) }
+    }()
 
     static func analyze(text: String, conversationHistory: [Message], languageHint: String? = nil) -> EmotionalState {
         let processed = NLTextProcessing.process(text: text, languageHint: languageHint)

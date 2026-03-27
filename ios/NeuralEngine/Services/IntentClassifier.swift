@@ -1,47 +1,13 @@
 import Foundation
 
 struct IntentClassifier {
-    private static let intentPatterns: [(pattern: String, intent: IntentType, weight: Double)] = [
-        (#"(?i)^(hi|hello|hey|greetings|good morning|good afternoon|good evening|howdy|what'?s up|sup)"#, .socialGreeting, 0.9),
-        (#"(?i)(bye|goodbye|see you|farewell|good night|take care|later|gotta go)"#, .socialFarewell, 0.9),
-        (#"(?i)(thank|thanks|thx|appreciate|grateful)"#, .socialGratitude, 0.85),
-        (#"(?i)(sorry|apolog|my bad|forgive)"#, .socialApology, 0.85),
-
-        (#"(?i)^(what|who|where|when)\s+(is|are|was|were)\b"#, .questionFactual, 0.85),
-        (#"(?i)\b(define|definition|meaning of)\b"#, .questionFactual, 0.9),
-        (#"(?i)\bhow\s+(does|do|did|is|are|can|could|would)\b"#, .questionHow, 0.85),
-        (#"(?i)\bhow\s+to\b"#, .questionHow, 0.9),
-        (#"(?i)\bhow\s+come\b"#, .questionHow, 0.95),
-        (#"(?i)\bwhy\s+(is|are|does|do|did|would|can)\b"#, .questionWhy, 0.85),
-        (#"(?i)\b(compare|versus|vs\.?|difference between|better|worse)\b"#, .questionComparison, 0.85),
-        (#"(?i)\b(think|opinion|feel about|believe|reckon)\b"#, .questionOpinion, 0.7),
-
-        (#"(?i)\b(write|create|generate|compose|draft|make me)\b"#, .requestCreation, 0.85),
-        (#"(?i)\b(story|poem|essay|article|blog|song|script)\b"#, .requestCreation, 0.75),
-        (#"(?i)\b(analyze|analysis|examine|evaluate|assess|review|critique)\b"#, .requestAnalysis, 0.85),
-        (#"(?i)\b(search|look up|find|google|browse)\b"#, .requestSearch, 0.85),
-        (#"(?i)\b(summarize|summary|summarise|key points|main points|takeaways|overview)\b"#, .requestAnalysis, 0.8),
-        (#"(?i)\b(remember|recall|what did i|do you remember|my previous)\b"#, .requestMemory, 0.9),
-        (#"(?i)\b(calculate|compute|math|equation|solve|formula)\b"#, .requestCalculation, 0.9),
-        (#"(?i)\b(do|make|set|get|open|turn|start|stop|send|schedule|create)\b.*\b(for me|please|now)\b"#, .requestAction, 0.75),
-
-        (#"(?i)\b(i feel|i'?m feeling|i am feeling|feeling)\b"#, .statementEmotion, 0.85),
-        (#"(?i)\b(i think|in my opinion|i believe|personally)\b"#, .statementOpinion, 0.75),
-        (#"(?i)\b(always|never|don'?t|make sure|from now on|going forward)\b.*\b(remember|use|do|keep|with me|when)\b"#, .statementInstruction, 0.95),
-        (#"(?i)\b(did you know|fun fact|the truth is)\b"#, .statementFact, 0.7),
-        (#"(?i)^i\s+(work|live|study|am from|was born|have|am a|am an|grew up)\b"#, .statementFact, 0.85),
-
-        (#"(?i)\b(no|wrong|incorrect|that'?s not|you'?re wrong)\b"#, .metaCorrection, 0.7),
-        (#"(?i)\b(what do you mean|clarify|elaborate|more detail|be more specific)\b"#, .metaClarification, 0.85),
-        (#"(?i)\b(good job|well done|that'?s great|perfect|exactly|not helpful|bad answer|improve)\b"#, .metaFeedback, 0.8),
-
-        (#"(?i)\b(brainstorm|ideas|suggest|imagine|suppose)\b"#, .explorationBrainstorm, 0.8),
-        (#"(?i)\b(debate|argue|devil'?s advocate|counter|challenge)\b"#, .explorationDebate, 0.8),
-        (#"(?i)\bwhat\s+if\b(?!.*\bthen\b)"#, .explorationHypothetical, 0.9),
-        (#"(?i)\b(hypothetical|scenario|what would happen)\b"#, .explorationHypothetical, 0.85),
-        (#"(?i)\bwhat\s+if\b.*\bthen\b"#, .explorationHypothetical, 0.9),
-        (#"(?i)\b(?:what if|imagine if|suppose)\b.+\b(?:didn'?t|didn t|doesn'?t|doesn t|weren'?t|wasn'?t|couldn'?t|wouldn'?t)\s+exist"#, .explorationHypothetical, 1.0),
-    ]
+    private static let intentPatterns: [(pattern: String, intent: IntentType, weight: Double)] = {
+        guard let entries = ResourceLoader.load([IntentPatternEntry].self, from: "intent_patterns") else { return [] }
+        return entries.compactMap { entry in
+            guard let intent = IntentType(rawValue: entry.intent) else { return nil }
+            return (entry.pattern, intent, entry.weight)
+        }
+    }()
 
     static func classify(text: String, conversationHistory: [Message], languageHint: String? = nil) -> IntentClassification {
         let processed = NLTextProcessing.process(text: text, languageHint: languageHint)

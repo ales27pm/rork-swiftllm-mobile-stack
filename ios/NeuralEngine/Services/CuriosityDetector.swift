@@ -1,21 +1,10 @@
 import Foundation
 
 struct CuriosityDetector {
-    private static let curiosityPatterns: [(pattern: String, weight: Double)] = [
-        (#"(?i)\bwhat\s+(is|are|was|were|does|do|did)\b"#, 0.8),
-        (#"(?i)\bhow\s+(does|do|did|can|could|would|to)\b"#, 0.9),
-        (#"(?i)\bwhy\s+(is|are|does|do|did|would|can)\b"#, 1.0),
-        (#"(?i)\bexplain\b"#, 0.9),
-        (#"(?i)\btell\s+me\s+about\b"#, 0.8),
-        (#"(?i)\bwhat\s+if\b"#, 0.7),
-        (#"(?i)\bi\s+wonder\b"#, 0.6),
-        (#"(?i)\bcurious\s+about\b"#, 0.7),
-        (#"(?i)\bcan\s+you\s+explain\b"#, 0.85),
-        (#"(?i)\bteach\s+me\b"#, 0.9),
-        (#"(?i)\bwhat\s+happens\s+(when|if)\b"#, 0.8),
-        (#"(?i)\bwhat'?s\s+the\s+difference\b"#, 0.85),
-        (#"(?i)\bhow\s+come\b"#, 0.9),
-    ]
+    private static let curiosityPatterns: [(pattern: String, weight: Double)] = {
+        guard let entries = ResourceLoader.load([CuriosityPatternEntry].self, from: "curiosity_patterns") else { return [] }
+        return entries.map { ($0.pattern, $0.weight) }
+    }()
 
     static func detect(
         text: String,

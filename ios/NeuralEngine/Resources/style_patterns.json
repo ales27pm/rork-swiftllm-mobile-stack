@@ -1,0 +1,13 @@
+[
+  {"pattern": "(?i)\\b(therefore|furthermore|consequently|hence|thus|moreover)\\b", "style": "formal"},
+  {"pattern": "(?i)\\b(pursuant|hitherto|notwithstanding|aforementioned)\\b", "style": "formal"},
+  {"pattern": "(?i)\\b(gonna|wanna|gotta|kinda|sorta|y'all|lol|omg|btw|ngl|fr|bruh)\\b", "style": "casual"},
+  {"pattern": "(?i)[!]{2,}", "style": "casual"},
+  {"pattern": "(?i)\\b(algorithm|function|api|database|server|debug|compile|runtime|stack|heap)\\b", "style": "technical"},
+  {"pattern": "(?i)\\b(implement|refactor|optimize|deploy|instantiate|iterate)\\b", "style": "technical"},
+  {"pattern": "(?i)\\b(imagine|create|design|brainstorm|inspire|vision|dream)\\b", "style": "creative"},
+  {"pattern": "(?i)\\b(story|poem|art|music|creative|novel|paint)\\b", "style": "creative"},
+  {"pattern": "(?i)\\b(asap|urgent|immediately|right now|quickly|hurry|deadline)\\b", "style": "urgent"},
+  {"pattern": "(?i)\\b(wonder|ponder|reflect|contemplate|think about|muse)\\b", "style": "reflective"},
+  {"pattern": "(?i)\\b(meaning|philosophy|purpose|existence|consciousness)\\b", "style": "reflective"}
+]
