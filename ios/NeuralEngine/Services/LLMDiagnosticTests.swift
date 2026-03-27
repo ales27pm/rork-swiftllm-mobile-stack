@@ -15,13 +15,13 @@ extension DiagnosticEngine {
             return ("", nil)
         }
 
-        for _ in 0..<250 {
+        for _ in 0..<300 {
             if !ie.isGenerating { break }
             try? await Task.sleep(for: .milliseconds(20))
         }
         if ie.isGenerating {
             await ie.cancelAndDrain(reason: "diagnosticIdleWait")
-            for _ in 0..<50 {
+            for _ in 0..<150 {
                 if !ie.isGenerating { break }
                 try? await Task.sleep(for: .milliseconds(20))
             }
@@ -32,24 +32,20 @@ extension DiagnosticEngine {
 
         var generatedText = ""
         var metricsResult: GenerationMetrics?
-        var timedOut = false
+        var completedNormally = false
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             var resumed = false
             let timeout = Task {
                 try? await Task.sleep(for: .seconds(timeoutSeconds))
-                if !resumed {
-                    resumed = true
-                    timedOut = true
-                    Task {
-                        await ie.cancelAndDrain(reason: "diagnosticTimeout")
-                        for _ in 0..<50 {
-                            if !ie.isGenerating { break }
-                            try? await Task.sleep(for: .milliseconds(20))
-                        }
-                    }
-                    continuation.resume()
+                guard !resumed else { return }
+                resumed = true
+                await ie.cancelAndDrain(reason: "diagnosticTimeout")
+                for _ in 0..<150 {
+                    if !ie.isGenerating { break }
+                    try? await Task.sleep(for: .milliseconds(20))
                 }
+                continuation.resume()
             }
 
             ie.generate(
@@ -64,21 +60,21 @@ extension DiagnosticEngine {
                     timeout.cancel()
                     if !resumed {
                         resumed = true
+                        completedNormally = true
                         continuation.resume()
                     }
                 }
             )
         }
 
-        if timedOut {
-            for _ in 0..<100 {
+        if !completedNormally {
+            for _ in 0..<150 {
                 if !ie.isGenerating { break }
                 try? await Task.sleep(for: .milliseconds(20))
             }
-            return (generatedText, metricsResult)
         }
 
-        try? await Task.sleep(for: .milliseconds(30))
+        try? await Task.sleep(for: .milliseconds(50))
         return (generatedText.trimmingCharacters(in: .whitespacesAndNewlines), metricsResult)
     }
 
