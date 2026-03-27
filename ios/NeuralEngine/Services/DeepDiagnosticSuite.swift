@@ -97,6 +97,11 @@ extension DiagnosticEngine {
             DiagnosticTestResult(name: "LLM Temperature Sensitivity", category: .llmDiagnostic),
             DiagnosticTestResult(name: "LLM Latency Profile (5 prompts)", category: .llmDiagnostic),
             DiagnosticTestResult(name: "LLM Memory-Aware Response", category: .llmDiagnostic),
+            DiagnosticTestResult(name: "LLM Tool Call Emission", category: .llmDiagnostic),
+            DiagnosticTestResult(name: "LLM Tool Call Format Correctness", category: .llmDiagnostic),
+            DiagnosticTestResult(name: "LLM Tool Abstention", category: .llmDiagnostic),
+            DiagnosticTestResult(name: "LLM Tool Result Synthesis", category: .llmDiagnostic),
+            DiagnosticTestResult(name: "LLM Batched Tool Calls", category: .llmDiagnostic),
         ])
 
         tests.append(contentsOf: [
@@ -257,6 +262,16 @@ extension DiagnosticEngine {
             return await llmTestLatencyProfile()
         case (.llmDiagnostic, "LLM Memory-Aware Response"):
             return await llmTestMemoryAwareResponse()
+        case (.llmDiagnostic, "LLM Tool Call Emission"):
+            return await llmTestToolCallEmission()
+        case (.llmDiagnostic, "LLM Tool Call Format Correctness"):
+            return await llmTestToolCallFormat()
+        case (.llmDiagnostic, "LLM Tool Abstention"):
+            return await llmTestToolAbstention()
+        case (.llmDiagnostic, "LLM Tool Result Synthesis"):
+            return await llmTestToolResultSynthesis()
+        case (.llmDiagnostic, "LLM Batched Tool Calls"):
+            return await llmTestBatchedToolCalls()
 
         case (.vectorDatabase, "Vector Embedding Generation"):
             return vectorTestEmbeddingGeneration()

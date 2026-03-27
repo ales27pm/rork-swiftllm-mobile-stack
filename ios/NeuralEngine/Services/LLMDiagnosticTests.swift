@@ -669,6 +669,7 @@ extension DiagnosticEngine {
 
         mem.deleteMemory(testMemory.id)
 
+        let searchBeforeDelete = memResults
         let memoryInjected = systemPrompt.lowercased().contains("orion") || systemPrompt.lowercased().contains("coral") || systemPrompt.lowercased().contains("marine")
         let outputReferencesMemory = ["orion", "coral", "marine", "reef", "ocean", "sea", "biolog"].contains { output.lowercased().contains($0) }
         let hasOutput = !output.isEmpty && output.count > 10
@@ -695,6 +696,270 @@ extension DiagnosticEngine {
         return TestOutcome(
             status: checks >= 3 ? .passed : (checks >= 2 ? .warning : .failed),
             message: "Memory-aware: \(checks)/4. Injected=\(memoryInjected), Referenced=\(outputReferencesMemory)",
+            details: details
+        )
+    }
+
+    // MARK: - LLM Tool Call Emission
+
+    func llmTestToolCallEmission() async -> TestOutcome {
+        if let skip = llmRequiresModel() { return skip }
+
+        let toolsPrompt = ToolExecutor.buildToolsPrompt()
+        let systemPrompt = "You are a helpful assistant with device tools.\n\n\(toolsPrompt)"
+
+        let testCases: [(user: String, expectedTools: [String], label: String)] = [
+            ("What time is it right now?", ["get_current_time"], "Time query"),
+            ("What's the current battery level?", ["get_battery_status"], "Battery query"),
+            ("What's my current location?", ["get_location"], "Location query"),
+            ("Search the web for latest Swift 6 features", ["web_search"], "Web search query"),
+        ]
+
+        var passed = 0
+        var details: [String] = []
+
+        for tc in testCases {
+            let messages: [[String: String]] = [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": tc.user]
+            ]
+            var config = SamplingConfig()
+            config.maxTokens = 100
+            config.temperature = 0.3
+
+            let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 15)
+
+            let calls = ToolCallParser.parse(from: output)
+            let emittedNames = calls.map(\.name)
+            let hasExpected = tc.expectedTools.contains { expected in emittedNames.contains(expected) }
+
+            if hasExpected {
+                passed += 1
+                details.append("\(tc.label): ✓ → emitted \(emittedNames.joined(separator: ", "))")
+            } else {
+                let snippet = output.prefix(60)
+                details.append("\(tc.label): ✗ → expected \(tc.expectedTools.joined(separator: "/")), got \(emittedNames.isEmpty ? "no tool call" : emittedNames.joined(separator: ", ")) '\(snippet)…'")
+            }
+        }
+
+        return TestOutcome(
+            status: passed >= 3 ? .passed : (passed >= 2 ? .warning : .failed),
+            message: "Tool call emission: \(passed)/\(testCases.count) emitted correct tool",
+            details: details
+        )
+    }
+
+    // MARK: - LLM Tool Call Format Correctness
+
+    func llmTestToolCallFormat() async -> TestOutcome {
+        if let skip = llmRequiresModel() { return skip }
+
+        let toolsPrompt = ToolExecutor.buildToolsPrompt()
+        let systemPrompt = "You are a helpful assistant with device tools.\n\n\(toolsPrompt)"
+
+        let prompts: [(user: String, label: String)] = [
+            ("What time is it?", "Time"),
+            ("How's the weather?", "Weather"),
+            ("Check my battery level", "Battery"),
+        ]
+
+        var validFormat = 0
+        var validName = 0
+        var details: [String] = []
+
+        for p in prompts {
+            let messages: [[String: String]] = [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": p.user]
+            ]
+            var config = SamplingConfig()
+            config.maxTokens = 80
+            config.temperature = 0.2
+
+            let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 15)
+
+            let hasTag = output.contains("<tool_call>") || output.contains("<tool_calls>")
+            let calls = ToolCallParser.parse(from: output)
+
+            if hasTag && !calls.isEmpty {
+                validFormat += 1
+            }
+
+            let allKnown = calls.allSatisfy { DeviceToolName(rawValue: $0.name) != nil }
+            if !calls.isEmpty && allKnown {
+                validName += 1
+            }
+
+            let names = calls.map(\.name).joined(separator: ", ")
+            details.append("\(p.label): tag=\(hasTag ? "✓" : "✗"), parsed=\(calls.count), names=\(names.isEmpty ? "none" : names), allKnown=\(allKnown ? "✓" : "✗")")
+        }
+
+        let total = prompts.count
+        let score = validFormat + validName
+
+        return TestOutcome(
+            status: score >= total * 2 - 1 ? .passed : (score >= total ? .warning : .failed),
+            message: "Tool format: \(validFormat)/\(total) valid tags, \(validName)/\(total) valid names",
+            details: details
+        )
+    }
+
+    // MARK: - LLM Tool Abstention
+
+    func llmTestToolAbstention() async -> TestOutcome {
+        if let skip = llmRequiresModel() { return skip }
+
+        let toolsPrompt = ToolExecutor.buildToolsPrompt()
+        let systemPrompt = "You are a helpful assistant with device tools. Only use tools when the user explicitly needs device capabilities. If no tool is needed, respond normally in plain text.\n\n\(toolsPrompt)"
+
+        let testCases: [(user: String, label: String)] = [
+            ("What is the capital of France?", "Factual question"),
+            ("Write a haiku about rain", "Creative request"),
+            ("Explain how photosynthesis works", "Explanation"),
+            ("Hello, how are you?", "Greeting"),
+        ]
+
+        var abstained = 0
+        var details: [String] = []
+
+        for tc in testCases {
+            let messages: [[String: String]] = [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": tc.user]
+            ]
+            var config = SamplingConfig()
+            config.maxTokens = 120
+            config.temperature = 0.5
+
+            let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 15)
+
+            let calls = ToolCallParser.parse(from: output)
+            let noToolCall = calls.isEmpty
+            let hasText = !output.isEmpty && output.count > 5
+
+            if noToolCall && hasText {
+                abstained += 1
+                details.append("\(tc.label): ✓ → plain text (\(output.count) chars)")
+            } else if !noToolCall {
+                details.append("\(tc.label): ✗ → spurious tool call: \(calls.map(\.name).joined(separator: ", "))")
+            } else {
+                details.append("\(tc.label): ✗ → empty output")
+            }
+        }
+
+        return TestOutcome(
+            status: abstained >= 3 ? .passed : (abstained >= 2 ? .warning : .failed),
+            message: "Tool abstention: \(abstained)/\(testCases.count) correctly avoided tool calls",
+            details: details
+        )
+    }
+
+    // MARK: - LLM Tool Result Synthesis
+
+    func llmTestToolResultSynthesis() async -> TestOutcome {
+        if let skip = llmRequiresModel() { return skip }
+
+        let toolsPrompt = ToolExecutor.buildToolsPrompt()
+        let systemPrompt = "You are a helpful assistant with device tools. After receiving tool results, synthesize a concise user-facing answer.\n\n\(toolsPrompt)"
+
+        let testCases: [(messages: [[String: String]], keywords: [String], label: String)] = [
+            (
+                [
+                    ["role": "system", "content": systemPrompt],
+                    ["role": "user", "content": "What time is it?"],
+                    ["role": "assistant", "content": "<tool_call>{\"name\":\"get_current_time\",\"parameters\":{}}</tool_call>"],
+                    ["role": "user", "content": "[Tool Execution Summary]\n- get_current_time (success)\n  {\"time\":\"2:30 PM\",\"date\":\"March 27, 2026\",\"timezone\":\"America/Toronto\"}"]
+                ],
+                ["2:30", "pm", "march", "27"],
+                "Time synthesis"
+            ),
+            (
+                [
+                    ["role": "system", "content": systemPrompt],
+                    ["role": "user", "content": "What's my battery at?"],
+                    ["role": "assistant", "content": "<tool_call>{\"name\":\"get_battery_status\",\"parameters\":{}}</tool_call>"],
+                    ["role": "user", "content": "[Tool Execution Summary]\n- get_battery_status (success)\n  {\"level\":72,\"state\":\"Charging\"}"]
+                ],
+                ["72", "charg"],
+                "Battery synthesis"
+            ),
+        ]
+
+        var passed = 0
+        var details: [String] = []
+
+        for tc in testCases {
+            var config = SamplingConfig()
+            config.maxTokens = 100
+            config.temperature = 0.4
+
+            let (output, _) = await llmGenerate(messages: tc.messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 15)
+
+            let lower = output.lowercased()
+            let referencesResult = tc.keywords.contains { lower.contains($0) }
+            let noNewToolCall = ToolCallParser.parse(from: output).isEmpty
+            let hasText = !output.isEmpty && output.count > 3
+
+            let ok = referencesResult && noNewToolCall && hasText
+            if ok { passed += 1 }
+
+            details.append("\(tc.label): \(ok ? "✓" : "✗") → refs=\(referencesResult), noTool=\(noNewToolCall), text=\(hasText) '\(output.prefix(50))…'")
+        }
+
+        return TestOutcome(
+            status: passed == testCases.count ? .passed : (passed >= 1 ? .warning : .failed),
+            message: "Tool result synthesis: \(passed)/\(testCases.count) synthesized correct answer from tool results",
+            details: details
+        )
+    }
+
+    // MARK: - LLM Batched Tool Calls
+
+    func llmTestBatchedToolCalls() async -> TestOutcome {
+        if let skip = llmRequiresModel() { return skip }
+
+        let toolsPrompt = ToolExecutor.buildToolsPrompt()
+        let systemPrompt = "You are a helpful assistant with device tools. When a user request requires multiple tools, emit them all in a single batched tool_calls tag.\n\n\(toolsPrompt)"
+
+        let messages: [[String: String]] = [
+            ["role": "system", "content": systemPrompt],
+            ["role": "user", "content": "What time is it and what's my battery level?"]
+        ]
+
+        var config = SamplingConfig()
+        config.maxTokens = 120
+        config.temperature = 0.3
+
+        let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 15)
+
+        let calls = ToolCallParser.parse(from: output)
+        let names = Set(calls.map(\.name))
+
+        var checks = 0
+        var details: [String] = []
+
+        let hasMultiple = calls.count >= 2
+        if hasMultiple { checks += 1; details.append("Multiple calls emitted: ✓ (\(calls.count))") }
+        else { details.append("Multiple calls emitted: ✗ (\(calls.count))") }
+
+        let hasTime = names.contains("get_current_time")
+        if hasTime { checks += 1; details.append("Contains get_current_time: ✓") }
+        else { details.append("Contains get_current_time: ✗") }
+
+        let hasBattery = names.contains("get_battery_status")
+        if hasBattery { checks += 1; details.append("Contains get_battery_status: ✓") }
+        else { details.append("Contains get_battery_status: ✗") }
+
+        let allKnown = calls.allSatisfy { DeviceToolName(rawValue: $0.name) != nil }
+        if allKnown && !calls.isEmpty { checks += 1; details.append("All tool names valid: ✓") }
+        else { details.append("All tool names valid: ✗") }
+
+        details.append("Emitted names: \(names.sorted().joined(separator: ", "))")
+        details.append("Output: '\(output.prefix(80))…'")
+
+        return TestOutcome(
+            status: checks >= 3 ? .passed : (checks >= 2 ? .warning : .failed),
+            message: "Batched tool calls: \(checks)/4 checks. Emitted \(calls.count) calls: \(names.sorted().joined(separator: ", "))",
             details: details
         )
     }
