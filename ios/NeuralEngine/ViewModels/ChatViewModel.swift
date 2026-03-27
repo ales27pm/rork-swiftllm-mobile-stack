@@ -420,6 +420,38 @@ class ChatViewModel {
                     return
                 }
 
+                if metrics.fallbackMode == "thermalSuspended" {
+                    self.fallbackRetryCount = 0
+                    if self.messages[assistantIndex].content.isEmpty {
+                        self.messages.remove(at: assistantIndex)
+                    }
+                    self.lastError = WrappedError(
+                        domain: .inference,
+                        severity: .warning,
+                        userMessage: "Device is too warm to generate. Let it cool down and try again.",
+                        technicalDetail: "Inference suspended due to thermal state",
+                        recoveryAction: .none
+                    )
+                    self.statusMessage = "Too warm — paused"
+                    return
+                }
+
+                if metrics.fallbackMode == "noModel" {
+                    self.fallbackRetryCount = 0
+                    if self.messages[assistantIndex].content.isEmpty {
+                        self.messages.remove(at: assistantIndex)
+                    }
+                    self.lastError = WrappedError(
+                        domain: .model,
+                        severity: .warning,
+                        userMessage: "Model not loaded. Please select a model.",
+                        technicalDetail: "GGUF runner not loaded at generation time",
+                        recoveryAction: .reloadModel
+                    )
+                    self.statusMessage = "No model loaded"
+                    return
+                }
+
                 let isDegenerateOrStall = metrics.fallbackMode.contains("watchdogTimeout") || metrics.fallbackMode.contains("degenerateOutput")
                 if isDegenerateOrStall {
                     let degenerateContent = self.messages[assistantIndex].content
@@ -443,6 +475,15 @@ class ChatViewModel {
                     return
                 }
 
+                if metrics.fallbackMode == "engineBusy" {
+                    if self.messages[assistantIndex].content.isEmpty {
+                        self.messages.remove(at: assistantIndex)
+                    }
+                    self.fallbackRetryCount = 0
+                    self.statusMessage = "Engine busy — try again"
+                    return
+                }
+
                 let fullContent = self.messages[assistantIndex].content
 
                 if fullContent.isEmpty && metrics.totalTokens == 0 {
@@ -455,6 +496,9 @@ class ChatViewModel {
                     }
 
                     self.fallbackRetryCount = 0
+                    if self.messages[assistantIndex].content.isEmpty {
+                        self.messages.remove(at: assistantIndex)
+                    }
                     let wrapped = WrappedError(
                         domain: .inference,
                         severity: .warning,

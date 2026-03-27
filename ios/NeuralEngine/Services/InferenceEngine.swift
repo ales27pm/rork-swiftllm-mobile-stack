@@ -787,13 +787,15 @@ class InferenceEngine {
                 timeToFirstToken: 0, prefillTokensPerSecond: 0,
                 decodeTokensPerSecond: 0, totalTokens: 0,
                 totalDuration: 0, acceptedSpeculativeTokens: 0,
-                rejectedSpeculativeTokens: 0
+                rejectedSpeculativeTokens: 0,
+                fallbackMode: "noModel"
             ))
             return
         }
 
         isGenerating = true
         currentText = ""
+        streamingDecoder.reset()
         lastProbeLatencyMS = 0
         metricsLogger.beginGeneration()
         metricsLogger.currentMetrics.zeroTokenProbeLatencyMS = 0
@@ -820,7 +822,8 @@ class InferenceEngine {
                 timeToFirstToken: 0, prefillTokensPerSecond: 0,
                 decodeTokensPerSecond: 0, totalTokens: 0,
                 totalDuration: 0, acceptedSpeculativeTokens: 0,
-                rejectedSpeculativeTokens: 0
+                rejectedSpeculativeTokens: 0,
+                fallbackMode: "thermalSuspended"
             ))
             return
         }
