@@ -1347,7 +1347,7 @@ class InferenceEngine {
                 default:
                     normalized.append((role: "user", content: "[\(rawRole)]\n\(rawContent)"))
                 }
-            case .chatML, .llama3:
+            case .chatML, .llama3, .lfm25:
                 let normalizedRole: String
                 switch rawRole {
                 case "system", "user", "assistant":
@@ -1375,12 +1375,17 @@ class InferenceEngine {
         return normalized
     }
 
+    static let lfm25StartOfTextToken: String = "<|startoftext|>"
+
     static func buildGGUFPrompt(messages: [[String: String]], style: GGUFChatTemplateStyle) -> String {
         let normalized = normalizedGGUFMessages(messages: messages, style: style)
 
         switch style {
         case .chatML:
             return buildChatMLPrompt(messages: normalized.map { ["role": $0.role, "content": $0.content] })
+        case .lfm25:
+            let chatMLPrompt = buildChatMLPrompt(messages: normalized.map { ["role": $0.role, "content": $0.content] })
+            return lfm25StartOfTextToken + chatMLPrompt
         case .llama3:
             var result = ""
             for message in normalized {

@@ -396,6 +396,24 @@
     "embeddingDimensions": null
   },
   {
+    "id": "lfm2.5-1.2b-instruct-q4-gguf",
+    "name": "LFM2.5 Instruct",
+    "variant": "1.2B Q4 GGUF",
+    "parameterCount": "1.2B",
+    "quantization": "Q4_K_M",
+    "sizeBytes": 876000000,
+    "contextLength": 32768,
+    "architecture": "lfm2",
+    "repoID": "unsloth/LFM2.5-1.2B-Instruct-GGUF",
+    "tokenizerRepoID": "LiquidAI/LFM2.5-1.2B-Instruct",
+    "modelFilePattern": "LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
+    "isDraft": false,
+    "format": "gguf",
+    "recommendation": {"badge": "Best fit", "reason": "Fast 1.2B hybrid model tuned for edge deployment with strong quality under 1 GB.", "rank": 1},
+    "isEmbedding": false,
+    "embeddingDimensions": null
+  },
+  {
     "id": "lfm2.5-1.2b-thinking-q4-gguf",
     "name": "LFM2.5 Thinking",
     "variant": "1.2B Q4 GGUF",
