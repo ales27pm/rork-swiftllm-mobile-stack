@@ -795,7 +795,7 @@ class InferenceEngine {
         metricsLogger.beginGeneration()
         metricsLogger.currentMetrics.zeroTokenProbeLatencyMS = 0
 
-        let prompt = Self.buildGGUFPrompt(messages: messages, style: ggufChatTemplateStyle)
+        let generationStartedAt = Date()
         let mode = thermalGovernor.currentMode
         var thermalAdjustedConfig = samplingConfig
         let tempBoost = thermalGovernor.adaptiveTemperatureBoost
@@ -803,6 +803,8 @@ class InferenceEngine {
             thermalAdjustedConfig.temperature = min(samplingConfig.temperature + tempBoost, 2.0)
         }
         thermalAdjustedConfig.maxTokens = min(thermalAdjustedConfig.maxTokens, mode.maxContextLength)
+        let effectiveMessages = compactMessagesForGGUFBudget(messages, mode: mode, generationBudget: thermalAdjustedConfig.maxTokens)
+        let prompt = buildGGUFPromptForActiveTokenizer(messages: effectiveMessages)
         let shouldProbe = !hasValidatedCurrentSession || thermalGovernor.shouldRunZeroTokenProbe
         let probeLatencyThreshold = zeroTokenProbeLatencyThresholdMS
         let speculativeDraftRunner = mode.speculativeEnabled ? draftLlamaRunner : nil
@@ -877,6 +879,7 @@ class InferenceEngine {
                                 return
                             }
                             self.currentText += token
+                            self.metricsLogger.recordFirstToken()
                             self.metricsLogger.recordToken()
                             onToken(token)
                         }
@@ -941,15 +944,7 @@ class InferenceEngine {
                         let cancelFallback = self.lastCancellationReason.contains("watchdogTimeout") || self.lastCancellationReason.contains("degenerateOutput")
                             ? self.lastCancellationReason
                             : "generationCancelled"
-                        onComplete(GenerationMetrics(
-                            timeToFirstToken: 0, prefillTokensPerSecond: 0,
-                            decodeTokensPerSecond: 0, totalTokens: 0,
-                            totalDuration: 0, acceptedSpeculativeTokens: 0,
-                            rejectedSpeculativeTokens: 0,
-                            zeroTokenProbeLatencyMS: self.lastProbeLatencyMS,
-                            recoveryRetryCount: self.lastRecoveryRetryCount,
-                            fallbackMode: cancelFallback
-                        ))
+                        onComplete(self.partialMetrics(since: generationStartedAt, fallbackMode: cancelFallback))
                     }
                     return
                 }
@@ -959,15 +954,7 @@ class InferenceEngine {
                     self.watchdogTask?.cancel()
                     self.watchdogTask = nil
                     self.isGenerating = false
-                    onComplete(GenerationMetrics(
-                        timeToFirstToken: 0, prefillTokensPerSecond: 0,
-                        decodeTokensPerSecond: 0, totalTokens: 0,
-                        totalDuration: 0, acceptedSpeculativeTokens: 0,
-                        rejectedSpeculativeTokens: 0,
-                        zeroTokenProbeLatencyMS: self.lastProbeLatencyMS,
-                        recoveryRetryCount: self.lastRecoveryRetryCount,
-                        fallbackMode: self.activeFallbackMode
-                    ))
+                    onComplete(self.partialMetrics(since: generationStartedAt, fallbackMode: self.activeFallbackMode))
                 }
             } catch {
                 self.logError("Generation stop format=gguf status=failed error=\(error.localizedDescription)")
@@ -976,18 +963,96 @@ class InferenceEngine {
                     self.watchdogTask?.cancel()
                     self.watchdogTask = nil
                     self.isGenerating = false
-                    onComplete(GenerationMetrics(
-                        timeToFirstToken: 0, prefillTokensPerSecond: 0,
-                        decodeTokensPerSecond: 0, totalTokens: 0,
-                        totalDuration: 0, acceptedSpeculativeTokens: 0,
-                        rejectedSpeculativeTokens: 0,
-                        zeroTokenProbeLatencyMS: self.lastProbeLatencyMS,
-                        recoveryRetryCount: self.lastRecoveryRetryCount,
-                        fallbackMode: self.activeFallbackMode
-                    ))
+                    onComplete(self.partialMetrics(since: generationStartedAt, fallbackMode: self.activeFallbackMode))
                 }
             }
         }
+    }
+
+    private func buildGGUFPromptForActiveTokenizer(messages: [[String: String]]) -> String {
+        if let tokenizer, tokenizer.hasRealTokenizer,
+           let templated = tokenizer.applyTemplate(messages: messages),
+           !templated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return templated
+        }
+
+        return Self.buildGGUFPrompt(messages: messages, style: ggufChatTemplateStyle)
+    }
+
+    private func compactMessagesForGGUFBudget(
+        _ messages: [[String: String]],
+        mode: RuntimeMode,
+        generationBudget: Int
+    ) -> [[String: String]] {
+        guard let tokenizer else { return messages }
+        guard tokenizer.hasRealTokenizer else { return messages }
+
+        let safeContextLimit = max(256, Int(Double(mode.maxContextLength) * 0.8))
+        let reservedForGeneration = max(64, min(generationBudget, mode.maxContextLength / 3))
+        let promptBudget = max(128, safeContextLimit - reservedForGeneration)
+
+        var working = messages.filter {
+            !($0["content"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        }
+        guard !working.isEmpty else { return messages }
+
+        func promptTokenCount(for candidate: [[String: String]]) -> Int {
+            let prompt = buildGGUFPromptForActiveTokenizer(messages: candidate)
+            return tokenizer.encode(prompt).count
+        }
+
+        while working.count > 2 && promptTokenCount(for: working) > promptBudget {
+            if let removableIndex = working.indices.first(where: { idx in
+                idx > 0 && (working[idx]["role"] ?? "user") != "system"
+            }) {
+                working.remove(at: removableIndex)
+            } else {
+                break
+            }
+        }
+
+        while promptTokenCount(for: working) > promptBudget {
+            guard let longestIndex = working.indices.max(by: {
+                (working[$0]["content"]?.count ?? 0) < (working[$1]["content"]?.count ?? 0)
+            }) else {
+                break
+            }
+
+            let content = working[longestIndex]["content"] ?? ""
+            guard content.count > 256 else { break }
+            let trimmed = String(content.suffix(max(192, content.count / 2)))
+            working[longestIndex]["content"] = "[…trimmed for on-device budget…]\n" + trimmed
+        }
+
+        return working
+    }
+
+    private func estimatedTokenCount(for text: String) -> Int {
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return 0 }
+
+        if let tokenizer, tokenizer.hasRealTokenizer {
+            return max(0, tokenizer.encode(cleaned).count - 1)
+        }
+
+        let coarse = cleaned.split { $0.isWhitespace || $0.isNewline }.count
+        return max(1, coarse)
+    }
+
+    private func partialMetrics(since start: Date, fallbackMode: String) -> GenerationMetrics {
+        let live = metricsLogger.currentMetrics
+        return GenerationMetrics(
+            timeToFirstToken: live.timeToFirstTokenMS,
+            prefillTokensPerSecond: live.prefillTokensPerSecond,
+            decodeTokensPerSecond: live.decodeTokensPerSecond,
+            totalTokens: max(live.totalTokensGenerated, estimatedTokenCount(for: currentText)),
+            totalDuration: Date().timeIntervalSince(start),
+            acceptedSpeculativeTokens: live.acceptedSpeculativeTokens,
+            rejectedSpeculativeTokens: live.rejectedSpeculativeTokens,
+            zeroTokenProbeLatencyMS: lastProbeLatencyMS,
+            recoveryRetryCount: lastRecoveryRetryCount,
+            fallbackMode: fallbackMode
+        )
     }
 
     private func startWatchdog(onComplete: @escaping (GenerationMetrics) -> Void) {

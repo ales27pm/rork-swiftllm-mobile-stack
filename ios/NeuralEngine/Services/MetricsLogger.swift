@@ -90,6 +90,7 @@ class MetricsLogger {
     }
 
     func recordFirstToken() {
+        guard firstTokenTime == nil else { return }
         firstTokenTime = Date()
         if let start = generationStart {
             currentMetrics.timeToFirstTokenMS = firstTokenTime!.timeIntervalSince(start) * 1000

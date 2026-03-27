@@ -1458,12 +1458,24 @@ class ModelLoaderService {
                 }
 
                 modelRunner.unload()
-                tokenizer.unloadTokenizer()
                 activeDraftModelID = nil
 
                 if forceReload || llamaRunner.isLoaded {
                     llamaRunner.unload()
                     draftLlamaRunner.unload()
+                }
+
+                do {
+                    if let tokenizerDir = loadTokenizerPath(forModelID: modelID) {
+                        try await tokenizer.loadFromDirectory(tokenizerDir)
+                    } else {
+                        let tokenizerRepoID = manifest.tokenizerRepoID ?? manifest.repoID
+                        try await tokenizer.loadFromHub(repoID: tokenizerRepoID)
+                    }
+                    logNotice("GGUF tokenizer activated modelID=\(modelID) source=\(tokenizer.cacheIdentifier)")
+                } catch {
+                    tokenizer.unloadTokenizer()
+                    logError("GGUF tokenizer load failed modelID=\(modelID) error=\(error.localizedDescription)")
                 }
 
                 try llamaRunner.loadModel(
