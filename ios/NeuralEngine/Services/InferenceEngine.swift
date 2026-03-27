@@ -11,6 +11,11 @@ import FoundationModels
 
 @MainActor
 private final class AppleFoundationGenerationService {
+    nonisolated private static let logger: Logger = {
+        let subsystem = Bundle.main.bundleIdentifier ?? "NeuralEngine"
+        return Logger(subsystem: subsystem, category: "AppleFoundationGenerationService")
+    }()
+
     private var activeTask: Task<Void, Never>?
 
     var isAvailable: Bool {
@@ -49,9 +54,17 @@ private final class AppleFoundationGenerationService {
             return
         }
 
+        guard SystemLanguageModel.default.supportsLocale() else {
+            Self.logger.notice("Unsupported locale for FoundationModels generation locale=\(Locale.current.identifier, privacy: .public)")
+            onComplete("appleFoundationUnsupportedLocale")
+            return
+        }
+
         activeTask = Task {
             do {
-                let session = LanguageModelSession(model: .default)
+                let session = LanguageModelSession(
+                    instructions: generationInstructions(for: Locale.current)
+                )
                 let options = GenerationOptions(
                     temperature: Double(samplingConfig.temperature),
                     maximumResponseTokens: samplingConfig.maxTokens
@@ -79,6 +92,14 @@ private final class AppleFoundationGenerationService {
                 await MainActor.run {
                     onComplete(nil)
                 }
+            } catch LanguageModelSession.GenerationError.guardrailViolation(_) {
+                await MainActor.run {
+                    onComplete("appleFoundationGuardrailViolation")
+                }
+            } catch LanguageModelSession.GenerationError.unsupportedLanguageOrLocale(_) {
+                await MainActor.run {
+                    onComplete("appleFoundationUnsupportedLocale")
+                }
             } catch is CancellationError {
                 await MainActor.run {
                     onComplete("generationCancelled")
@@ -93,6 +114,35 @@ private final class AppleFoundationGenerationService {
         onComplete("appleFoundationFrameworkMissing")
         #endif
     }
+
+    #if canImport(FoundationModels)
+    @available(iOS 26.0, *)
+    private func generationInstructions(for locale: Locale) -> String {
+        let localeInstruction = localeInstructionPrefix(for: locale)
+        if #available(iOS 26.4, *) {
+            return """
+            \(localeInstruction)
+            You are a reliable on-device assistant in this app.
+            MUST follow user intent while staying concise, factual, and safe.
+            MUST avoid disallowed harmful instructions and avoid speculative claims.
+            """
+        }
+
+        return """
+        \(localeInstruction)
+        You are a reliable on-device assistant in this app.
+        Follow user intent while staying concise and factual.
+        """
+    }
+
+    @available(iOS 26.0, *)
+    private func localeInstructionPrefix(for locale: Locale) -> String {
+        if Locale.Language(identifier: "en_US").isEquivalent(to: locale.language) {
+            return "The person's locale is en_US."
+        }
+        return "The person's locale is \(locale.identifier)."
+    }
+    #endif
 }
 
 @Observable
