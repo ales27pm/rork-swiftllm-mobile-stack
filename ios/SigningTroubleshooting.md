@@ -46,5 +46,5 @@ If exporting an `.xcarchive`, use matching values in your `ExportOptions.plist` 
 
 ## Notes
 
-- Bundle identifiers must be globally unique in your Apple developer team.
+- Bundle identifiers must be globally unique within your Apple Developer account.
 - If you're using a free Apple ID, export/distribution options are limited compared to a paid Developer Program account.
