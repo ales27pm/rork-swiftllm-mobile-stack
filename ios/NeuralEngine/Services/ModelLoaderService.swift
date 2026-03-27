@@ -37,6 +37,7 @@ class ModelLoaderService {
         let subsystem = Bundle.main.bundleIdentifier ?? "NeuralEngine"
         return Logger(subsystem: subsystem, category: "ModelLoaderService")
     }()
+    static let foundationOnlyMode: Bool = true
 
     var availableModels: [ModelManifest] = []
     var modelStatuses: [String: ModelStatus] = [:]
@@ -48,7 +49,7 @@ class ModelLoaderService {
     let draftLlamaRunner = LlamaModelRunner()
     let embeddingRunner = EmbeddingModelRunner()
     let tokenizer = TokenizerService()
-    var activeFormat: ModelFormat = .coreML
+    var activeFormat: ModelFormat = .appleFoundation
     var activeDraftModelID: String?
     var activeEmbeddingModelID: String?
     var embeddingModelStatuses: [String: ModelStatus] = [:]
@@ -207,7 +208,12 @@ class ModelLoaderService {
     }
 
     func loadBuiltinRegistry() {
-        availableModels = ResourceLoader.load([ModelManifest].self, from: "model_registry") ?? []
+        let loadedModels = ResourceLoader.load([ModelManifest].self, from: "model_registry") ?? []
+        if Self.foundationOnlyMode {
+            availableModels = loadedModels.filter { $0.format == .appleFoundation && !$0.isEmbedding }
+        } else {
+            availableModels = loadedModels
+        }
         loadCustomModels()
 
         for model in availableModels {
@@ -219,6 +225,14 @@ class ModelLoaderService {
         }
 
         restorePreviouslyDownloadedModels()
+
+        if Self.foundationOnlyMode,
+           activeModelID == nil,
+           let foundationModel = availableModels.first(where: { $0.format == .appleFoundation }) {
+            activeModelID = foundationModel.id
+            activeFormat = .appleFoundation
+            persistPreferredModelID(foundationModel.id)
+        }
     }
 
     private func restorePreviouslyDownloadedModels() {
@@ -244,6 +258,11 @@ class ModelLoaderService {
     func downloadModel(_ modelID: String) {
         guard let manifest = availableModels.first(where: { $0.id == modelID }) else {
             logError("Download requested for unknown modelID=\(modelID)")
+            return
+        }
+
+        if Self.foundationOnlyMode, manifest.format != .appleFoundation {
+            modelStatuses[modelID] = .failed("Disabled in Foundation-only mode.")
             return
         }
 
@@ -944,7 +963,7 @@ class ModelLoaderService {
             llamaRunner.unload()
             draftLlamaRunner.unload()
             tokenizer.unloadTokenizer()
-            activeFormat = .coreML
+            activeFormat = .appleFoundation
         } else if activeDraftModelID == modelID {
             activeDraftModelID = nil
             draftLlamaRunner.unload()
@@ -963,6 +982,12 @@ class ModelLoaderService {
     }
 
     func activateModel(_ modelID: String) {
+        if Self.foundationOnlyMode,
+           let manifest = availableModels.first(where: { $0.id == modelID }),
+           manifest.format != .appleFoundation {
+            modelStatuses[modelID] = .failed("Disabled in Foundation-only mode.")
+            return
+        }
         Task { @MainActor [weak self] in
             guard let self else { return }
             _ = await self.ensureModelLoaded(modelID, persistSelection: true)
@@ -981,6 +1006,11 @@ class ModelLoaderService {
     func ensureModelLoaded(_ modelID: String, forceReload: Bool = false, persistSelection: Bool = true) async -> Bool {
         guard case .some(.ready) = modelStatuses[modelID],
               let manifest = availableModels.first(where: { $0.id == modelID }) else {
+            return false
+        }
+
+        if Self.foundationOnlyMode, manifest.format != .appleFoundation {
+            modelStatuses[modelID] = .failed("Disabled in Foundation-only mode.")
             return false
         }
 
@@ -1044,6 +1074,10 @@ class ModelLoaderService {
 
     private func performModelActivation(_ manifest: ModelManifest, forceReload: Bool, persistSelection: Bool) async -> Bool {
         guard !Task.isCancelled else { return false }
+        if Self.foundationOnlyMode, manifest.format != .appleFoundation {
+            modelStatuses[manifest.id] = .failed("Disabled in Foundation-only mode.")
+            return false
+        }
 
         let modelID = manifest.id
         activeModelID = modelID
@@ -1127,7 +1161,7 @@ class ModelLoaderService {
             }
             if manifest.format == .gguf {
                 draftLlamaRunner.unload()
-                activeFormat = .coreML
+                activeFormat = .appleFoundation
             }
             logError("Model activation failed modelID=\(modelID) format=\(manifest.format.rawValue) error=\(error.localizedDescription)")
             return false
@@ -1362,6 +1396,9 @@ class ModelLoaderService {
         }
         let existingIDs = Set(availableModels.map(\.id))
         for model in customs where !existingIDs.contains(model.id) {
+            if Self.foundationOnlyMode, model.format != .appleFoundation {
+                continue
+            }
             availableModels.append(model)
         }
     }
@@ -1373,6 +1410,10 @@ class ModelLoaderService {
     }
 
     func addCustomModel(_ manifest: ModelManifest) {
+        if Self.foundationOnlyMode, manifest.format != .appleFoundation {
+            logNotice("Rejected custom model in foundation-only mode id=\(manifest.id) format=\(manifest.format.rawValue)")
+            return
+        }
         guard !availableModels.contains(where: { $0.id == manifest.id }) else {
             logNotice("Custom model already exists id=\(manifest.id)")
             return
@@ -1403,7 +1444,7 @@ class ModelLoaderService {
                 self.llamaRunner.unload()
                 self.draftLlamaRunner.unload()
                 self.tokenizer.unloadTokenizer()
-                self.activeFormat = .coreML
+                self.activeFormat = .appleFoundation
             }
 
             if self.activeEmbeddingModelID == modelID {

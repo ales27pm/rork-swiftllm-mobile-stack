@@ -175,7 +175,7 @@ class InferenceEngine {
     private var llamaRunner: LlamaModelRunner?
     private var draftLlamaRunner: LlamaModelRunner?
     private var tokenizer: TokenizerService?
-    private var activeFormat: ModelFormat = .coreML
+    private var activeFormat: ModelFormat = .appleFoundation
     private var ggufChatTemplateStyle: GGUFChatTemplateStyle = .chatML
     private let appleFoundationService = AppleFoundationGenerationService()
 
