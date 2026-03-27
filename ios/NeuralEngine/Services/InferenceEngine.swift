@@ -218,7 +218,11 @@ class InferenceEngine {
         onToken: @escaping (String) -> Void,
         onComplete: @escaping (GenerationMetrics) -> Void
     ) {
-        guard !isGenerating else { return }
+        guard !isGenerating else {
+            logNotice("Generate rejected reason=engineBusy format=\(activeFormat.rawValue)")
+            onComplete(busyMetrics())
+            return
+        }
 
         if activeFormat == .gguf {
             generateWithLlama(messages: messages, samplingConfig: samplingConfig, onToken: onToken, onComplete: onComplete)
@@ -1037,6 +1041,21 @@ class InferenceEngine {
 
         let coarse = cleaned.split { $0.isWhitespace || $0.isNewline }.count
         return max(1, coarse)
+    }
+
+    private func busyMetrics() -> GenerationMetrics {
+        GenerationMetrics(
+            timeToFirstToken: 0,
+            prefillTokensPerSecond: 0,
+            decodeTokensPerSecond: 0,
+            totalTokens: 0,
+            totalDuration: 0,
+            acceptedSpeculativeTokens: 0,
+            rejectedSpeculativeTokens: 0,
+            zeroTokenProbeLatencyMS: lastProbeLatencyMS,
+            recoveryRetryCount: lastRecoveryRetryCount,
+            fallbackMode: "engineBusy"
+        )
     }
 
     private func partialMetrics(since start: Date, fallbackMode: String) -> GenerationMetrics {

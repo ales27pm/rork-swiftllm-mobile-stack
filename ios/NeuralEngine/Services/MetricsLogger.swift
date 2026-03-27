@@ -98,6 +98,9 @@ class MetricsLogger {
     }
 
     func recordToken() {
+        if firstTokenTime == nil {
+            recordFirstToken()
+        }
         let now = Date()
         tokenTimestamps.append(now)
         currentMetrics.totalTokensGenerated = tokenTimestamps.count
