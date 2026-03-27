@@ -4,6 +4,12 @@ import LlamaSwift
 
 nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
     private let stateCondition = NSCondition()
+    private let computeExecutionKey = DispatchSpecificKey<UInt8>()
+    private lazy var computeExecutionQueue: DispatchQueue = {
+        let queue = DispatchQueue(label: "com.neuralengine.embedding.compute", qos: .userInitiated)
+        queue.setSpecific(key: computeExecutionKey, value: 1)
+        return queue
+    }()
     private var model: OpaquePointer?
     private var context: OpaquePointer?
     private var embeddingDimensions: Int = 0
@@ -103,9 +109,15 @@ nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
 
                 let result: Int32
                 if llama_model_has_encoder(model) {
-                    result = llama_encode(context, batch)
+                    result = executeOnComputeQueue {
+                        debugGuardComputeThread("llama_encode")
+                        return llama_encode(context, batch)
+                    }
                 } else {
-                    result = llama_decode(context, batch)
+                    result = executeOnComputeQueue {
+                        debugGuardComputeThread("llama_decode")
+                        return llama_decode(context, batch)
+                    }
                 }
                 guard result == 0 else { return nil }
 
@@ -239,6 +251,21 @@ nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
         }
         guard count >= 0 else { return [] }
         return Array(tokens.prefix(Int(count))).map(Int.init)
+    }
+
+    private func executeOnComputeQueue<T>(_ work: () -> T) -> T {
+        if DispatchQueue.getSpecific(key: computeExecutionKey) != nil {
+            return work()
+        }
+        return computeExecutionQueue.sync(execute: work)
+    }
+
+    private func debugGuardComputeThread(_ operation: String) {
+#if DEBUG
+        if Thread.isMainThread {
+            assertionFailure("Embedding compute misuse: \(operation) invoked from main thread")
+        }
+#endif
     }
 
     private func makeBatch(for tokens: [Int]) -> llama_batch {
