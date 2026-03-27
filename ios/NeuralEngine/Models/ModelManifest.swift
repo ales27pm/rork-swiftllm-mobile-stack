@@ -159,6 +159,8 @@ nonisolated struct ModelManifest: Identifiable, Sendable, Codable {
             return .llama3
         case "gemma2":
             return .gemma2
+        case "lfm2":
+            return .lfm25
         default:
             return .chatML
         }
@@ -192,6 +194,7 @@ nonisolated enum GGUFChatTemplateStyle: String, Sendable, Codable {
     case chatML
     case llama3
     case gemma2
+    case lfm25
 }
 
 nonisolated enum ModelStatus: Sendable, Equatable {
