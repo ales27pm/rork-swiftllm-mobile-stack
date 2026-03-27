@@ -606,8 +606,8 @@ class InferenceEngine {
                 fallbackMode: self.activeFallbackMode
             )
 
-            onComplete(metrics)
             self.isGenerating = false
+            onComplete(metrics)
         }
     }
 
@@ -898,7 +898,6 @@ class InferenceEngine {
                     guard let self else { return }
                     self.watchdogTask?.cancel()
                     self.watchdogTask = nil
-                    self.metricsLogger.recordFirstToken()
                     let prefillDuration = Double(result.promptTokenCount) / max(result.prefillTokensPerSecond, 0.001)
                     self.metricsLogger.recordPrefill(tokens: result.promptTokenCount, duration: prefillDuration)
                     self.metricsLogger.recordSpeculative(
@@ -922,11 +921,12 @@ class InferenceEngine {
                     self.metricsLogger.endGeneration()
                     self.hasValidatedCurrentSession = true
 
+                    let liveMetrics = self.metricsLogger.currentMetrics
                     let metrics = GenerationMetrics(
-                        timeToFirstToken: result.timeToFirstTokenMS,
+                        timeToFirstToken: liveMetrics.timeToFirstTokenMS > 0 ? liveMetrics.timeToFirstTokenMS : result.timeToFirstTokenMS,
                         prefillTokensPerSecond: result.prefillTokensPerSecond,
-                        decodeTokensPerSecond: result.decodeTokensPerSecond,
-                        totalTokens: result.generatedTokenCount,
+                        decodeTokensPerSecond: liveMetrics.decodeTokensPerSecond > 0 ? liveMetrics.decodeTokensPerSecond : result.decodeTokensPerSecond,
+                        totalTokens: max(result.generatedTokenCount, liveMetrics.totalTokensGenerated, self.estimatedTokenCount(for: self.currentText)),
                         totalDuration: result.totalDuration,
                         acceptedSpeculativeTokens: result.acceptedSpeculativeTokens,
                         rejectedSpeculativeTokens: result.rejectedSpeculativeTokens,
@@ -934,8 +934,8 @@ class InferenceEngine {
                         recoveryRetryCount: self.lastRecoveryRetryCount,
                         fallbackMode: self.activeFallbackMode
                     )
-                    onComplete(metrics)
                     self.isGenerating = false
+                    onComplete(metrics)
                 }
             } catch let error as LlamaRunnerError {
                 if case .generationCancelled = error {

@@ -29,6 +29,60 @@ struct InferenceEngineRegressionTests {
         #expect(metrics?.fallbackMode == "engineBusy")
     }
 
+
+    @Test func ggufSuccess_resetsBusyBeforeCompletionCallback() async {
+        let runner = LlamaModelRunner()
+        runner.installSyntheticModelForTesting(
+            configuration: LlamaSyntheticTestingConfiguration(
+                plannedTokens: [4, 5, 6, 0],
+                eogTokens: [0],
+                tokenPieces: [4: "a", 5: "b", 6: "c"],
+                decodeDelaySeconds: 0.01,
+                vocabSize: 16
+            )
+        )
+
+        let engine = InferenceEngine(metricsLogger: MetricsLogger(), thermalGovernor: ThermalGovernor())
+        engine.attachRunner(
+            CoreMLModelRunner(),
+            llamaRunner: runner,
+            draftLlamaRunner: nil,
+            tokenizer: TokenizerService(),
+            format: .gguf
+        )
+
+        let completion = CompletionBox()
+        var wasBusyInsideCompletion = true
+        engine.generate(
+            messages: [["role": "user", "content": "Say hi."]],
+            systemPrompt: "",
+            samplingConfig: SamplingConfig(
+                temperature: 0.7,
+                topK: 8,
+                topP: 1.0,
+                repetitionPenalty: 1.0,
+                maxTokens: 16,
+                stopSequences: [],
+                samplerSeed: 7
+            ),
+            onToken: { _ in },
+            onComplete: { metrics in
+                wasBusyInsideCompletion = engine.isGenerating
+                Task {
+                    await completion.store(metrics)
+                }
+            }
+        )
+
+        let completed = await waitUntil(timeout: .seconds(5)) {
+            await completion.hasValue
+        }
+        #expect(completed)
+        #expect(!wasBusyInsideCompletion)
+        let metrics = await completion.value
+        #expect((metrics?.totalTokens ?? 0) > 0)
+    }
+
     @Test func ggufCancellation_preservesPartialMetrics() async {
         let runner = LlamaModelRunner()
         runner.installSyntheticModelForTesting(

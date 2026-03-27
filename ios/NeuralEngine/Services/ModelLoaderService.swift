@@ -927,22 +927,122 @@ class ModelLoaderService {
         ]
     }
 
+    private func inferredTokenizerRepoID(for manifest: ModelManifest) -> String? {
+        switch manifest.draftCompatibilityIdentifier {
+        case "dolphin-llama3.2":
+            return "cognitivecomputations/Dolphin3.0-Llama3.2-3B"
+        case "dolphin-qwen2.5":
+            return "cognitivecomputations/Dolphin3.0-Qwen2.5-1.5B"
+        case "smollm2":
+            return "HuggingFaceTB/SmolLM2-1.7B-Instruct"
+        case "qwen2.5":
+            return "Qwen/Qwen2.5-1.5B-Instruct"
+        case "llama3.2":
+            return "meta-llama/Llama-3.2-3B-Instruct"
+        case "gemma2":
+            return "google/gemma-2-2b-it"
+        case "phi":
+            return "microsoft/Phi-3.5-mini-instruct"
+        default:
+            return nil
+        }
+    }
+
+    private func tokenizerRepositoryCandidates(for manifest: ModelManifest) -> [String] {
+        var candidates: [String] = []
+        if let explicit = manifest.tokenizerRepoID, !explicit.isEmpty {
+            candidates.append(explicit)
+        }
+        if let inferred = inferredTokenizerRepoID(for: manifest), !inferred.isEmpty {
+            candidates.append(inferred)
+        }
+        if !manifest.repoID.isEmpty {
+            candidates.append(manifest.repoID)
+        }
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0).inserted }
+    }
+
+    private func loadTokenizerForActivation(_ manifest: ModelManifest, modelID: String) async throws {
+        if let tokenizerDir = loadTokenizerPath(forModelID: modelID) {
+            try await tokenizer.loadFromDirectory(tokenizerDir)
+            logNotice("Tokenizer activated modelID=\(modelID) source=\(tokenizer.cacheIdentifier)")
+            return
+        }
+
+        var attempted: [String] = []
+        for repoID in tokenizerRepositoryCandidates(for: manifest) {
+            attempted.append(repoID)
+            do {
+                try await tokenizer.loadFromHub(repoID: repoID)
+                logNotice("Tokenizer activated modelID=\(modelID) source=\(tokenizer.cacheIdentifier)")
+                return
+            } catch {
+                logError("Tokenizer candidate failed modelID=\(modelID) repo=\(repoID) error=\(error.localizedDescription)")
+            }
+        }
+
+        throw ModelLoaderError.noModelFound("No compatible tokenizer could be loaded. Tried: \(attempted.joined(separator: ", "))")
+    }
+
+    private func persistOptionalTokenizerSnapshot(for manifest: ModelManifest, modelID: String) async {
+        guard loadTokenizerPath(forModelID: modelID) == nil else { return }
+
+        let tokenizerPatterns = ["tokenizer.json", "tokenizer_config.json", "config.json", "special_tokens_map.json", "generation_config.json", "tokenizer.model"]
+
+        for repoID in tokenizerRepositoryCandidates(for: manifest) {
+            do {
+                let tokenizerRepo = Hub.Repo(id: repoID)
+                let snapshotDir: URL
+
+                if let directSnapshot = try? await Hub.snapshot(from: tokenizerRepo, matching: tokenizerPatterns),
+                   (try? verifyTokenizerDependencies(in: directSnapshot)) != nil {
+                    snapshotDir = directSnapshot
+                } else {
+                    let repositoryPaths = try await Self.repositoryPaths(for: repoID)
+                    let exactPaths = Self.tokenizerRepositoryPaths(from: repositoryPaths, allowedFileNames: tokenizerPatterns)
+                    guard !exactPaths.isEmpty else { continue }
+                    snapshotDir = try await Hub.snapshot(from: tokenizerRepo, matching: exactPaths)
+                }
+
+                try verifyTokenizerDependencies(in: snapshotDir)
+                let persistedTokenizerURL = try fileSystem.persistTokenizerAsset(from: snapshotDir, forModelID: modelID)
+                try saveTokenizerPath(persistedTokenizerURL, forModelID: modelID)
+                logNotice("Persisted tokenizer snapshot modelID=\(modelID) repo=\(repoID) path=\(persistedTokenizerURL.lastPathComponent)")
+                return
+            } catch {
+                logError("Optional tokenizer snapshot failed modelID=\(modelID) repo=\(repoID) error=\(error.localizedDescription)")
+            }
+        }
+    }
+
     private func downloadTokenizerSnapshot(for manifest: ModelManifest, matching patterns: [String]) async throws -> URL {
-        let tokenizerRepoID = manifest.tokenizerRepoID ?? manifest.repoID
-        let tokenizerRepo = Hub.Repo(id: tokenizerRepoID)
+        var attempted: [String] = []
 
-        if let directSnapshot = try? await Hub.snapshot(from: tokenizerRepo, matching: patterns),
-           (try? verifyTokenizerDependencies(in: directSnapshot)) != nil {
-            return directSnapshot
+        for tokenizerRepoID in tokenizerRepositoryCandidates(for: manifest) {
+            attempted.append(tokenizerRepoID)
+            let tokenizerRepo = Hub.Repo(id: tokenizerRepoID)
+
+            if let directSnapshot = try? await Hub.snapshot(from: tokenizerRepo, matching: patterns),
+               (try? verifyTokenizerDependencies(in: directSnapshot)) != nil {
+                return directSnapshot
+            }
+
+            do {
+                let repositoryPaths = try await Self.repositoryPaths(for: tokenizerRepoID)
+                let exactPaths = Self.tokenizerRepositoryPaths(from: repositoryPaths, allowedFileNames: patterns)
+                if exactPaths.isEmpty {
+                    continue
+                }
+                let snapshot = try await Hub.snapshot(from: tokenizerRepo, matching: exactPaths)
+                try verifyTokenizerDependencies(in: snapshot)
+                return snapshot
+            } catch {
+                logError("Tokenizer snapshot candidate failed repo=\(tokenizerRepoID) error=\(error.localizedDescription)")
+            }
         }
 
-        let repositoryPaths = try await Self.repositoryPaths(for: tokenizerRepoID)
-        let exactPaths = Self.tokenizerRepositoryPaths(from: repositoryPaths, allowedFileNames: patterns)
-        guard !exactPaths.isEmpty else {
-            throw ModelLoaderError.integrityCheckFailed("Missing required tokenizer file: tokenizer.json")
-        }
-
-        return try await Hub.snapshot(from: tokenizerRepo, matching: exactPaths)
+        throw ModelLoaderError.integrityCheckFailed("Missing required tokenizer files. Tried: \(attempted.joined(separator: ", "))")
     }
 
     private func downloadCoreMLSnapshot(for manifest: ModelManifest, modelRepo: Hub.Repo) async throws -> URL {
@@ -1038,6 +1138,8 @@ class ModelLoaderService {
                 if let hash = fileSystem.computeStreamingSHA256(for: persistedModelURL) {
                     fileSystem.saveChecksum(hash, forModelID: modelID)
                 }
+
+                await persistOptionalTokenizerSnapshot(for: manifest, modelID: modelID)
 
                 modelStatuses[modelID] = .ready
                 autoActivateIfNeeded(modelID)
@@ -1440,12 +1542,7 @@ class ModelLoaderService {
                 }
 
                 do {
-                    if let tokenizerDir = loadTokenizerPath(forModelID: modelID) {
-                        try await tokenizer.loadFromDirectory(tokenizerDir)
-                    } else {
-                        let tokenizerRepoID = manifest.tokenizerRepoID ?? manifest.repoID
-                        try await tokenizer.loadFromHub(repoID: tokenizerRepoID)
-                    }
+                    try await loadTokenizerForActivation(manifest, modelID: modelID)
                 } catch {
                     logError("Tokenizer load failed modelID=\(modelID) error=\(error.localizedDescription)")
                 }
@@ -1466,13 +1563,7 @@ class ModelLoaderService {
                 }
 
                 do {
-                    if let tokenizerDir = loadTokenizerPath(forModelID: modelID) {
-                        try await tokenizer.loadFromDirectory(tokenizerDir)
-                    } else {
-                        let tokenizerRepoID = manifest.tokenizerRepoID ?? manifest.repoID
-                        try await tokenizer.loadFromHub(repoID: tokenizerRepoID)
-                    }
-                    logNotice("GGUF tokenizer activated modelID=\(modelID) source=\(tokenizer.cacheIdentifier)")
+                    try await loadTokenizerForActivation(manifest, modelID: modelID)
                 } catch {
                     tokenizer.unloadTokenizer()
                     logError("GGUF tokenizer load failed modelID=\(modelID) error=\(error.localizedDescription)")
