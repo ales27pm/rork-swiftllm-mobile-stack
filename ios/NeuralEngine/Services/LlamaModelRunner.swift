@@ -5,6 +5,27 @@ import OSLog
 import LlamaSwift
 
 nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Sendable {
+    private final class CooperativeCancellationToken: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cancelled = false
+        private(set) var signaledAt: Date?
+
+        var isCancelled: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return cancelled
+        }
+
+        func signal(at date: Date = Date()) {
+            lock.lock()
+            if !cancelled {
+                cancelled = true
+                signaledAt = date
+            }
+            lock.unlock()
+        }
+    }
+
     private static let logger: Logger = {
         let subsystem = Bundle.main.bundleIdentifier ?? "NeuralEngine"
         return Logger(subsystem: subsystem, category: "LlamaModelRunner")
@@ -59,6 +80,8 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     private var pendingUnload: Bool = false
     private var generationCancellationRequested: Bool = false
     private var generationCancellationReason: String?
+    private var activeCancellationToken: CooperativeCancellationToken?
+    private var forcedGenerationOwnershipRelease: Bool = false
 
     private var model: OpaquePointer?
     private var context: OpaquePointer?
@@ -183,6 +206,8 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         activeGenerationLabel = reason
         generationCancellationRequested = false
         generationCancellationReason = nil
+        forcedGenerationOwnershipRelease = false
+        activeCancellationToken = CooperativeCancellationToken()
         return true
     }
 
@@ -190,13 +215,17 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// so any thread blocked in waitForGenerationDrainLocked() wakes up.
     func releaseGenerationToken() {
         stateCondition.lock()
-#if DEBUG
         if activeGenerationCount == 0 {
-            assertionFailure("releaseGenerationToken() called without an active generation")
+            let wasForcedRelease = forcedGenerationOwnershipRelease
+            forcedGenerationOwnershipRelease = false
             stateCondition.unlock()
+#if DEBUG
+            if !wasForcedRelease {
+                assertionFailure("releaseGenerationToken() called without an active generation")
+            }
+#endif
             return
         }
-#endif
         activeGenerationCount = max(activeGenerationCount - 1, 0)
         let didDrain = activeGenerationCount == 0
         let drainedGenerationID = activeGenerationID?.uuidString ?? "none"
@@ -207,6 +236,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
             activeGenerationLabel = nil
             generationCancellationRequested = false
             generationCancellationReason = nil
+            activeCancellationToken = nil
             stateCondition.broadcast()
         }
         stateCondition.unlock()
@@ -236,7 +266,7 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
     /// Must be called WITHOUT holding stateCondition.
     private func isCancellationPending() -> Bool {
         stateCondition.lock()
-        let pending = pendingUnload || generationCancellationRequested
+        let pending = pendingUnload || generationCancellationRequested || (activeCancellationToken?.isCancelled ?? false)
         stateCondition.unlock()
         return pending
     }
@@ -245,14 +275,54 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         stateCondition.lock()
         let hasActiveGeneration = activeGenerationCount > 0
         let generationID = activeGenerationID?.uuidString ?? "none"
+        let token = activeCancellationToken
         if hasActiveGeneration {
             generationCancellationRequested = true
             generationCancellationReason = reason
         }
         stateCondition.unlock()
 
+        token?.signal()
+
         if hasActiveGeneration {
             logNotice("Cancellation requested generationID=\(generationID) reason=\(reason)")
+        }
+    }
+
+    func awaitGenerationDrain(timeoutMS: UInt64) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let deadline = Date().addingTimeInterval(Double(timeoutMS) / 1000)
+                self.stateCondition.lock()
+                while self.activeGenerationCount > 0 && Date() < deadline {
+                    self.stateCondition.wait(until: Date(timeIntervalSinceNow: 0.01))
+                }
+                let drained = self.activeGenerationCount == 0
+                self.stateCondition.unlock()
+                continuation.resume(returning: drained)
+            }
+        }
+    }
+
+    func forceStopSchedulingAndReleaseOwnership(reason: String) {
+        stateCondition.lock()
+        let hadActiveGeneration = activeGenerationCount > 0
+        let generationID = activeGenerationID?.uuidString ?? "none"
+        let token = activeCancellationToken
+        generationCancellationRequested = true
+        generationCancellationReason = reason
+        token?.signal()
+        if hadActiveGeneration {
+            activeGenerationCount = 0
+            activeGenerationID = nil
+            activeGenerationLabel = nil
+            forcedGenerationOwnershipRelease = true
+            stateCondition.broadcast()
+        }
+        stateCondition.unlock()
+
+        if hadActiveGeneration {
+            logNotice("Forced generation ownership release generationID=\(generationID) reason=\(reason)")
         }
     }
 
@@ -1315,8 +1385,10 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         activeComputeUnits = .cpuAndGPU
         generationCancellationRequested = false
         generationCancellationReason = nil
+        activeCancellationToken = nil
         activeGenerationID = nil
         activeGenerationLabel = nil
+        forcedGenerationOwnershipRelease = false
         state = .idle
     }
 

@@ -63,6 +63,7 @@ class InferenceEngine {
     private var didBecomeActiveObserver: NSObjectProtocol?
     private let resumeOnDidBecomeActiveDefaultsKey = "inference_resume_on_did_become_active"
     private var lifecyclePaused: Bool = false
+    private let lifecycleShutdownTimeoutMS: UInt64 = 500
 
     nonisolated private func logNotice(_ message: String) {
         Self.logger.notice("\(message, privacy: .public)")
@@ -144,7 +145,7 @@ class InferenceEngine {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.handleLifecycleSuspend(event: "willResignActive")
+                await self?.handleLifecycleSuspend(event: "willResignActive")
             }
         }
 
@@ -154,7 +155,7 @@ class InferenceEngine {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.handleLifecycleSuspend(event: "didEnterBackground")
+                await self?.handleLifecycleSuspend(event: "didEnterBackground")
             }
         }
 
@@ -169,10 +170,16 @@ class InferenceEngine {
         }
     }
 
-    private func handleLifecycleSuspend(event: String) {
+    private func handleLifecycleSuspend(event: String) async {
         lifecyclePaused = true
         guard isGenerating else { return }
-        cancel(reason: "appLifecycle_\(event)")
+        let cancelSignalTime = Date()
+        let lastTokenTime = lastTokenTimestamp
+        let reason = "appLifecycle_\(event)"
+        logNotice("Lifecycle cancellation signal event=\(event) cancelSignalAt=\(cancelSignalTime.timeIntervalSince1970) lastTokenAt=\(lastTokenTime.timeIntervalSince1970)")
+        let drained = await cancelAndDrain(reason: reason, timeoutMS: lifecycleShutdownTimeoutMS)
+        let shutdownCompletionTime = Date()
+        logNotice("Lifecycle shutdown complete event=\(event) drained=\(drained) shutdownCompleteAt=\(shutdownCompletionTime.timeIntervalSince1970)")
     }
 
     private func handleDidBecomeActive() {
@@ -1212,6 +1219,11 @@ class InferenceEngine {
     }
 
     func cancelAndDrain(reason: String = "drain") async {
+        _ = await cancelAndDrain(reason: reason, timeoutMS: nil)
+    }
+
+    @discardableResult
+    func cancelAndDrain(reason: String = "drain", timeoutMS: UInt64?) async -> Bool {
         watchdogTask?.cancel()
         watchdogTask = nil
         let task = generationTask
@@ -1223,12 +1235,49 @@ class InferenceEngine {
         task?.cancel()
         decodeEngine.stop()
         prefillEngine.cancel()
-        if let task {
+
+        var drained = true
+        if let timeoutMS {
+            if activeFormat == .gguf {
+                let primaryDrained = await llamaRunner?.awaitGenerationDrain(timeoutMS: timeoutMS) ?? true
+                let draftDrained = await draftLlamaRunner?.awaitGenerationDrain(timeoutMS: timeoutMS) ?? true
+                drained = primaryDrained && draftDrained
+                if !drained {
+                    logError("Cancellation timeout reason=\(reason) timeoutMS=\(timeoutMS) format=\(activeFormat.rawValue)")
+                    llamaRunner?.forceStopSchedulingAndReleaseOwnership(reason: "\(reason)_timeout")
+                    draftLlamaRunner?.forceStopSchedulingAndReleaseOwnership(reason: "\(reason)_timeout")
+                }
+            } else if let task {
+                drained = await awaitTaskDrain(task, timeoutMS: timeoutMS)
+                if !drained {
+                    logError("Cancellation timeout reason=\(reason) timeoutMS=\(timeoutMS) format=\(activeFormat.rawValue)")
+                }
+            }
+        }
+
+        if drained, let task {
             await task.value
         }
         generationTask = nil
         isGenerating = false
-        logNotice("Cancellation drained reason=\(reason) format=\(activeFormat.rawValue)")
+        logNotice("Cancellation drained reason=\(reason) format=\(activeFormat.rawValue) completed=\(drained)")
+        return drained
+    }
+
+    private func awaitTaskDrain(_ task: Task<Void, Never>, timeoutMS: UInt64) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                await task.value
+                return true
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeoutMS * 1_000_000)
+                return false
+            }
+            let completed = await group.next() ?? false
+            group.cancelAll()
+            return completed
+        }
     }
 
     func resetSession() {
