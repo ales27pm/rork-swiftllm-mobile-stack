@@ -351,6 +351,39 @@ class ThermalGovernor {
         lastRecoveryProbeDate = nil
         isRecoveryInProgress = false
     }
+
+    func waitForCooldown(maxWaitSeconds: Double = 30, targetBelow: ProcessInfo.ThermalState = .serious) async -> Bool {
+        let deadline = Date().addingTimeInterval(maxWaitSeconds)
+        while Date() < deadline {
+            handleThermalStateChange()
+            if thermalState.rawValue < targetBelow.rawValue {
+                return true
+            }
+            try? await Task.sleep(for: .seconds(2))
+        }
+        handleThermalStateChange()
+        return thermalState.rawValue < targetBelow.rawValue
+    }
+
+    var cooldownDelaySeconds: Double {
+        switch thermalState {
+        case .nominal: return 0
+        case .fair: return 0.5
+        case .serious: return 3.0
+        case .critical: return 5.0
+        @unknown default: return 1.0
+        }
+    }
+
+    var interCategoryCooldownSeconds: Double {
+        switch thermalState {
+        case .nominal: return 0
+        case .fair: return 1.0
+        case .serious: return 5.0
+        case .critical: return 10.0
+        @unknown default: return 2.0
+        }
+    }
 }
 
 nonisolated enum MemoryPressureLevel: String, Sendable {

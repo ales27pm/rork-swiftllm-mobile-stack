@@ -86,7 +86,12 @@ extension DiagnosticEngine {
             }
         }
 
-        try? await Task.sleep(for: .milliseconds(100))
+        let cooldown = thermalGovernor?.cooldownDelaySeconds ?? 0
+        if cooldown > 0 {
+            try? await Task.sleep(for: .seconds(cooldown))
+        } else {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
         return (generatedText.trimmingCharacters(in: .whitespacesAndNewlines), metricsResult)
     }
 

@@ -64,10 +64,33 @@ class DiagnosticEngine {
         totalTests = allTests.count
         results = allTests
 
+        let heavyCategories: Set<DiagnosticCategory> = [
+            .llmDiagnostic, .configOptimization, .inferenceDeep, .stressTest
+        ]
+        var previousCategory: DiagnosticCategory?
+
         for i in 0..<results.count {
             guard isRunning else { break }
             currentTestIndex = i
-            currentCategory = results[i].category
+            let testCategory = results[i].category
+            currentCategory = testCategory
+
+            if let prev = previousCategory, prev != testCategory {
+                if let tg = thermalGovernor {
+                    let interDelay = tg.interCategoryCooldownSeconds
+                    if interDelay > 0 {
+                        try? await Task.sleep(for: .seconds(interDelay))
+                    }
+                }
+
+                if heavyCategories.contains(testCategory) {
+                    if let tg = thermalGovernor, tg.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue {
+                        _ = await tg.waitForCooldown(maxWaitSeconds: 30, targetBelow: .serious)
+                    }
+                }
+            }
+            previousCategory = testCategory
+
             results[i].status = .running
 
             let start = Date()
