@@ -2,6 +2,7 @@ import Foundation
 import CoreML
 import OSLog
 import UIKit
+import Dispatch
 
 @Observable
 @MainActor
@@ -10,6 +11,7 @@ class InferenceEngine {
         let subsystem = Bundle.main.bundleIdentifier ?? "NeuralEngine"
         return Logger(subsystem: subsystem, category: "InferenceEngine")
     }()
+    nonisolated private static let signposter = OSSignposter(logger: logger)
 
     var isGenerating: Bool = false
     var currentText: String = ""
@@ -60,10 +62,12 @@ class InferenceEngine {
     private var memoryPressureObserver: NSObjectProtocol?
     private var willResignActiveObserver: NSObjectProtocol?
     private var didEnterBackgroundObserver: NSObjectProtocol?
+    private var willEnterForegroundObserver: NSObjectProtocol?
     private var didBecomeActiveObserver: NSObjectProtocol?
     private let resumeOnDidBecomeActiveDefaultsKey = "inference_resume_on_did_become_active"
     private var lifecyclePaused: Bool = false
     private let lifecycleShutdownTimeoutMS: UInt64 = 500
+    private let lifecycleWatchdogWarningThresholdMS: Double = 200
 
     nonisolated private func logNotice(_ message: String) {
         Self.logger.notice("\(message, privacy: .public)")
@@ -71,6 +75,85 @@ class InferenceEngine {
 
     nonisolated private func logError(_ message: String) {
         Self.logger.error("\(message, privacy: .public)")
+    }
+
+    nonisolated private func executionIdentity() -> (queue: String, thread: String) {
+        let queueLabel = String(cString: __dispatch_queue_get_label(nil))
+        let threadName = Thread.isMainThread ? "main" : (Thread.current.name?.isEmpty == false ? Thread.current.name! : "unnamed")
+        return (queueLabel, threadName)
+    }
+
+    nonisolated private func createLifecycleSignpost(event: String) -> (id: OSSignpostID, start: ContinuousClock.Instant, identity: (queue: String, thread: String)) {
+        let id = Self.signposter.makeSignpostID()
+        let identity = executionIdentity()
+        let start = ContinuousClock.now
+        Self.signposter.beginInterval(
+            "SceneLifecycleCallback",
+            id: id,
+            "event=\(event, privacy: .public) queue=\(identity.queue, privacy: .public) thread=\(identity.thread, privacy: .public)"
+        )
+        return (id, start, identity)
+    }
+
+    nonisolated private func completeLifecycleSignpost(
+        event: String,
+        signpost: (id: OSSignpostID, start: ContinuousClock.Instant, identity: (queue: String, thread: String))
+    ) {
+        let duration = signpost.start.duration(to: ContinuousClock.now)
+        let elapsedMS = Double(duration.components.seconds) * 1000
+            + Double(duration.components.attoseconds) / 1e15
+        Self.signposter.endInterval(
+            "SceneLifecycleCallback",
+            signpost.id,
+            "event=\(event, privacy: .public) elapsedMS=\(elapsedMS, privacy: .public)"
+        )
+        logNotice("Scene lifecycle callback completed event=\(event) elapsedMS=\(String(format: "%.1f", elapsedMS)) queue=\(signpost.identity.queue) thread=\(signpost.identity.thread)")
+        if elapsedMS > lifecycleWatchdogWarningThresholdMS {
+            logError("Watchdog risk: lifecycle callback exceeded threshold event=\(event) elapsedMS=\(String(format: "%.1f", elapsedMS)) thresholdMS=\(Int(lifecycleWatchdogWarningThresholdMS)) queue=\(signpost.identity.queue) thread=\(signpost.identity.thread)")
+        }
+    }
+
+    private func beginInferenceRequestSignpost(
+        requestID: String,
+        format: ModelFormat,
+        contextLength: Int,
+        batchSize: Int,
+        maxTokens: Int
+    ) -> OSSignpostID {
+        let signpostID = Self.signposter.makeSignpostID()
+        let identity = executionIdentity()
+        Self.signposter.beginInterval(
+            "InferenceRequest",
+            id: signpostID,
+            "requestID=\(requestID, privacy: .public) format=\(format.rawValue, privacy: .public) contextLength=\(contextLength, privacy: .public) batchSize=\(batchSize, privacy: .public) maxTokens=\(maxTokens, privacy: .public) queue=\(identity.queue, privacy: .public) thread=\(identity.thread, privacy: .public)"
+        )
+        logNotice("Inference request start requestID=\(requestID) format=\(format.rawValue) contextLength=\(contextLength) batchSize=\(batchSize) maxTokens=\(maxTokens) queue=\(identity.queue) thread=\(identity.thread)")
+        return signpostID
+    }
+
+    private func emitInferenceFirstTokenSignpost(requestID: String, signpostID: OSSignpostID) {
+        let identity = executionIdentity()
+        Self.signposter.emitEvent(
+            "InferenceFirstToken",
+            id: signpostID,
+            "requestID=\(requestID, privacy: .public) queue=\(identity.queue, privacy: .public) thread=\(identity.thread, privacy: .public)"
+        )
+        logNotice("Inference first token requestID=\(requestID) queue=\(identity.queue) thread=\(identity.thread)")
+    }
+
+    private func completeInferenceRequestSignpost(
+        requestID: String,
+        signpostID: OSSignpostID,
+        status: String,
+        generatedTokens: Int
+    ) {
+        let identity = executionIdentity()
+        Self.signposter.endInterval(
+            "InferenceRequest",
+            signpostID,
+            "requestID=\(requestID, privacy: .public) status=\(status, privacy: .public) generatedTokens=\(generatedTokens, privacy: .public) queue=\(identity.queue, privacy: .public) thread=\(identity.thread, privacy: .public)"
+        )
+        logNotice("Inference request end requestID=\(requestID) status=\(status) generatedTokens=\(generatedTokens) queue=\(identity.queue) thread=\(identity.thread)")
     }
 
     init(metricsLogger: MetricsLogger, thermalGovernor: ThermalGovernor) {
@@ -145,7 +228,7 @@ class InferenceEngine {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                await self?.handleLifecycleSuspend(event: "willResignActive")
+                await self?.handleLifecycleSuspend(event: "sceneWillResignActive")
             }
         }
 
@@ -155,7 +238,17 @@ class InferenceEngine {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                await self?.handleLifecycleSuspend(event: "didEnterBackground")
+                await self?.handleLifecycleSuspend(event: "sceneDidEnterBackground")
+            }
+        }
+
+        willEnterForegroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.handleWillEnterForeground()
             }
         }
 
@@ -171,6 +264,8 @@ class InferenceEngine {
     }
 
     private func handleLifecycleSuspend(event: String) async {
+        let span = createLifecycleSignpost(event: event)
+        defer { completeLifecycleSignpost(event: event, signpost: span) }
         lifecyclePaused = true
         guard isGenerating else { return }
         let cancelSignalTime = Date()
@@ -183,6 +278,8 @@ class InferenceEngine {
     }
 
     private func handleDidBecomeActive() {
+        let span = createLifecycleSignpost(event: "sceneDidBecomeActive")
+        defer { completeLifecycleSignpost(event: "sceneDidBecomeActive", signpost: span) }
         if UserDefaults.standard.object(forKey: resumeOnDidBecomeActiveDefaultsKey) == nil {
             UserDefaults.standard.set(true, forKey: resumeOnDidBecomeActiveDefaultsKey)
         }
@@ -193,6 +290,12 @@ class InferenceEngine {
         } else {
             logNotice("Lifecycle gate remains paused on didBecomeActive due to user settings")
         }
+    }
+
+    private func handleWillEnterForeground() {
+        let span = createLifecycleSignpost(event: "sceneWillEnterForeground")
+        defer { completeLifecycleSignpost(event: "sceneWillEnterForeground", signpost: span) }
+        logNotice("Lifecycle transition event=sceneWillEnterForeground")
     }
 
     private func canStartGenerationForLifecycle() -> Bool {
@@ -324,9 +427,29 @@ class InferenceEngine {
         lastProbeLatencyMS = 0
         metricsLogger.beginGeneration()
         metricsLogger.currentMetrics.zeroTokenProbeLatencyMS = 0
+        let runtimeMode = self.thermalGovernor.currentMode
+        let requestID = UUID().uuidString
+        let requestSignpostID = beginInferenceRequestSignpost(
+            requestID: requestID,
+            format: .coreML,
+            contextLength: runtimeMode.maxContextLength,
+            batchSize: 1,
+            maxTokens: min(samplingConfig.maxTokens, runtimeMode.maxContextLength)
+        )
 
         generationTask = Task { [weak self] in
             guard let self else { return }
+            var requestStatus = "completed"
+            var emittedFirstTokenSignpost = false
+            var generatedTokenCount = 0
+            defer {
+                self.completeInferenceRequestSignpost(
+                    requestID: requestID,
+                    signpostID: requestSignpostID,
+                    status: requestStatus,
+                    generatedTokens: generatedTokenCount
+                )
+            }
 
             let shouldProbe = !self.hasValidatedCurrentSession || self.thermalGovernor.shouldRunZeroTokenProbe || runner.currentState == .evicted
             if shouldProbe {
@@ -362,6 +485,7 @@ class InferenceEngine {
                     self.metricsLogger.recordRecovery(success: recovered, newComputeUnits: recovered ? self.computeUnitsLabel(runner) : self.metricsLogger.activeComputeLabel)
                     if !recovered {
                         self.isGenerating = false
+                        requestStatus = "failed"
                         self.notifyRecoverableWarning("Neural Engine recovery failed, including CPU fallback. Please reload the model.")
                         self.notifyRecoveryNeeded()
                         onComplete(self.failedMetrics(since: Date()))
@@ -475,6 +599,7 @@ class InferenceEngine {
                         }
                     } catch {
                         self.isGenerating = false
+                        requestStatus = "failed"
                         self.notifyRecoveryNeeded()
                         await self.kvCacheManager.releaseSequence(sequenceID)
                         onComplete(self.failedMetrics(since: prefillStart))
@@ -482,6 +607,7 @@ class InferenceEngine {
                     }
                 } else {
                     self.isGenerating = false
+                    requestStatus = "failed"
                     self.notifyRecoveryNeeded()
                     await self.kvCacheManager.releaseSequence(sequenceID)
                     onComplete(self.failedMetrics(since: prefillStart))
@@ -489,6 +615,7 @@ class InferenceEngine {
                 }
             } catch {
                 self.isGenerating = false
+                requestStatus = "failed"
                 await self.kvCacheManager.releaseSequence(sequenceID)
                 onComplete(self.failedMetrics(since: prefillStart))
                 return
@@ -527,6 +654,10 @@ class InferenceEngine {
             }
 
             self.metricsLogger.recordFirstToken()
+            if !emittedFirstTokenSignpost {
+                emittedFirstTokenSignpost = true
+                self.emitInferenceFirstTokenSignpost(requestID: requestID, signpostID: requestSignpostID)
+            }
 
             let eosTokens = tokenizer.effectiveEOSTokens
             var generatedCount = 0
@@ -609,6 +740,7 @@ class InferenceEngine {
                     self.sessionCache.accept(tokens: [sampledToken])
                     self.metricsLogger.recordToken()
                     generatedCount += 1
+                    generatedTokenCount = generatedCount
                     pageAccumulator += 1
 
                     if pageAccumulator >= 128 {
@@ -686,6 +818,7 @@ class InferenceEngine {
             )
 
             onComplete(metrics)
+            requestStatus = Task.isCancelled ? "cancelled" : "completed"
         }
     }
 
@@ -894,9 +1027,23 @@ class InferenceEngine {
         let speculativeDraftRunner = mode.speculativeEnabled ? draftLlamaRunner : nil
         let speculativeDraftCount = mode.speculativeEnabled ? speculationPolicy.k : 0
         logNotice("Generation start format=gguf promptMessages=\(messages.count) speculativeDraft=\(speculativeDraftRunner != nil) maxTokens=\(thermalAdjustedConfig.maxTokens)")
+        let requestID = UUID().uuidString
+        let requestSignpostID = beginInferenceRequestSignpost(
+            requestID: requestID,
+            format: .gguf,
+            contextLength: llamaRunner.configuredContextLength,
+            batchSize: llamaRunner.configuredBatchSize,
+            maxTokens: thermalAdjustedConfig.maxTokens
+        )
 
         if thermalGovernor.shouldSuspendInference {
             isGenerating = false
+            completeInferenceRequestSignpost(
+                requestID: requestID,
+                signpostID: requestSignpostID,
+                status: "cancelled",
+                generatedTokens: 0
+            )
             onComplete(GenerationMetrics(
                 timeToFirstToken: 0, prefillTokensPerSecond: 0,
                 decodeTokensPerSecond: 0, totalTokens: 0,
@@ -915,6 +1062,7 @@ class InferenceEngine {
 
         generationTask = Task.detached { [weak self] in
             guard let self else { return }
+            var requestStatus = "completed"
 
             if shouldProbe {
                 let probeResult = llamaRunner.runZeroTokenProbe()
@@ -928,11 +1076,18 @@ class InferenceEngine {
                 if !probeResult.passed || exceededLatency || evictedState {
                     let recovered = await self.attemptInlineRecovery(runner: llamaRunner, policy: BackoffPolicy.exponential)
                     if !recovered {
+                        requestStatus = "failed"
                         await MainActor.run {
                             self.isGenerating = false
                             self.notifyRecoverableWarning("GGUF recovery failed. Please reload the model.")
                             self.notifyRecoveryNeeded()
                             onComplete(self.failedMetrics(since: Date()))
+                            self.completeInferenceRequestSignpost(
+                                requestID: requestID,
+                                signpostID: requestSignpostID,
+                                status: requestStatus,
+                                generatedTokens: self.metricsLogger.currentMetrics.totalTokensGenerated
+                            )
                         }
                         return
                     }
@@ -965,6 +1120,9 @@ class InferenceEngine {
                             }
                             self.currentText += token
                             self.metricsLogger.recordFirstToken()
+                            if self.metricsLogger.currentMetrics.totalTokensGenerated == 0 {
+                                self.emitInferenceFirstTokenSignpost(requestID: requestID, signpostID: requestSignpostID)
+                            }
                             self.metricsLogger.recordToken()
                             onToken(token)
                         }
@@ -1017,10 +1175,17 @@ class InferenceEngine {
                     )
                     self.isGenerating = false
                     onComplete(metrics)
+                    self.completeInferenceRequestSignpost(
+                        requestID: requestID,
+                        signpostID: requestSignpostID,
+                        status: requestStatus,
+                        generatedTokens: self.metricsLogger.currentMetrics.totalTokensGenerated
+                    )
                 }
             } catch let error as LlamaRunnerError {
                 if case .generationCancelled = error {
                     self.logNotice("Generation stop format=gguf status=cancelled error=\(error.localizedDescription)")
+                    requestStatus = "cancelled"
                     await MainActor.run { [weak self] in
                         guard let self else { return }
                         self.watchdogTask?.cancel()
@@ -1030,25 +1195,45 @@ class InferenceEngine {
                             ? self.lastCancellationReason
                             : "generationCancelled"
                         onComplete(self.partialMetrics(since: generationStartedAt, fallbackMode: cancelFallback))
+                        self.completeInferenceRequestSignpost(
+                            requestID: requestID,
+                            signpostID: requestSignpostID,
+                            status: requestStatus,
+                            generatedTokens: self.metricsLogger.currentMetrics.totalTokensGenerated
+                        )
                     }
                     return
                 }
                 self.logError("Generation stop format=gguf status=failed error=\(error.localizedDescription)")
+                requestStatus = "failed"
                 await MainActor.run { [weak self] in
                     guard let self else { return }
                     self.watchdogTask?.cancel()
                     self.watchdogTask = nil
                     self.isGenerating = false
                     onComplete(self.partialMetrics(since: generationStartedAt, fallbackMode: self.activeFallbackMode))
+                    self.completeInferenceRequestSignpost(
+                        requestID: requestID,
+                        signpostID: requestSignpostID,
+                        status: requestStatus,
+                        generatedTokens: self.metricsLogger.currentMetrics.totalTokensGenerated
+                    )
                 }
             } catch {
                 self.logError("Generation stop format=gguf status=failed error=\(error.localizedDescription)")
+                requestStatus = "failed"
                 await MainActor.run { [weak self] in
                     guard let self else { return }
                     self.watchdogTask?.cancel()
                     self.watchdogTask = nil
                     self.isGenerating = false
                     onComplete(self.partialMetrics(since: generationStartedAt, fallbackMode: self.activeFallbackMode))
+                    self.completeInferenceRequestSignpost(
+                        requestID: requestID,
+                        signpostID: requestSignpostID,
+                        status: requestStatus,
+                        generatedTokens: self.metricsLogger.currentMetrics.totalTokensGenerated
+                    )
                 }
             }
         }
@@ -1213,6 +1398,11 @@ class InferenceEngine {
             draftLlamaRunner?.requestGenerationCancellation(reason: reason)
         }
         logNotice("Cancellation requested reason=\(reason) format=\(activeFormat.rawValue) hasTask=\(generationTask != nil)")
+        Self.signposter.emitEvent(
+            "InferenceCancelled",
+            id: .exclusive,
+            "reason=\(reason, privacy: .public) format=\(activeFormat.rawValue, privacy: .public)"
+        )
         generationTask?.cancel()
         decodeEngine.stop()
         prefillEngine.cancel()

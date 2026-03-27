@@ -1208,6 +1208,14 @@ nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Send
         }
     }
 
+    var configuredContextLength: Int {
+        withLock { Int(lastNCtx) }
+    }
+
+    var configuredBatchSize: Int {
+        withLock { Int(nBatch) }
+    }
+
     func attemptRecovery() async throws {
         let snapshot = saveState()
         let recoveryContext = withLock { () -> (path: String, nCtx: Int32, nGPULayers: Int32)? in
