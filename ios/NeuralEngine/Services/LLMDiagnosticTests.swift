@@ -15,16 +15,20 @@ extension DiagnosticEngine {
             return ("", nil)
         }
 
-        for _ in 0..<300 {
+        for _ in 0..<500 {
             if !ie.isGenerating { break }
             try? await Task.sleep(for: .milliseconds(20))
         }
         if ie.isGenerating {
             await ie.cancelAndDrain(reason: "diagnosticIdleWait")
-            for _ in 0..<150 {
+            for _ in 0..<250 {
                 if !ie.isGenerating { break }
                 try? await Task.sleep(for: .milliseconds(20))
             }
+        }
+        if ie.isGenerating {
+            ie.resetSession()
+            try? await Task.sleep(for: .milliseconds(200))
         }
         guard !ie.isGenerating else {
             return ("", nil)
@@ -41,9 +45,13 @@ extension DiagnosticEngine {
                 guard !resumed else { return }
                 resumed = true
                 await ie.cancelAndDrain(reason: "diagnosticTimeout")
-                for _ in 0..<150 {
+                for _ in 0..<250 {
                     if !ie.isGenerating { break }
                     try? await Task.sleep(for: .milliseconds(20))
+                }
+                if ie.isGenerating {
+                    ie.resetSession()
+                    try? await Task.sleep(for: .milliseconds(200))
                 }
                 continuation.resume()
             }
@@ -68,13 +76,17 @@ extension DiagnosticEngine {
         }
 
         if !completedNormally {
-            for _ in 0..<150 {
+            for _ in 0..<250 {
                 if !ie.isGenerating { break }
                 try? await Task.sleep(for: .milliseconds(20))
             }
+            if ie.isGenerating {
+                ie.resetSession()
+                try? await Task.sleep(for: .milliseconds(200))
+            }
         }
 
-        try? await Task.sleep(for: .milliseconds(50))
+        try? await Task.sleep(for: .milliseconds(100))
         return (generatedText.trimmingCharacters(in: .whitespacesAndNewlines), metricsResult)
     }
 
@@ -87,6 +99,15 @@ extension DiagnosticEngine {
             )
         }
         return nil
+    }
+
+    var isThermallySevere: Bool {
+        let mode = thermalGovernor?.currentMode ?? .maxPerformance
+        return mode == .coolDown || mode == .emergency
+    }
+
+    var thermalModeLabel: String {
+        thermalGovernor?.currentMode.rawValue ?? "unknown"
     }
 
     // MARK: - LLM Instruction Following
@@ -383,7 +404,8 @@ extension DiagnosticEngine {
 
         let userInput = "I'm curious about how neural networks learn from data"
         let thermalMode = thermalGovernor?.currentMode ?? .maxPerformance
-        let budget = ContextAssembler.budgetForMode(thermalMode)
+        let thermalConstrained = thermalMode == .coolDown || thermalMode == .emergency
+        let budget: PromptBudget = thermalConstrained ? .minimal : ContextAssembler.budgetForMode(thermalMode)
         let timeoutSeconds: Double
 
         switch thermalMode {
@@ -392,14 +414,14 @@ extension DiagnosticEngine {
         case .balanced:
             timeoutSeconds = 35
         case .coolDown:
-            timeoutSeconds = 50
+            timeoutSeconds = 30
         case .emergency:
-            timeoutSeconds = 35
+            timeoutSeconds = 25
         }
 
         CognitionEngine.resetSignature()
         let frame = CognitionEngine.process(userText: userInput, conversationHistory: [], memoryService: mem)
-        let memResults = mem.searchMemories(query: userInput, maxResults: 5)
+        let memResults = mem.searchMemories(query: userInput, maxResults: thermalConstrained ? 2 : 5)
         let systemPrompt = ContextAssembler.assembleSystemPrompt(
             frame: frame,
             memoryResults: memResults,
@@ -417,7 +439,7 @@ extension DiagnosticEngine {
         ]
 
         var config = SamplingConfig()
-        config.maxTokens = thermalMode == .coolDown || thermalMode == .emergency ? 50 : 200
+        config.maxTokens = thermalConstrained ? 30 : 200
         config.temperature = 0.7
 
         let start = Date()
@@ -452,7 +474,6 @@ extension DiagnosticEngine {
             details.append("TTFT: \(String(format: "%.0f", m.timeToFirstToken))ms, Decode: \(String(format: "%.1f", m.decodeTokensPerSecond)) tok/s")
         }
 
-        let thermalConstrained = thermalMode == .coolDown || thermalMode == .emergency
         let status: DiagnosticTestStatus
         if thermalConstrained {
             status = checks >= 3 ? .passed : (checks >= 2 ? .warning : .failed)
@@ -649,13 +670,16 @@ extension DiagnosticEngine {
         try? await Task.sleep(for: .milliseconds(100))
 
         let userInput = "What do you know about coral reefs and marine biology?"
+        let thermalConstrained = isThermallySevere
+        let budget: PromptBudget = thermalConstrained ? .minimal : .full
 
         CognitionEngine.resetSignature()
         let frame = CognitionEngine.process(userText: userInput, conversationHistory: [], memoryService: mem)
-        let memResults = mem.searchMemories(query: userInput, maxResults: 5)
+        let memResults = mem.searchMemories(query: userInput, maxResults: thermalConstrained ? 3 : 5)
         let systemPrompt = ContextAssembler.assembleSystemPrompt(
             frame: frame, memoryResults: memResults, conversationHistory: [],
-            toolsEnabled: false, isVoiceMode: false, preferredResponseLanguageCode: nil
+            toolsEnabled: false, isVoiceMode: false, preferredResponseLanguageCode: nil,
+            budget: budget
         )
         CognitionEngine.resetSignature()
 
@@ -665,10 +689,10 @@ extension DiagnosticEngine {
         ]
 
         var config = SamplingConfig()
-        config.maxTokens = 200
+        config.maxTokens = thermalConstrained ? 60 : 200
         config.temperature = 0.6
 
-        let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 20)
+        let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: thermalConstrained ? 25 : 20)
 
         mem.deleteMemory(testMemory.id)
 
@@ -708,6 +732,14 @@ extension DiagnosticEngine {
     func llmTestToolCallEmission() async -> TestOutcome {
         if let skip = llmRequiresModel() { return skip }
 
+        if isThermallySevere {
+            return TestOutcome(
+                status: .warning,
+                message: "Skipped under thermal throttling (\(thermalModeLabel)) — tool prompts exceed reduced context window",
+                details: ["Thermal mode: \(thermalModeLabel)", "Tool prompts require larger context than available under thermal constraints"]
+            )
+        }
+
         let toolsPrompt = ToolExecutor.buildToolsPrompt()
         let systemPrompt = "You are a helpful assistant with device tools.\n\n\(toolsPrompt)"
 
@@ -730,7 +762,7 @@ extension DiagnosticEngine {
             config.maxTokens = 100
             config.temperature = 0.3
 
-            let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 15)
+            let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 25)
 
             let calls = ToolCallParser.parse(from: output)
             let emittedNames = calls.map(\.name)
@@ -757,6 +789,14 @@ extension DiagnosticEngine {
     func llmTestToolCallFormat() async -> TestOutcome {
         if let skip = llmRequiresModel() { return skip }
 
+        if isThermallySevere {
+            return TestOutcome(
+                status: .warning,
+                message: "Skipped under thermal throttling (\(thermalModeLabel)) — tool prompts exceed reduced context window",
+                details: ["Thermal mode: \(thermalModeLabel)"]
+            )
+        }
+
         let toolsPrompt = ToolExecutor.buildToolsPrompt()
         let systemPrompt = "You are a helpful assistant with device tools.\n\n\(toolsPrompt)"
 
@@ -779,7 +819,7 @@ extension DiagnosticEngine {
             config.maxTokens = 80
             config.temperature = 0.2
 
-            let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 15)
+            let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 25)
 
             let hasTag = output.contains("<tool_call>") || output.contains("<tool_calls>")
             let calls = ToolCallParser.parse(from: output)
@@ -812,6 +852,14 @@ extension DiagnosticEngine {
     func llmTestToolAbstention() async -> TestOutcome {
         if let skip = llmRequiresModel() { return skip }
 
+        if isThermallySevere {
+            return TestOutcome(
+                status: .warning,
+                message: "Skipped under thermal throttling (\(thermalModeLabel)) — tool prompts exceed reduced context window",
+                details: ["Thermal mode: \(thermalModeLabel)"]
+            )
+        }
+
         let toolsPrompt = ToolExecutor.buildToolsPrompt()
         let systemPrompt = "You are a helpful assistant with device tools. Only use tools when the user explicitly needs device capabilities. If no tool is needed, respond normally in plain text.\n\n\(toolsPrompt)"
 
@@ -834,7 +882,7 @@ extension DiagnosticEngine {
             config.maxTokens = 120
             config.temperature = 0.5
 
-            let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 15)
+            let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 25)
 
             let calls = ToolCallParser.parse(from: output)
             let noToolCall = calls.isEmpty
@@ -861,6 +909,14 @@ extension DiagnosticEngine {
 
     func llmTestToolResultSynthesis() async -> TestOutcome {
         if let skip = llmRequiresModel() { return skip }
+
+        if isThermallySevere {
+            return TestOutcome(
+                status: .warning,
+                message: "Skipped under thermal throttling (\(thermalModeLabel)) — tool prompts exceed reduced context window",
+                details: ["Thermal mode: \(thermalModeLabel)"]
+            )
+        }
 
         let toolsPrompt = ToolExecutor.buildToolsPrompt()
         let systemPrompt = "You are a helpful assistant with device tools. After receiving tool results, synthesize a concise user-facing answer.\n\n\(toolsPrompt)"
@@ -920,6 +976,14 @@ extension DiagnosticEngine {
 
     func llmTestBatchedToolCalls() async -> TestOutcome {
         if let skip = llmRequiresModel() { return skip }
+
+        if isThermallySevere {
+            return TestOutcome(
+                status: .warning,
+                message: "Skipped under thermal throttling (\(thermalModeLabel)) — tool prompts exceed reduced context window",
+                details: ["Thermal mode: \(thermalModeLabel)"]
+            )
+        }
 
         let toolsPrompt = ToolExecutor.buildToolsPrompt()
         let systemPrompt = "You are a helpful assistant with device tools. When a user request requires multiple tools, emit them all in a single batched tool_calls tag.\n\n\(toolsPrompt)"

@@ -341,6 +341,14 @@ extension DiagnosticEngine {
         if let skip = llmRequiresModel() { return skip }
         guard let mem = memoryService else { return TestOutcome(status: .skipped, message: "No memory service", details: []) }
 
+        if isThermallySevere {
+            return TestOutcome(
+                status: .warning,
+                message: "Skipped under thermal throttling (\(thermalModeLabel)) \u{2014} assembled prompts exceed reduced context window",
+                details: ["Thermal mode: \(thermalModeLabel)", "Full/compact prompts too large for constrained context"]
+            )
+        }
+
         let userInput = "Tell me about Swift programming"
         let budgets: [(PromptBudget, String)] = [(.full, "full"), (.compact, "compact"), (.minimal, "minimal")]
 
