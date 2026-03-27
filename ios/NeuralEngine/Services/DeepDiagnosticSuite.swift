@@ -105,6 +105,17 @@ extension DiagnosticEngine {
         ])
 
         tests.append(contentsOf: [
+            DiagnosticTestResult(name: "Temperature vs Quality Trade-off", category: .configOptimization),
+            DiagnosticTestResult(name: "TopK Sweep (Diversity vs Coherence)", category: .configOptimization),
+            DiagnosticTestResult(name: "TopP Nucleus Sampling Comparison", category: .configOptimization),
+            DiagnosticTestResult(name: "Repetition Penalty Effect", category: .configOptimization),
+            DiagnosticTestResult(name: "Max Tokens Budget vs Latency", category: .configOptimization),
+            DiagnosticTestResult(name: "Prompt Budget Quality Comparison", category: .configOptimization),
+            DiagnosticTestResult(name: "Sampling Seed Determinism", category: .configOptimization),
+            DiagnosticTestResult(name: "Combined Config Profile Benchmark", category: .configOptimization),
+        ])
+
+        tests.append(contentsOf: [
             DiagnosticTestResult(name: "Vector Embedding Generation", category: .vectorDatabase),
             DiagnosticTestResult(name: "Vector Store Insert/Retrieve", category: .vectorDatabase),
             DiagnosticTestResult(name: "Vector Cosine Similarity Accuracy", category: .vectorDatabase),
@@ -293,6 +304,23 @@ extension DiagnosticEngine {
             return vectorTestSearchLatency()
         case (.vectorDatabase, "Vector Hybrid Ranking Boost"):
             return vectorTestHybridRanking()
+
+        case (.configOptimization, "Temperature vs Quality Trade-off"):
+            return await configTestTemperatureQuality()
+        case (.configOptimization, "TopK Sweep (Diversity vs Coherence)"):
+            return await configTestTopKSweep()
+        case (.configOptimization, "TopP Nucleus Sampling Comparison"):
+            return await configTestTopPComparison()
+        case (.configOptimization, "Repetition Penalty Effect"):
+            return await configTestRepetitionPenalty()
+        case (.configOptimization, "Max Tokens Budget vs Latency"):
+            return await configTestMaxTokensBudget()
+        case (.configOptimization, "Prompt Budget Quality Comparison"):
+            return await configTestPromptBudget()
+        case (.configOptimization, "Sampling Seed Determinism"):
+            return await configTestSeedDeterminism()
+        case (.configOptimization, "Combined Config Profile Benchmark"):
+            return await configTestCombinedProfiles()
 
         default:
             return TestOutcome(status: .skipped, message: "No deep test implementation", details: [])

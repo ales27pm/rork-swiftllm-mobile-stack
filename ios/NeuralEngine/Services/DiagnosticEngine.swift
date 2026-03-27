@@ -680,7 +680,7 @@ class DiagnosticEngine {
             case (.emotionAccuracy, _), (.intentAccuracy, _), (.memoryQuality, _),
                  (.cognitionQuality, _), (.contextQuality, _), (.stressTest, _),
                  (.inferenceDeep, _), (.regressionE2E, _), (.llmDiagnostic, _),
-                 (.vectorDatabase, _):
+                 (.vectorDatabase, _), (.configOptimization, _):
                 return await executeDeepTest(test)
 
             default:

@@ -5,7 +5,7 @@ extension DiagnosticEngine {
 
     // MARK: - LLM Diagnostic Helper
 
-    private func llmGenerate(
+    func llmGenerate(
         messages: [[String: String]],
         systemPrompt: String,
         samplingConfig: SamplingConfig = SamplingConfig(),
@@ -21,10 +21,7 @@ extension DiagnosticEngine {
         }
         if ie.isGenerating {
             await ie.cancelAndDrain(reason: "diagnosticIdleWait")
-        }
-        for _ in 0..<25 {
-            if !ie.isGenerating { break }
-            try? await Task.sleep(for: .milliseconds(20))
+            try? await Task.sleep(for: .milliseconds(50))
         }
         guard !ie.isGenerating else {
             return ("", nil)
@@ -39,6 +36,7 @@ extension DiagnosticEngine {
                 try? await Task.sleep(for: .seconds(timeoutSeconds))
                 if !resumed {
                     resumed = true
+                    ie.cancel(reason: "diagnosticTimeout")
                     continuation.resume(returning: false)
                 }
             }
@@ -62,12 +60,8 @@ extension DiagnosticEngine {
         }
 
         if !completed {
-            await ie.cancelAndDrain(reason: "diagnosticTimeout")
-            for _ in 0..<50 {
-                if !ie.isGenerating { break }
-                try? await Task.sleep(for: .milliseconds(20))
-            }
-            try? await Task.sleep(for: .milliseconds(50))
+            await ie.cancelAndDrain(reason: "diagnosticTimeoutDrain")
+            try? await Task.sleep(for: .milliseconds(100))
             return (generatedText, metricsResult)
         }
 
@@ -75,7 +69,7 @@ extension DiagnosticEngine {
         return (generatedText.trimmingCharacters(in: .whitespacesAndNewlines), metricsResult)
     }
 
-    private func llmRequiresModel() -> TestOutcome? {
+    func llmRequiresModel() -> TestOutcome? {
         guard let ie = inferenceEngine, ie.hasModel else {
             return TestOutcome(
                 status: .skipped,
