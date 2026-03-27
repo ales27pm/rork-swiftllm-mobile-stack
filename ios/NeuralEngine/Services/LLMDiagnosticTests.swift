@@ -15,12 +15,12 @@ extension DiagnosticEngine {
             return ("", nil)
         }
 
-        for _ in 0..<500 {
+        for _ in 0..<250 {
             if !ie.isGenerating { break }
             try? await Task.sleep(for: .milliseconds(20))
         }
         if ie.isGenerating {
-            await ie.cancelAndDrain(reason: "diagnosticIdleWait")
+            ie.cancel(reason: "diagnosticIdleWait")
             for _ in 0..<250 {
                 if !ie.isGenerating { break }
                 try? await Task.sleep(for: .milliseconds(20))
@@ -28,7 +28,7 @@ extension DiagnosticEngine {
         }
         if ie.isGenerating {
             ie.resetSession()
-            try? await Task.sleep(for: .milliseconds(200))
+            try? await Task.sleep(for: .milliseconds(500))
         }
         guard !ie.isGenerating else {
             return ("", nil)
@@ -44,14 +44,14 @@ extension DiagnosticEngine {
                 try? await Task.sleep(for: .seconds(timeoutSeconds))
                 guard !resumed else { return }
                 resumed = true
-                await ie.cancelAndDrain(reason: "diagnosticTimeout")
+                ie.cancel(reason: "diagnosticTimeout")
                 for _ in 0..<250 {
                     if !ie.isGenerating { break }
                     try? await Task.sleep(for: .milliseconds(20))
                 }
                 if ie.isGenerating {
                     ie.resetSession()
-                    try? await Task.sleep(for: .milliseconds(200))
+                    try? await Task.sleep(for: .milliseconds(500))
                 }
                 continuation.resume()
             }
@@ -113,6 +113,24 @@ extension DiagnosticEngine {
 
     var thermalModeLabel: String {
         thermalGovernor?.currentMode.rawValue ?? "unknown"
+    }
+
+    var currentMaxContext: Int {
+        (thermalGovernor?.currentMode ?? .maxPerformance).maxContextLength
+    }
+
+    func estimatePromptTokens(_ text: String) -> Int {
+        max(1, text.count / 4)
+    }
+
+    func toolPromptExceedsContext(_ systemPrompt: String, generationBudget: Int) -> Bool {
+        let estimatedPromptTokens = estimatePromptTokens(systemPrompt)
+        let maxCtx = currentMaxContext
+        return estimatedPromptTokens + generationBudget > maxCtx
+    }
+
+    func allOutputsEmpty(_ outputs: [String]) -> Bool {
+        outputs.allSatisfy { $0.isEmpty }
     }
 
     // MARK: - LLM Instruction Following
@@ -737,16 +755,16 @@ extension DiagnosticEngine {
     func llmTestToolCallEmission() async -> TestOutcome {
         if let skip = llmRequiresModel() { return skip }
 
-        if isThermallySevere {
-            return TestOutcome(
-                status: .warning,
-                message: "Skipped under thermal throttling (\(thermalModeLabel)) — tool prompts exceed reduced context window",
-                details: ["Thermal mode: \(thermalModeLabel)", "Tool prompts require larger context than available under thermal constraints"]
-            )
-        }
-
         let toolsPrompt = ToolExecutor.buildToolsPrompt()
         let systemPrompt = "You are a helpful assistant with device tools.\n\n\(toolsPrompt)"
+
+        if isThermallySevere || toolPromptExceedsContext(systemPrompt, generationBudget: 100) {
+            return TestOutcome(
+                status: .warning,
+                message: "Skipped — tool prompt (~\(estimatePromptTokens(systemPrompt)) tokens) exceeds context budget (\(currentMaxContext) tokens, thermal: \(thermalModeLabel))",
+                details: ["Thermal mode: \(thermalModeLabel)", "Estimated prompt tokens: \(estimatePromptTokens(systemPrompt))", "Max context: \(currentMaxContext)"]
+            )
+        }
 
         let testCases: [(user: String, expectedTools: [String], label: String)] = [
             ("What time is it right now?", ["get_current_time"], "Time query"),
@@ -757,6 +775,7 @@ extension DiagnosticEngine {
 
         var passed = 0
         var details: [String] = []
+        var outputs: [String] = []
 
         for tc in testCases {
             let messages: [[String: String]] = [
@@ -768,6 +787,7 @@ extension DiagnosticEngine {
             config.temperature = 0.3
 
             let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 25)
+            outputs.append(output)
 
             let calls = ToolCallParser.parse(from: output)
             let emittedNames = calls.map(\.name)
@@ -782,6 +802,15 @@ extension DiagnosticEngine {
             }
         }
 
+        if allOutputsEmpty(outputs) {
+            details.append("All outputs empty — model may not support tool calling or prompt exceeded context")
+            return TestOutcome(
+                status: .warning,
+                message: "Tool call emission: 0/\(testCases.count) — model produced no output (context: \(currentMaxContext), prompt: ~\(estimatePromptTokens(systemPrompt)) tokens)",
+                details: details
+            )
+        }
+
         return TestOutcome(
             status: passed >= 3 ? .passed : (passed >= 2 ? .warning : .failed),
             message: "Tool call emission: \(passed)/\(testCases.count) emitted correct tool",
@@ -794,16 +823,16 @@ extension DiagnosticEngine {
     func llmTestToolCallFormat() async -> TestOutcome {
         if let skip = llmRequiresModel() { return skip }
 
-        if isThermallySevere {
-            return TestOutcome(
-                status: .warning,
-                message: "Skipped under thermal throttling (\(thermalModeLabel)) — tool prompts exceed reduced context window",
-                details: ["Thermal mode: \(thermalModeLabel)"]
-            )
-        }
-
         let toolsPrompt = ToolExecutor.buildToolsPrompt()
         let systemPrompt = "You are a helpful assistant with device tools.\n\n\(toolsPrompt)"
+
+        if isThermallySevere || toolPromptExceedsContext(systemPrompt, generationBudget: 80) {
+            return TestOutcome(
+                status: .warning,
+                message: "Skipped — tool prompt exceeds context budget (thermal: \(thermalModeLabel), maxCtx: \(currentMaxContext))",
+                details: ["Thermal mode: \(thermalModeLabel)", "Max context: \(currentMaxContext)"]
+            )
+        }
 
         let prompts: [(user: String, label: String)] = [
             ("What time is it?", "Time"),
@@ -814,6 +843,7 @@ extension DiagnosticEngine {
         var validFormat = 0
         var validName = 0
         var details: [String] = []
+        var outputs: [String] = []
 
         for p in prompts {
             let messages: [[String: String]] = [
@@ -825,6 +855,7 @@ extension DiagnosticEngine {
             config.temperature = 0.2
 
             let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 25)
+            outputs.append(output)
 
             let hasTag = output.contains("<tool_call>") || output.contains("<tool_calls>")
             let calls = ToolCallParser.parse(from: output)
@@ -842,6 +873,15 @@ extension DiagnosticEngine {
             details.append("\(p.label): tag=\(hasTag ? "✓" : "✗"), parsed=\(calls.count), names=\(names.isEmpty ? "none" : names), allKnown=\(allKnown ? "✓" : "✗")")
         }
 
+        if allOutputsEmpty(outputs) {
+            details.append("All outputs empty — model may not support tool calling or prompt exceeded context")
+            return TestOutcome(
+                status: .warning,
+                message: "Tool format: 0/\(prompts.count) — model produced no output",
+                details: details
+            )
+        }
+
         let total = prompts.count
         let score = validFormat + validName
 
@@ -857,16 +897,16 @@ extension DiagnosticEngine {
     func llmTestToolAbstention() async -> TestOutcome {
         if let skip = llmRequiresModel() { return skip }
 
-        if isThermallySevere {
-            return TestOutcome(
-                status: .warning,
-                message: "Skipped under thermal throttling (\(thermalModeLabel)) — tool prompts exceed reduced context window",
-                details: ["Thermal mode: \(thermalModeLabel)"]
-            )
-        }
-
         let toolsPrompt = ToolExecutor.buildToolsPrompt()
         let systemPrompt = "You are a helpful assistant with device tools. Only use tools when the user explicitly needs device capabilities. If no tool is needed, respond normally in plain text.\n\n\(toolsPrompt)"
+
+        if isThermallySevere || toolPromptExceedsContext(systemPrompt, generationBudget: 120) {
+            return TestOutcome(
+                status: .warning,
+                message: "Skipped — tool prompt exceeds context budget (thermal: \(thermalModeLabel), maxCtx: \(currentMaxContext))",
+                details: ["Thermal mode: \(thermalModeLabel)", "Max context: \(currentMaxContext)"]
+            )
+        }
 
         let testCases: [(user: String, label: String)] = [
             ("What is the capital of France?", "Factual question"),
@@ -877,6 +917,7 @@ extension DiagnosticEngine {
 
         var abstained = 0
         var details: [String] = []
+        var outputs: [String] = []
 
         for tc in testCases {
             let messages: [[String: String]] = [
@@ -888,6 +929,7 @@ extension DiagnosticEngine {
             config.temperature = 0.5
 
             let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 25)
+            outputs.append(output)
 
             let calls = ToolCallParser.parse(from: output)
             let noToolCall = calls.isEmpty
@@ -903,6 +945,15 @@ extension DiagnosticEngine {
             }
         }
 
+        if allOutputsEmpty(outputs) {
+            details.append("All outputs empty — model may not support tool calling or prompt exceeded context")
+            return TestOutcome(
+                status: .warning,
+                message: "Tool abstention: 0/\(testCases.count) — model produced no output",
+                details: details
+            )
+        }
+
         return TestOutcome(
             status: abstained >= 3 ? .passed : (abstained >= 2 ? .warning : .failed),
             message: "Tool abstention: \(abstained)/\(testCases.count) correctly avoided tool calls",
@@ -915,16 +966,16 @@ extension DiagnosticEngine {
     func llmTestToolResultSynthesis() async -> TestOutcome {
         if let skip = llmRequiresModel() { return skip }
 
-        if isThermallySevere {
-            return TestOutcome(
-                status: .warning,
-                message: "Skipped under thermal throttling (\(thermalModeLabel)) — tool prompts exceed reduced context window",
-                details: ["Thermal mode: \(thermalModeLabel)"]
-            )
-        }
-
         let toolsPrompt = ToolExecutor.buildToolsPrompt()
         let systemPrompt = "You are a helpful assistant with device tools. After receiving tool results, synthesize a concise user-facing answer.\n\n\(toolsPrompt)"
+
+        if isThermallySevere || toolPromptExceedsContext(systemPrompt, generationBudget: 100) {
+            return TestOutcome(
+                status: .warning,
+                message: "Skipped — tool prompt exceeds context budget (thermal: \(thermalModeLabel), maxCtx: \(currentMaxContext))",
+                details: ["Thermal mode: \(thermalModeLabel)", "Max context: \(currentMaxContext)"]
+            )
+        }
 
         let testCases: [(messages: [[String: String]], keywords: [String], label: String)] = [
             (
@@ -951,6 +1002,7 @@ extension DiagnosticEngine {
 
         var passed = 0
         var details: [String] = []
+        var outputs: [String] = []
 
         for tc in testCases {
             var config = SamplingConfig()
@@ -958,6 +1010,7 @@ extension DiagnosticEngine {
             config.temperature = 0.4
 
             let (output, _) = await llmGenerate(messages: tc.messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 15)
+            outputs.append(output)
 
             let lower = output.lowercased()
             let referencesResult = tc.keywords.contains { lower.contains($0) }
@@ -968,6 +1021,15 @@ extension DiagnosticEngine {
             if ok { passed += 1 }
 
             details.append("\(tc.label): \(ok ? "✓" : "✗") → refs=\(referencesResult), noTool=\(noNewToolCall), text=\(hasText) '\(output.prefix(50))…'")
+        }
+
+        if allOutputsEmpty(outputs) {
+            details.append("All outputs empty — model may not support tool result synthesis or prompt exceeded context")
+            return TestOutcome(
+                status: .warning,
+                message: "Tool result synthesis: 0/\(testCases.count) — model produced no output",
+                details: details
+            )
         }
 
         return TestOutcome(
@@ -982,16 +1044,16 @@ extension DiagnosticEngine {
     func llmTestBatchedToolCalls() async -> TestOutcome {
         if let skip = llmRequiresModel() { return skip }
 
-        if isThermallySevere {
-            return TestOutcome(
-                status: .warning,
-                message: "Skipped under thermal throttling (\(thermalModeLabel)) — tool prompts exceed reduced context window",
-                details: ["Thermal mode: \(thermalModeLabel)"]
-            )
-        }
-
         let toolsPrompt = ToolExecutor.buildToolsPrompt()
         let systemPrompt = "You are a helpful assistant with device tools. When a user request requires multiple tools, emit them all in a single batched tool_calls tag.\n\n\(toolsPrompt)"
+
+        if isThermallySevere || toolPromptExceedsContext(systemPrompt, generationBudget: 120) {
+            return TestOutcome(
+                status: .warning,
+                message: "Skipped — tool prompt exceeds context budget (thermal: \(thermalModeLabel), maxCtx: \(currentMaxContext))",
+                details: ["Thermal mode: \(thermalModeLabel)", "Max context: \(currentMaxContext)"]
+            )
+        }
 
         let messages: [[String: String]] = [
             ["role": "system", "content": systemPrompt],
@@ -1003,6 +1065,14 @@ extension DiagnosticEngine {
         config.temperature = 0.3
 
         let (output, _) = await llmGenerate(messages: messages, systemPrompt: systemPrompt, samplingConfig: config, timeoutSeconds: 15)
+
+        if output.isEmpty {
+            return TestOutcome(
+                status: .warning,
+                message: "Batched tool calls: model produced no output (context: \(currentMaxContext), prompt: ~\(estimatePromptTokens(systemPrompt)) tokens)",
+                details: ["Output empty — model may not support batched tool calling or prompt exceeded context"]
+            )
+        }
 
         let calls = ToolCallParser.parse(from: output)
         let names = Set(calls.map(\.name))

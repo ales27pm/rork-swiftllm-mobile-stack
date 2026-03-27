@@ -135,7 +135,8 @@ final class TokenizerService: @unchecked Sendable {
     func decode(_ tokenIDs: [Int]) -> String {
         withLock {
             if let tokenizer {
-                return tokenizer.decode(tokens: tokenIDs)
+                let raw = tokenizer.decode(tokens: tokenIDs)
+                return Self.cleanDecodedText(raw)
             }
 
             return fallbackDecode(tokenIDs)
@@ -145,13 +146,34 @@ final class TokenizerService: @unchecked Sendable {
     func decodeIncremental(_ tokenID: Int) -> String? {
         withLock {
             if let tokenizer {
-                return tokenizer.decode(tokens: [tokenID])
+                let raw = tokenizer.decode(tokens: [tokenID])
+                let cleaned = Self.cleanDecodedText(raw)
+                return cleaned.isEmpty ? nil : cleaned
             }
 
             guard !Self.specialTokens.contains(tokenID) else { return nil }
             guard let piece = fallbackVocabulary[tokenID] else { return nil }
             return piece.replacingOccurrences(of: "▁", with: " ")
         }
+    }
+
+    static func cleanDecodedText(_ text: String) -> String {
+        let controlTokens = [
+            "<|begin_of_text|>",
+            "<|end_of_text|>",
+            "<|start_header_id|>",
+            "<|end_header_id|>",
+            "<|eot_id|>",
+            "<|im_start|>",
+            "<|im_end|>",
+            "<s>",
+            "</s>"
+        ]
+        var result = text
+        for token in controlTokens {
+            result = result.replacingOccurrences(of: token, with: "")
+        }
+        return result
     }
 
     var vocabularySize: Int {
