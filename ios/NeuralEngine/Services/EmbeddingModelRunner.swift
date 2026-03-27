@@ -32,7 +32,7 @@ nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
         return embeddingDimensions
     }
 
-    func loadModel(at path: String, nCtx: Int32 = 512) throws {
+    func loadModel(at path: String, nCtx: Int32 = 512, pooling: EmbeddingPoolingStrategy = .mean) throws {
         stateCondition.lock()
         waitForOperationDrainLocked()
         defer {
@@ -57,7 +57,12 @@ nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
         let threadCount = max(ProcessInfo.processInfo.activeProcessorCount - 2, 1)
         ctxParams.n_threads = Int32(threadCount)
         ctxParams.n_threads_batch = Int32(threadCount)
-        ctxParams.pooling_type = LLAMA_POOLING_TYPE_MEAN
+        switch pooling {
+        case .mean:
+            ctxParams.pooling_type = LLAMA_POOLING_TYPE_MEAN
+        case .lastToken:
+            ctxParams.pooling_type = LLAMA_POOLING_TYPE_LAST
+        }
 
         guard let loadedContext = llama_init_from_model(loadedModel, ctxParams) else {
             llama_model_free(loadedModel)

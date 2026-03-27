@@ -17,9 +17,10 @@ nonisolated struct ModelManifest: Identifiable, Sendable, Codable {
     let recommendation: ModelRecommendation?
     let isEmbedding: Bool
     let embeddingDimensions: Int?
+    let embeddingPooling: EmbeddingPoolingStrategy
     let isCustom: Bool
 
-    init(id: String, name: String, variant: String, parameterCount: String, quantization: String, sizeBytes: Int64, contextLength: Int, architecture: ModelArchitecture, repoID: String, tokenizerRepoID: String?, modelFilePattern: String, isDraft: Bool, format: ModelFormat = .coreML, recommendation: ModelRecommendation? = nil, isEmbedding: Bool = false, embeddingDimensions: Int? = nil, isCustom: Bool = false) {
+    init(id: String, name: String, variant: String, parameterCount: String, quantization: String, sizeBytes: Int64, contextLength: Int, architecture: ModelArchitecture, repoID: String, tokenizerRepoID: String?, modelFilePattern: String, isDraft: Bool, format: ModelFormat = .coreML, recommendation: ModelRecommendation? = nil, isEmbedding: Bool = false, embeddingDimensions: Int? = nil, embeddingPooling: EmbeddingPoolingStrategy = .mean, isCustom: Bool = false) {
         self.id = id
         self.name = name
         self.variant = variant
@@ -36,13 +37,18 @@ nonisolated struct ModelManifest: Identifiable, Sendable, Codable {
         self.recommendation = recommendation
         self.isEmbedding = isEmbedding
         self.embeddingDimensions = embeddingDimensions
+        self.embeddingPooling = Self.sanitizeEmbeddingPooling(
+            embeddingPooling,
+            isEmbedding: isEmbedding,
+            manifestID: id
+        )
         self.isCustom = isCustom
     }
 
     nonisolated enum CodingKeys: String, CodingKey {
         case id, name, variant, parameterCount, quantization, sizeBytes, contextLength
         case architecture, repoID, tokenizerRepoID, modelFilePattern
-        case isDraft, format, recommendation, isEmbedding, embeddingDimensions, isCustom
+        case isDraft, format, recommendation, isEmbedding, embeddingDimensions, embeddingPooling, isCustom
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -63,7 +69,26 @@ nonisolated struct ModelManifest: Identifiable, Sendable, Codable {
         recommendation = try container.decodeIfPresent(ModelRecommendation.self, forKey: .recommendation)
         isEmbedding = try container.decodeIfPresent(Bool.self, forKey: .isEmbedding) ?? false
         embeddingDimensions = try container.decodeIfPresent(Int.self, forKey: .embeddingDimensions)
+        let requestedPooling: EmbeddingPoolingStrategy
+        if let rawPooling = try container.decodeIfPresent(String.self, forKey: .embeddingPooling) {
+            requestedPooling = EmbeddingPoolingStrategy(rawValue: rawPooling) ?? .mean
+        } else {
+            requestedPooling = .mean
+        }
+        embeddingPooling = Self.sanitizeEmbeddingPooling(
+            requestedPooling,
+            isEmbedding: isEmbedding,
+            manifestID: id
+        )
         isCustom = try container.decodeIfPresent(Bool.self, forKey: .isCustom) ?? false
+    }
+
+    private static func sanitizeEmbeddingPooling(_ pooling: EmbeddingPoolingStrategy, isEmbedding: Bool, manifestID: String) -> EmbeddingPoolingStrategy {
+        guard !(!isEmbedding && pooling != .mean) else {
+            assertionFailure("Non-embedding manifest '\(manifestID)' cannot use '\(pooling.rawValue)' embedding pooling. Falling back to 'mean'.")
+            return .mean
+        }
+        return pooling
     }
 
     static func customGGUF(repoID: String, fileName: String, name: String, sizeBytes: Int64) -> ModelManifest {
@@ -188,6 +213,11 @@ nonisolated enum ModelArchitecture: String, Sendable, Codable {
 nonisolated enum ModelFormat: String, Sendable, Codable {
     case coreML
     case gguf
+}
+
+nonisolated enum EmbeddingPoolingStrategy: String, Sendable, Codable {
+    case mean
+    case lastToken = "last_token"
 }
 
 nonisolated enum GGUFChatTemplateStyle: String, Sendable, Codable {

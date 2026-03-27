@@ -13,7 +13,11 @@
     "modelFilePattern": "Dolphin3.0-Llama3.2-3B-Q4_K_M.gguf",
     "isDraft": false,
     "format": "gguf",
-    "recommendation": {"badge": "Best fit", "reason": "Recent Dolphin release with the best 3B quality-to-size balance for on-device GGUF.", "rank": 1},
+    "recommendation": {
+      "badge": "Best fit",
+      "reason": "Recent Dolphin release with the best 3B quality-to-size balance for on-device GGUF.",
+      "rank": 1
+    },
     "isEmbedding": false,
     "embeddingDimensions": null
   },
@@ -229,7 +233,11 @@
     "modelFilePattern": "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
     "isDraft": true,
     "format": "gguf",
-    "recommendation": {"badge": "Draft", "reason": "Fast 1B draft model for speculative decoding with Llama 3.2 3B.", "rank": 1},
+    "recommendation": {
+      "badge": "Draft",
+      "reason": "Fast 1B draft model for speculative decoding with Llama 3.2 3B.",
+      "rank": 1
+    },
     "isEmbedding": false,
     "embeddingDimensions": null
   },
@@ -247,7 +255,11 @@
     "modelFilePattern": "Qwen2.5-0.5B-Instruct-Q8_0.gguf",
     "isDraft": true,
     "format": "gguf",
-    "recommendation": {"badge": "Draft", "reason": "Tiny 0.5B draft model for speculative decoding with Qwen 2.5 1.5B.", "rank": 1},
+    "recommendation": {
+      "badge": "Draft",
+      "reason": "Tiny 0.5B draft model for speculative decoding with Qwen 2.5 1.5B.",
+      "rank": 1
+    },
     "isEmbedding": false,
     "embeddingDimensions": null
   },
@@ -265,7 +277,11 @@
     "modelFilePattern": "Dolphin3.0-Qwen2.5-0.5B-Q8_0.gguf",
     "isDraft": true,
     "format": "gguf",
-    "recommendation": {"badge": "Draft", "reason": "0.5B draft for speculative decoding with Dolphin 3.0 models.", "rank": 1},
+    "recommendation": {
+      "badge": "Draft",
+      "reason": "0.5B draft for speculative decoding with Dolphin 3.0 models.",
+      "rank": 1
+    },
     "isEmbedding": false,
     "embeddingDimensions": null
   },
@@ -355,7 +371,11 @@
     "modelFilePattern": "Dolphin3.0-Qwen2.5-1.5B-Q4_K_M.gguf",
     "isDraft": false,
     "format": "gguf",
-    "recommendation": {"badge": "Smallest", "reason": "Fastest Dolphin option under 1 GB when RAM or storage is tight.", "rank": 2},
+    "recommendation": {
+      "badge": "Smallest",
+      "reason": "Fastest Dolphin option under 1 GB when RAM or storage is tight.",
+      "rank": 2
+    },
     "isEmbedding": false,
     "embeddingDimensions": null
   },
@@ -409,7 +429,11 @@
     "modelFilePattern": "LFM2.5-1.2B-Instruct-Q4_K_M.gguf",
     "isDraft": false,
     "format": "gguf",
-    "recommendation": {"badge": "Best fit", "reason": "Fast 1.2B hybrid model tuned for edge deployment with strong quality under 1 GB.", "rank": 1},
+    "recommendation": {
+      "badge": "Best fit",
+      "reason": "Fast 1.2B hybrid model tuned for edge deployment with strong quality under 1 GB.",
+      "rank": 1
+    },
     "isEmbedding": false,
     "embeddingDimensions": null
   },
@@ -427,7 +451,11 @@
     "modelFilePattern": "Huihui-LFM2.5-1.2B-Thinking-abliterated.Q4_K_M.gguf",
     "isDraft": false,
     "format": "gguf",
-    "recommendation": {"badge": "Liquid", "reason": "LiquidAI hybrid architecture — fast prefill and decode with thinking capabilities. Uncensored.", "rank": 3},
+    "recommendation": {
+      "badge": "Liquid",
+      "reason": "LiquidAI hybrid architecture \u2014 fast prefill and decode with thinking capabilities. Uncensored.",
+      "rank": 3
+    },
     "isEmbedding": false,
     "embeddingDimensions": null
   },
@@ -445,7 +473,11 @@
     "modelFilePattern": "snowflake-arctic-embed-xs-Q8_0.GGUF",
     "isDraft": false,
     "format": "gguf",
-    "recommendation": {"badge": "Tiny", "reason": "Smallest embedding model (~24 MB). Auto-downloads on first launch for instant semantic memory.", "rank": 1},
+    "recommendation": {
+      "badge": "Tiny",
+      "reason": "Smallest embedding model (~24 MB). Auto-downloads on first launch for instant semantic memory.",
+      "rank": 1
+    },
     "isEmbedding": true,
     "embeddingDimensions": 384
   },
@@ -502,5 +534,28 @@
     "recommendation": null,
     "isEmbedding": true,
     "embeddingDimensions": 1024
+  },
+  {
+    "id": "qwen3-embed-0.6b-q3-k-m-imat-gguf",
+    "name": "Qwen3 Embedding",
+    "variant": "0.6B Q3_K_M imat GGUF",
+    "parameterCount": "0.6B",
+    "quantization": "Q3_K_M",
+    "sizeBytes": 331000000,
+    "contextLength": 32768,
+    "architecture": "qwen",
+    "repoID": "PeterAM4/Qwen3-Embedding-0.6B-GGUF",
+    "tokenizerRepoID": null,
+    "modelFilePattern": "Qwen3-Embedding-0.6B-Q3_K_M-imat.gguf",
+    "isDraft": false,
+    "format": "gguf",
+    "recommendation": {
+      "badge": "Best quality/size",
+      "reason": "Near-baseline quality embedding model with strong compression for on-device semantic retrieval.",
+      "rank": 2
+    },
+    "isEmbedding": true,
+    "embeddingDimensions": 1024,
+    "embeddingPooling": "last_token"
   }
 ]
