@@ -213,6 +213,7 @@ nonisolated enum ModelArchitecture: String, Sendable, Codable {
 nonisolated enum ModelFormat: String, Sendable, Codable {
     case coreML
     case gguf
+    case appleFoundation
 }
 
 nonisolated enum EmbeddingPoolingStrategy: String, Sendable, Codable {

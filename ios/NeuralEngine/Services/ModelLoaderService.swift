@@ -161,6 +161,19 @@ class ModelLoaderService {
 
     static let preferredDraftModelIDKey: String = "preferred_draft_model_id"
 
+
+    private func foundationModelStatus(for manifest: ModelManifest) -> ModelStatus {
+        guard manifest.format == .appleFoundation else { return .notDownloaded }
+
+        guard ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+        ) else {
+            return .failed("Requires iOS 26.0+")
+        }
+
+        return .ready
+    }
+
     private func statusForIntegrityResult(_ result: AssetIntegrityResult) -> ModelStatus {
         switch result {
         case .intact:
@@ -177,6 +190,10 @@ class ModelLoaderService {
     }
 
     func resolveRestoredStatus(for manifest: ModelManifest, modelURL: URL?, tokenizerURL: URL?) -> ModelStatus {
+        if manifest.format == .appleFoundation {
+            return foundationModelStatus(for: manifest)
+        }
+
         guard let modelURL else {
             return .notDownloaded
         }
@@ -232,6 +249,11 @@ class ModelLoaderService {
 
         if manifest.isEmbedding {
             downloadEmbeddingModel(modelID)
+            return
+        }
+
+        if manifest.format == .appleFoundation {
+            modelStatuses[modelID] = foundationModelStatus(for: manifest)
             return
         }
 
@@ -909,7 +931,11 @@ class ModelLoaderService {
             activationTask = nil
             activationTargetModelID = nil
         }
-        modelStatuses[modelID] = .notDownloaded
+        if manifest.format == .appleFoundation {
+            modelStatuses[modelID] = foundationModelStatus(for: manifest)
+        } else {
+            modelStatuses[modelID] = .notDownloaded
+        }
 
         if activeModelID == modelID {
             activeModelID = nil
@@ -1008,6 +1034,11 @@ class ModelLoaderService {
             return modelRunner.isLoaded
         case .gguf:
             return llamaRunner.isLoaded
+        case .appleFoundation:
+            if case .ready = foundationModelStatus(for: manifest) {
+                return true
+            }
+            return false
         }
     }
 
@@ -1068,6 +1099,17 @@ class ModelLoaderService {
                     nCtx: Int32(manifest.contextLength)
                 )
                 await loadDraftRunnerIfPossibleAfterDraining(for: manifest)
+
+            case .appleFoundation:
+                modelRunner.unload()
+                llamaRunner.unload()
+                draftLlamaRunner.unload()
+                tokenizer.unloadTokenizer()
+                activeDraftModelID = nil
+
+                guard case .ready = foundationModelStatus(for: manifest) else {
+                    throw ModelLoaderError.noModelFound("Apple Foundation Models require iOS 26.0+ with on-device model availability.")
+                }
             }
 
             if persistSelection {
