@@ -449,8 +449,16 @@ extension DiagnosticEngine {
             details.append("TTFT: \(String(format: "%.0f", m.timeToFirstToken))ms, Decode: \(String(format: "%.1f", m.decodeTokensPerSecond)) tok/s")
         }
 
+        let thermalConstrained = thermalMode == .coolDown || thermalMode == .emergency
+        let status: DiagnosticTestStatus
+        if thermalConstrained {
+            status = checks >= 3 ? .passed : (checks >= 2 ? .warning : .failed)
+        } else {
+            status = checks >= 4 ? .passed : (checks >= 3 ? .warning : .failed)
+        }
+
         return TestOutcome(
-            status: checks >= 4 ? .passed : (checks >= 3 ? .warning : .failed),
+            status: status,
             message: "Pipeline: \(checks)/5 checks. Intent=\(frame.intent.primary.rawValue), Output=\(output.count) chars, \(String(format: "%.1f", duration))s",
             details: details
         )
