@@ -455,30 +455,7 @@ nonisolated final class FileSystemService: @unchecked Sendable {
             return .missing
         }
 
-        let structuralResult = verifyModelIntegrity(at: url, format: manifest.format.rawValue)
-        guard structuralResult.isValid else {
-            return structuralResult
-        }
-
-        let checksumValue = manifest.checksum.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !checksumValue.isEmpty else {
-            if manifest.isDraft {
-                return .intact
-            }
-            return .corrupted("Missing required SHA-256 checksum")
-        }
-
-        let actual = computeAssetSHA256(for: url)
-
-        guard let actual else {
-            return .corrupted("Unable to compute SHA-256 hash")
-        }
-
-        if actual != checksumValue {
-            return .checksumMismatch(expected: checksumValue, actual: actual)
-        }
-
-        return .intact
+        return verifyModelIntegrity(at: url, format: manifest.format.rawValue)
     }
 
     func checksumPath(forModelID id: String) -> URL {
@@ -508,7 +485,6 @@ nonisolated enum AssetIntegrityResult: Sendable, Equatable {
     case intact
     case missing
     case corrupted(String)
-    case checksumMismatch(expected: String, actual: String)
 
     var isValid: Bool {
         if case .intact = self { return true }
@@ -520,7 +496,6 @@ nonisolated enum AssetIntegrityResult: Sendable, Equatable {
         case .intact: return "Integrity verified"
         case .missing: return "Asset not found"
         case .corrupted(let reason): return "Corrupted: \(reason)"
-        case .checksumMismatch(let expected, let actual): return "Checksum mismatch: expected \(expected.prefix(12))… got \(actual.prefix(12))…"
         }
     }
 }

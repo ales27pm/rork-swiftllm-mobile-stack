@@ -12,15 +12,14 @@ nonisolated struct ModelManifest: Identifiable, Sendable, Codable {
     let repoID: String
     let tokenizerRepoID: String?
     let modelFilePattern: String
-    let checksum: String
-    let tokenizerChecksum: String?
     let isDraft: Bool
     let format: ModelFormat
     let recommendation: ModelRecommendation?
     let isEmbedding: Bool
     let embeddingDimensions: Int?
+    let isCustom: Bool
 
-    init(id: String, name: String, variant: String, parameterCount: String, quantization: String, sizeBytes: Int64, contextLength: Int, architecture: ModelArchitecture, repoID: String, tokenizerRepoID: String?, modelFilePattern: String, checksum: String, tokenizerChecksum: String? = nil, isDraft: Bool, format: ModelFormat = .coreML, recommendation: ModelRecommendation? = nil, isEmbedding: Bool = false, embeddingDimensions: Int? = nil) {
+    init(id: String, name: String, variant: String, parameterCount: String, quantization: String, sizeBytes: Int64, contextLength: Int, architecture: ModelArchitecture, repoID: String, tokenizerRepoID: String?, modelFilePattern: String, isDraft: Bool, format: ModelFormat = .coreML, recommendation: ModelRecommendation? = nil, isEmbedding: Bool = false, embeddingDimensions: Int? = nil, isCustom: Bool = false) {
         self.id = id
         self.name = name
         self.variant = variant
@@ -32,13 +31,83 @@ nonisolated struct ModelManifest: Identifiable, Sendable, Codable {
         self.repoID = repoID
         self.tokenizerRepoID = tokenizerRepoID
         self.modelFilePattern = modelFilePattern
-        self.checksum = checksum
-        self.tokenizerChecksum = tokenizerChecksum
         self.isDraft = isDraft
         self.format = format
         self.recommendation = recommendation
         self.isEmbedding = isEmbedding
         self.embeddingDimensions = embeddingDimensions
+        self.isCustom = isCustom
+    }
+
+    nonisolated enum CodingKeys: String, CodingKey {
+        case id, name, variant, parameterCount, quantization, sizeBytes, contextLength
+        case architecture, repoID, tokenizerRepoID, modelFilePattern
+        case isDraft, format, recommendation, isEmbedding, embeddingDimensions, isCustom
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        variant = try container.decode(String.self, forKey: .variant)
+        parameterCount = try container.decode(String.self, forKey: .parameterCount)
+        quantization = try container.decode(String.self, forKey: .quantization)
+        sizeBytes = try container.decode(Int64.self, forKey: .sizeBytes)
+        contextLength = try container.decode(Int.self, forKey: .contextLength)
+        architecture = try container.decode(ModelArchitecture.self, forKey: .architecture)
+        repoID = try container.decode(String.self, forKey: .repoID)
+        tokenizerRepoID = try container.decodeIfPresent(String.self, forKey: .tokenizerRepoID)
+        modelFilePattern = try container.decode(String.self, forKey: .modelFilePattern)
+        isDraft = try container.decode(Bool.self, forKey: .isDraft)
+        format = try container.decode(ModelFormat.self, forKey: .format)
+        recommendation = try container.decodeIfPresent(ModelRecommendation.self, forKey: .recommendation)
+        isEmbedding = try container.decodeIfPresent(Bool.self, forKey: .isEmbedding) ?? false
+        embeddingDimensions = try container.decodeIfPresent(Int.self, forKey: .embeddingDimensions)
+        isCustom = try container.decodeIfPresent(Bool.self, forKey: .isCustom) ?? false
+    }
+
+    static func customGGUF(repoID: String, fileName: String, name: String, sizeBytes: Int64) -> ModelManifest {
+        let id = "custom-\(repoID.replacingOccurrences(of: "/", with: "-").lowercased())-\(fileName.replacingOccurrences(of: ".gguf", with: "").lowercased())"
+        let architecture = Self.inferArchitecture(from: repoID, fileName: fileName)
+        return ModelManifest(
+            id: id,
+            name: name,
+            variant: fileName.replacingOccurrences(of: ".gguf", with: ""),
+            parameterCount: "?",
+            quantization: Self.inferQuantization(from: fileName),
+            sizeBytes: sizeBytes,
+            contextLength: 4096,
+            architecture: architecture,
+            repoID: repoID,
+            tokenizerRepoID: nil,
+            modelFilePattern: fileName,
+            isDraft: false,
+            format: .gguf,
+            isCustom: true
+        )
+    }
+
+    private static func inferQuantization(from fileName: String) -> String {
+        let upper = fileName.uppercased()
+        let quantizations = ["Q2_K", "Q3_K_S", "Q3_K_M", "Q3_K_L", "Q4_0", "Q4_1", "Q4_K_S", "Q4_K_M", "Q5_0", "Q5_1", "Q5_K_S", "Q5_K_M", "Q6_K", "Q8_0", "F16", "F32", "IQ2_XXS", "IQ2_XS", "IQ3_XXS", "IQ3_XS", "IQ4_NL", "IQ4_XS"]
+        for q in quantizations {
+            if upper.contains(q) { return q }
+        }
+        return "Unknown"
+    }
+
+    private static func inferArchitecture(from repoID: String, fileName: String) -> ModelArchitecture {
+        let combined = (repoID + " " + fileName).lowercased()
+        if combined.contains("llama") { return .llama }
+        if combined.contains("dolphin") { return .dolphin }
+        if combined.contains("qwen") { return .qwen }
+        if combined.contains("gemma") { return .gemma }
+        if combined.contains("phi") { return .phi }
+        if combined.contains("mistral") { return .mistral }
+        if combined.contains("smollm") { return .smolLM }
+        if combined.contains("lfm") { return .lfm2 }
+        if combined.contains("bert") || combined.contains("embed") { return .bert }
+        return .llama
     }
 
     var sizeFormatted: String {
@@ -131,12 +200,9 @@ nonisolated enum ModelStatus: Sendable, Equatable {
     case verifying
     case compiling
     case ready
-    case unsupported(String)
-    case checksumFailed(String)
     case failed(String)
 
     var blocksDownload: Bool {
-        if case .unsupported = self { return true }
         return false
     }
 
@@ -147,12 +213,12 @@ nonisolated enum ModelStatus: Sendable, Equatable {
         case .downloading:
             return "Downloading"
         case .verifying:
-            return "Verifying checksum"
+            return "Verifying integrity"
         case .compiling:
             return "Compiling model"
         case .ready:
             return "Ready"
-        case .unsupported(let message), .checksumFailed(let message), .failed(let message):
+        case .failed(let message):
             return message
         }
     }

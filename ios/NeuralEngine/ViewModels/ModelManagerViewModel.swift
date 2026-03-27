@@ -7,6 +7,12 @@ class ModelManagerViewModel {
 
     var searchText: String = ""
     var selectedFilter: ModelFilter = .recommended
+    var showAddCustomModel: Bool = false
+    var customRepoInput: String = ""
+    var isProbing: Bool = false
+    var probeError: String?
+    var probedFiles: [HuggingFaceFileInfo] = []
+    var probedRepoID: String?
 
     init(modelLoader: ModelLoaderService) {
         self.modelLoader = modelLoader
@@ -37,6 +43,8 @@ class ModelManagerViewModel {
                 if case .ready = modelLoader.modelStatuses[model.id] { return true }
                 return false
             }
+        case .custom:
+            models = models.filter { $0.isCustom }
         case .draft:
             models = models.filter { $0.isDraft && !$0.isEmbedding }
         case .gguf:
@@ -66,7 +74,11 @@ class ModelManagerViewModel {
     }
 
     func delete(_ model: ModelManifest) {
-        modelLoader.deleteModel(model.id)
+        if model.isCustom {
+            modelLoader.deleteCustomModel(model.id)
+        } else {
+            modelLoader.deleteModel(model.id)
+        }
     }
 
     func activate(_ model: ModelManifest) {
@@ -125,12 +137,68 @@ class ModelManagerViewModel {
     var activeMainModel: ModelManifest? {
         modelLoader.activeModel
     }
+
+    func probeCustomRepo() {
+        let input = customRepoInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty else { return }
+
+        let repoID: String
+        if let parsed = ModelLoaderService.repoNameFromURL(input) {
+            repoID = parsed
+        } else if input.contains("/"), input.components(separatedBy: "/").count >= 2 {
+            repoID = input
+        } else {
+            probeError = "Enter a valid HuggingFace repo (e.g. user/model-name)"
+            return
+        }
+
+        isProbing = true
+        probeError = nil
+        probedFiles = []
+        probedRepoID = repoID
+
+        Task {
+            do {
+                let files = try await ModelLoaderService.probeHuggingFaceRepoWithSizes(repoID)
+                probedFiles = files
+                if files.isEmpty {
+                    probeError = "No GGUF files found in this repository."
+                }
+            } catch {
+                probeError = error.localizedDescription
+            }
+            isProbing = false
+        }
+    }
+
+    func addCustomFile(_ file: HuggingFaceFileInfo) {
+        guard let repoID = probedRepoID else { return }
+        let repoName = repoID.components(separatedBy: "/").last ?? repoID
+        let manifest = ModelManifest.customGGUF(
+            repoID: repoID,
+            fileName: file.fileName,
+            name: repoName,
+            sizeBytes: file.sizeBytes
+        )
+        modelLoader.addCustomModel(manifest)
+        showAddCustomModel = false
+        resetProbe()
+    }
+
+    func resetProbe() {
+        customRepoInput = ""
+        probedFiles = []
+        probedRepoID = nil
+        probeError = nil
+        isProbing = false
+    }
 }
 
 nonisolated enum ModelFilter: String, CaseIterable, Sendable {
     case recommended = "Recommended"
     case all = "All"
     case downloaded = "Downloaded"
+    case custom = "Custom"
     case gguf = "GGUF"
     case coreml = "CoreML"
     case draft = "Draft"

@@ -11,6 +11,25 @@ nonisolated private struct HuggingFaceRepositorySibling: Decodable, Sendable {
     let rfilename: String
 }
 
+nonisolated struct HuggingFaceFileInfo: Sendable, Identifiable {
+    let fileName: String
+    let sizeBytes: Int64
+    var id: String { fileName }
+
+    var sizeFormatted: String {
+        let gb = Double(sizeBytes) / 1_073_741_824
+        if gb >= 1.0 { return String(format: "%.1f GB", gb) }
+        let mb = Double(sizeBytes) / 1_048_576
+        if mb >= 1.0 { return String(format: "%.0f MB", mb) }
+        return "Unknown size"
+    }
+}
+
+nonisolated private struct HuggingFaceTreeEntry: Decodable, Sendable {
+    let path: String
+    let size: Int64?
+}
+
 @Observable
 @MainActor
 class ModelLoaderService {
@@ -142,24 +161,6 @@ class ModelLoaderService {
 
     static let preferredDraftModelIDKey: String = "preferred_draft_model_id"
 
-    static func registryIssue(for manifest: ModelManifest) -> String? {
-        let checksumValue = manifest.checksum.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !checksumValue.isEmpty || manifest.isDraft else {
-            return "Missing required model checksum in registry."
-        }
-
-        if manifest.tokenizerRepoID != nil, (manifest.tokenizerChecksum?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) {
-            return "Missing required tokenizer checksum in registry."
-        }
-
-        return nil
-    }
-
-    private func statusForUnsupportedManifest(_ manifest: ModelManifest) -> ModelStatus? {
-        guard let issue = Self.registryIssue(for: manifest) else { return nil }
-        return .unsupported("Checksum unavailable. \(issue) Delete any local copy and wait for an updated registry.")
-    }
-
     private func statusForIntegrityResult(_ result: AssetIntegrityResult) -> ModelStatus {
         switch result {
         case .intact:
@@ -167,46 +168,15 @@ class ModelLoaderService {
         case .missing:
             return .notDownloaded
         case .corrupted(let reason):
-            return .checksumFailed("Asset corrupted: \(reason). Delete and re-download.")
-        case .checksumMismatch:
-            return .checksumFailed("Checksum mismatch detected. Delete and re-download.")
+            return .failed("Asset corrupted: \(reason). Delete and re-download.")
         }
-    }
-
-    private func verifyTokenizerIntegrity(for manifest: ModelManifest, at url: URL) -> AssetIntegrityResult {
-        guard let checksum = manifest.tokenizerChecksum, !checksum.isEmpty else {
-            return manifest.tokenizerRepoID == nil ? .intact : .corrupted("Missing tokenizer checksum")
-        }
-
-        guard let actual = fileSystem.computeAssetSHA256(for: url) else {
-            return .corrupted("Unable to compute tokenizer SHA-256 hash")
-        }
-
-        return actual == checksum ? .intact : .checksumMismatch(expected: checksum, actual: actual)
     }
 
     private func verifyRestoredModelIntegrity(for manifest: ModelManifest, at url: URL) -> AssetIntegrityResult {
-        let structuralResult = fileSystem.verifyModelIntegrity(at: url, format: url.pathExtension)
-        guard structuralResult.isValid else {
-            return structuralResult
-        }
-
-        if manifest.format == .coreML, url.pathExtension == "mlmodelc" {
-            guard let storedHash = fileSystem.loadChecksum(forModelID: manifest.id), !storedHash.isEmpty else {
-                return .corrupted("Missing recorded source checksum")
-            }
-
-            return .intact
-        }
-
-        return fileSystem.verifyIntegrity(for: manifest, at: url)
+        return fileSystem.verifyModelIntegrity(at: url, format: url.pathExtension)
     }
 
     func resolveRestoredStatus(for manifest: ModelManifest, modelURL: URL?, tokenizerURL: URL?) -> ModelStatus {
-        if let unsupportedStatus = statusForUnsupportedManifest(manifest) {
-            return unsupportedStatus
-        }
-
         guard let modelURL else {
             return .notDownloaded
         }
@@ -216,29 +186,18 @@ class ModelLoaderService {
             return statusForIntegrityResult(integrityResult)
         }
 
-        if let tokenizerURL {
-            return statusForIntegrityResult(verifyTokenizerIntegrity(for: manifest, at: tokenizerURL))
-        }
-
-        return manifest.tokenizerRepoID == nil ? .ready : .checksumFailed("Tokenizer assets are missing. Delete and re-download.")
+        return .ready
     }
 
     func loadBuiltinRegistry() {
         availableModels = ResourceLoader.load([ModelManifest].self, from: "model_registry") ?? []
+        loadCustomModels()
 
         for model in availableModels {
             if model.isEmbedding {
-                if let unsupportedStatus = statusForUnsupportedManifest(model) {
-                    embeddingModelStatuses[model.id] = unsupportedStatus
-                } else {
-                    embeddingModelStatuses[model.id] = .notDownloaded
-                }
+                embeddingModelStatuses[model.id] = .notDownloaded
             } else {
-                if let unsupportedStatus = statusForUnsupportedManifest(model) {
-                    modelStatuses[model.id] = unsupportedStatus
-                } else {
-                    modelStatuses[model.id] = .notDownloaded
-                }
+                modelStatuses[model.id] = .notDownloaded
             }
         }
 
@@ -266,7 +225,10 @@ class ModelLoaderService {
     }
 
     func downloadModel(_ modelID: String) {
-        guard let manifest = availableModels.first(where: { $0.id == modelID }) else { return }
+        guard let manifest = availableModels.first(where: { $0.id == modelID }) else {
+            logError("Download requested for unknown modelID=\(modelID)")
+            return
+        }
 
         if manifest.isEmbedding {
             downloadEmbeddingModel(modelID)
@@ -277,7 +239,6 @@ class ModelLoaderService {
               modelStatuses[modelID] != .some(.compiling) else { return }
 
         if case .downloading = modelStatuses[modelID] { return }
-        if case .some(.unsupported(_)) = modelStatuses[modelID] { return }
 
         if loadModelPath(forModelID: modelID) != nil {
             fileSystem.deleteModelAssets(forModelID: modelID)
@@ -316,12 +277,7 @@ class ModelLoaderService {
                 if let url = modelURL {
                     let ext = url.pathExtension
 
-                    let preIntegrity = fileSystem.verifyIntegrity(for: manifest, at: url)
-                    guard preIntegrity.isValid else {
-                        throw ModelLoaderError.integrityCheckFailed(statusForIntegrityResult(preIntegrity).displayMessage)
-                    }
-
-                    if ext == "mlmodelc" {
+                        if ext == "mlmodelc" {
                         let persistedModelURL = try fileSystem.persistModelAsset(from: url, forModelID: modelID)
                         try saveModelPath(persistedModelURL, forModelID: modelID)
                     } else if ext == "mlpackage" {
@@ -372,15 +328,6 @@ class ModelLoaderService {
 
                 let persistedTokenizerURL = try fileSystem.persistTokenizerAsset(from: tokenizerDir, forModelID: modelID)
                 try saveTokenizerPath(persistedTokenizerURL, forModelID: modelID)
-
-                let tokenizerIntegrity = verifyTokenizerIntegrity(for: manifest, at: persistedTokenizerURL)
-                guard tokenizerIntegrity.isValid else {
-                    throw ModelLoaderError.integrityCheckFailed(statusForIntegrityResult(tokenizerIntegrity).displayMessage)
-                }
-
-                if let hash = fileSystem.computeAssetSHA256(for: modelURL ?? tokenizerDir) {
-                    fileSystem.saveChecksum(hash, forModelID: modelID)
-                }
 
                 if let savedURL = loadModelPath(forModelID: modelID) {
                     let postIntegrity = fileSystem.verifyModelIntegrity(at: savedURL, format: savedURL.pathExtension)
@@ -669,11 +616,6 @@ class ModelLoaderService {
                     throw ModelLoaderError.noModelFound("No GGUF file found in downloaded repository.")
                 }
 
-                let ggufIntegrity = fileSystem.verifyIntegrity(for: manifest, at: url)
-                guard ggufIntegrity.isValid else {
-                    throw ModelLoaderError.integrityCheckFailed(statusForIntegrityResult(ggufIntegrity).displayMessage)
-                }
-
                 if manifest.sizeBytes > 0 {
                     if let actualSize = fileSystem.fileSize(at: url) {
                         let tolerance = Double(manifest.sizeBytes) * 0.05
@@ -686,10 +628,6 @@ class ModelLoaderService {
 
                 let persistedModelURL = try fileSystem.persistModelAsset(from: url, forModelID: modelID)
                 try saveModelPath(persistedModelURL, forModelID: modelID)
-
-                if let hash = fileSystem.computeStreamingSHA256(for: persistedModelURL) {
-                    fileSystem.saveChecksum(hash, forModelID: modelID)
-                }
 
                 await persistOptionalTokenizerSnapshot(for: manifest, modelID: modelID)
 
@@ -1346,18 +1284,7 @@ class ModelLoaderService {
         guard let modelURL = loadModelPath(forModelID: modelID) else {
             return .missing
         }
-        guard let manifest = availableModels.first(where: { $0.id == modelID }) else {
-            return fileSystem.verifyModelIntegrity(at: modelURL, format: modelURL.pathExtension)
-        }
-
-        let modelResult = verifyRestoredModelIntegrity(for: manifest, at: modelURL)
-        guard modelResult.isValid else { return modelResult }
-
-        if let tokenizerURL = loadTokenizerPath(forModelID: modelID) {
-            return verifyTokenizerIntegrity(for: manifest, at: tokenizerURL)
-        }
-
-        return manifest.tokenizerRepoID == nil ? .intact : .missing
+        return fileSystem.verifyModelIntegrity(at: modelURL, format: modelURL.pathExtension)
     }
 
     func initiateAssetRepair(forModelID modelID: String) {
@@ -1377,6 +1304,121 @@ class ModelLoaderService {
         }
         return results
     }
+
+    // MARK: - Custom HuggingFace Model Support
+
+    private static let customModelsKey = "custom_models_v1"
+
+    private func loadCustomModels() {
+        guard let data = keyValueStore?.getData(Self.customModelsKey),
+              let customs = try? JSONDecoder().decode([ModelManifest].self, from: data) else {
+            return
+        }
+        let existingIDs = Set(availableModels.map(\.id))
+        for model in customs where !existingIDs.contains(model.id) {
+            availableModels.append(model)
+        }
+    }
+
+    private func persistCustomModels() {
+        let customs = availableModels.filter(\.isCustom)
+        guard let data = try? JSONEncoder().encode(customs) else { return }
+        keyValueStore?.setData(data, forKey: Self.customModelsKey)
+    }
+
+    func addCustomModel(_ manifest: ModelManifest) {
+        guard !availableModels.contains(where: { $0.id == manifest.id }) else {
+            logNotice("Custom model already exists id=\(manifest.id)")
+            return
+        }
+        availableModels.append(manifest)
+        if manifest.isEmbedding {
+            embeddingModelStatuses[manifest.id] = .notDownloaded
+        } else {
+            modelStatuses[manifest.id] = .notDownloaded
+        }
+        persistCustomModels()
+        logNotice("Custom model added id=\(manifest.id) repo=\(manifest.repoID)")
+    }
+
+    func deleteCustomModel(_ modelID: String) {
+        guard availableModels.contains(where: { $0.id == modelID && $0.isCustom }) else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.drainGenerationIfNeeded(reason: "deleteCustom:\(modelID)")
+            self.downloadTasks[modelID]?.cancel()
+            self.downloadTasks.removeValue(forKey: modelID)
+
+            if self.activeModelID == modelID {
+                self.activeModelID = nil
+                self.activeDraftModelID = nil
+                self.modelRunner.unload()
+                self.llamaRunner.unload()
+                self.draftLlamaRunner.unload()
+                self.tokenizer.unloadTokenizer()
+                self.activeFormat = .coreML
+            }
+
+            if self.activeEmbeddingModelID == modelID {
+                self.activeEmbeddingModelID = nil
+                self.embeddingRunner.unload()
+            }
+
+            self.embeddingModelStatuses.removeValue(forKey: modelID)
+            self.modelStatuses.removeValue(forKey: modelID)
+
+            self.fileSystem.deleteModelAssets(forModelID: modelID)
+            self.availableModels.removeAll { $0.id == modelID }
+            self.persistCustomModels()
+            self.logNotice("Custom model deleted id=\(modelID)")
+        }
+    }
+
+    nonisolated static func probeHuggingFaceRepo(_ repoID: String) async throws -> [HuggingFaceFileInfo] {
+        guard let url = URL(string: "https://huggingface.co/api/models/\(repoID)") else {
+            throw ModelLoaderError.noModelFound("Invalid repository ID.")
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
+            throw ModelLoaderError.noModelFound("Repository not found on HuggingFace.")
+        }
+
+        let decoded = try JSONDecoder().decode(HuggingFaceModelIndexResponse.self, from: data)
+        return decoded.siblings
+            .filter { $0.rfilename.hasSuffix(".gguf") }
+            .map { HuggingFaceFileInfo(fileName: $0.rfilename, sizeBytes: 0) }
+    }
+
+    nonisolated static func probeHuggingFaceRepoWithSizes(_ repoID: String) async throws -> [HuggingFaceFileInfo] {
+        guard let url = URL(string: "https://huggingface.co/api/models/\(repoID)/tree/main") else {
+            throw ModelLoaderError.noModelFound("Invalid repository ID.")
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse, 200..<300 ~= httpResponse.statusCode else {
+            return try await probeHuggingFaceRepo(repoID)
+        }
+
+        let entries = try JSONDecoder().decode([HuggingFaceTreeEntry].self, from: data)
+        return entries
+            .filter { $0.path.hasSuffix(".gguf") }
+            .map { HuggingFaceFileInfo(fileName: $0.path, sizeBytes: $0.size ?? 0) }
+    }
+
+    static func repoNameFromURL(_ urlString: String) -> String? {
+        var cleaned = urlString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "https://huggingface.co/", with: "")
+            .replacingOccurrences(of: "http://huggingface.co/", with: "")
+
+        if cleaned.hasSuffix("/") { cleaned = String(cleaned.dropLast()) }
+
+        let parts = cleaned.components(separatedBy: "/")
+        guard parts.count >= 2 else { return nil }
+        return "\(parts[0])/\(parts[1])"
+    }
 }
 
 nonisolated enum ModelLoaderError: Error, Sendable, LocalizedError {
@@ -1384,7 +1426,6 @@ nonisolated enum ModelLoaderError: Error, Sendable, LocalizedError {
     case noModelFound(String)
     case compilationFailed(String)
     case integrityCheckFailed(String)
-    case checksumMismatch(expected: String, actual: String)
     case assetRepairFailed(String)
     case partialDownload(String)
 
@@ -1394,7 +1435,6 @@ nonisolated enum ModelLoaderError: Error, Sendable, LocalizedError {
         case .noModelFound(let msg): return msg
         case .compilationFailed(let msg): return msg
         case .integrityCheckFailed(let msg): return msg
-        case .checksumMismatch(let expected, let actual): return "Checksum mismatch: expected \(expected.prefix(12))… got \(actual.prefix(12))…"
         case .assetRepairFailed(let msg): return msg
         case .partialDownload(let msg): return msg
         }

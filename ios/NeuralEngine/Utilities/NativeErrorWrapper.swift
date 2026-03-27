@@ -284,15 +284,6 @@ enum NativeErrorWrapper {
                 recoveryAction: .reloadModel,
                 underlyingError: error
             )
-        case .checksumMismatch(let expected, let actual):
-            return WrappedError(
-                domain: .fileSystem,
-                severity: .critical,
-                userMessage: "Model file checksum mismatch. The download may be corrupted.",
-                technicalDetail: "Expected \(expected.prefix(16))… got \(actual.prefix(16))…",
-                recoveryAction: .reloadModel,
-                underlyingError: error
-            )
         case .assetRepairFailed(let msg):
             return WrappedError(
                 domain: .fileSystem,

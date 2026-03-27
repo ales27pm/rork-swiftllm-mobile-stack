@@ -19,6 +19,20 @@ struct ModelManagerView: View {
         .navigationTitle("Models")
         .navigationBarTitleDisplayMode(.large)
         .searchable(text: $viewModel.searchText, prompt: "Search models")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    viewModel.showAddCustomModel = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $viewModel.showAddCustomModel) {
+            viewModel.resetProbe()
+        } content: {
+            AddCustomModelSheet(viewModel: viewModel)
+        }
         .alert("Delete Model", isPresented: $showDeleteConfirmation, presenting: modelToDelete) { model in
             Button("Delete", role: .destructive) {
                 withAnimation(.snappy) {
@@ -342,7 +356,7 @@ struct ModelCardView: View {
             HStack(spacing: 8) {
                 ProgressView()
                     .controlSize(.small)
-                Text("Verifying checksum...")
+                Text("Verifying integrity...")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -409,38 +423,6 @@ struct ModelCardView: View {
                 }
             }
 
-        case .checksumFailed(let error):
-            VStack(spacing: 6) {
-                Label(error, systemImage: "exclamationmark.shield.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-
-                HStack(spacing: 8) {
-                    Button(role: .destructive) {
-                        onDelete()
-                    } label: {
-                        Label("Delete corrupted files", systemImage: "trash")
-                            .font(.subheadline.weight(.medium))
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-
-                    Button {
-                        onDownload()
-                    } label: {
-                        Label("Re-download", systemImage: "arrow.clockwise")
-                            .font(.subheadline.weight(.medium))
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            }
-
-        case .unsupported(let error):
-            Label(error, systemImage: "nosign")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
         case .failed(let error):
             VStack(spacing: 6) {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -455,6 +437,119 @@ struct ModelCardView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
+            }
+        }
+    }
+}
+
+struct AddCustomModelSheet: View {
+    @Bindable var viewModel: ModelManagerViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                VStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("HuggingFace Repository", systemImage: "globe")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+
+                        TextField("user/model-name or full URL", text: $viewModel.customRepoInput)
+                            .textFieldStyle(.roundedBorder)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                            .onSubmit { viewModel.probeCustomRepo() }
+                    }
+
+                    Button {
+                        viewModel.probeCustomRepo()
+                    } label: {
+                        HStack {
+                            if viewModel.isProbing {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text(viewModel.isProbing ? "Searching..." : "Find GGUF Files")
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(viewModel.customRepoInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isProbing)
+
+                    if let error = viewModel.probeError {
+                        Label(error, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+                .padding(16)
+
+                if !viewModel.probedFiles.isEmpty {
+                    Divider()
+
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(viewModel.probedFiles) { file in
+                                Button {
+                                    viewModel.addCustomFile(file)
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(file.fileName)
+                                                .font(.subheadline.weight(.medium))
+                                                .lineLimit(2)
+                                                .multilineTextAlignment(.leading)
+
+                                            if file.sizeBytes > 0 {
+                                                Text(file.sizeFormatted)
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                        }
+
+                                        Spacer()
+
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.title3)
+                                            .foregroundStyle(.blue)
+                                    }
+                                    .padding(12)
+                                    .background(Color(.secondarySystemGroupedBackground))
+                                    .clipShape(.rect(cornerRadius: 10))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                    }
+                } else if !viewModel.isProbing && viewModel.probeError == nil {
+                    Spacer()
+
+                    VStack(spacing: 12) {
+                        Image(systemName: "arrow.down.doc")
+                            .font(.system(size: 40))
+                            .foregroundStyle(.quaternary)
+
+                        Text("Enter a HuggingFace repo to find\navailable GGUF models")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+
+                    Spacer()
+                }
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Add Custom Model")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
             }
         }
     }
