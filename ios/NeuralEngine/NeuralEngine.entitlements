@@ -6,7 +6,5 @@
     <true/>
     <key>com.apple.developer.kernel.increased-memory-limit</key>
     <true/>
-    <key>com.apple.developer.weatherkit</key>
-    <true/>
 </dict>
 </plist>
