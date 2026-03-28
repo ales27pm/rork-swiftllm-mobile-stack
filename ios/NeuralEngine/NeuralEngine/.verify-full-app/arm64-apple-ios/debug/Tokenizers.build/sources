@@ -1,0 +1,12 @@
+/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-transformers/Sources/Tokenizers/BPETokenizer.swift
+/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-transformers/Sources/Tokenizers/BertTokenizer.swift
+/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-transformers/Sources/Tokenizers/ByteEncoder.swift
+/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-transformers/Sources/Tokenizers/Decoder.swift
+/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-transformers/Sources/Tokenizers/Normalizer.swift
+/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-transformers/Sources/Tokenizers/PostProcessor.swift
+/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-transformers/Sources/Tokenizers/PreTokenizer.swift
+/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-transformers/Sources/Tokenizers/String+PreTokenization.swift
+/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-transformers/Sources/Tokenizers/TokenLattice.swift
+/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-transformers/Sources/Tokenizers/Tokenizer.swift
+/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-transformers/Sources/Tokenizers/Trie.swift
+/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-transformers/Sources/Tokenizers/UnigramTokenizer.swift

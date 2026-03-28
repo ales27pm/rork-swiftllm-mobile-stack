@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/LlamaSwift.build/primary.swiftdeps"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/checkouts/llama.swift/Sources/LlamaSwift/Llama.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/LlamaSwift.build/Llama.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/LlamaSwift.build/Llama.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/LlamaSwift.build/Llama~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/LlamaSwift.build/Llama.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/LlamaSwift.build/Llama.dia"
+  }
+}

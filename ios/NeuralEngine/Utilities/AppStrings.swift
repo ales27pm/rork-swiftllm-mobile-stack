@@ -55,7 +55,7 @@ enum AppStrings {
     }
 
     private static func localized(_ key: String, fallback: String) -> String {
-        Bundle.main.localizedString(forKey: key, value: fallback, table: nil)
+        Bundle.neuralEngineResources.localizedString(forKey: key, value: fallback, table: nil)
     }
 
     private static func localizedFormat(_ key: String, fallback: String, argument: CVarArg) -> String {

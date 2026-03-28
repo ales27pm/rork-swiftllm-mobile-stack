@@ -1,0 +1,817 @@
+{
+  "": {
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/primary.swiftdeps"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Config.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Config.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Config.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Config~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Config.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Config.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/ContentView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContentView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContentView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContentView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContentView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContentView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/CognitionFrame.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CognitionFrame.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CognitionFrame.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CognitionFrame~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CognitionFrame.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CognitionFrame.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/Conversation.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Conversation.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Conversation.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Conversation~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Conversation.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Conversation.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/DeviceTool.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DeviceTool.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DeviceTool.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DeviceTool~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DeviceTool.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DeviceTool.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/DiagnosticTest.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticTest.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticTest.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticTest~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticTest.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticTest.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/EmbeddingProvider.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingProvider.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingProvider.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingProvider~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingProvider.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingProvider.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/EngineProtocols.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EngineProtocols.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EngineProtocols.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EngineProtocols~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EngineProtocols.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EngineProtocols.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/InferenceMetrics.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InferenceMetrics.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InferenceMetrics.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InferenceMetrics~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InferenceMetrics.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InferenceMetrics.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/IntentClassification.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/IntentClassification.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/IntentClassification.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/IntentClassification~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/IntentClassification.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/IntentClassification.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/KVPage.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVPage.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVPage.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVPage~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVPage.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVPage.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/MemoryEntry.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryEntry.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryEntry.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryEntry~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryEntry.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryEntry.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/Message.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Message.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Message.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Message~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Message.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Message.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/ModelManifest.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManifest.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManifest.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManifest~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManifest.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManifest.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/PromptPrefixKey.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PromptPrefixKey.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PromptPrefixKey.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PromptPrefixKey~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PromptPrefixKey.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PromptPrefixKey.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/RuntimeMode.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/RuntimeMode.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/RuntimeMode.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/RuntimeMode~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/RuntimeMode.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/RuntimeMode.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/SamplingConfig.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SamplingConfig.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SamplingConfig.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SamplingConfig~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SamplingConfig.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SamplingConfig.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/SessionCache.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SessionCache.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SessionCache.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SessionCache~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SessionCache.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SessionCache.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/StoredEmbeddingMetadata.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/StoredEmbeddingMetadata.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/StoredEmbeddingMetadata.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/StoredEmbeddingMetadata~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/StoredEmbeddingMetadata.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/StoredEmbeddingMetadata.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/SystemPromptTemplate.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SystemPromptTemplate.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SystemPromptTemplate.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SystemPromptTemplate~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SystemPromptTemplate.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SystemPromptTemplate.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Models/WeatherSnapshot.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherSnapshot.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherSnapshot.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherSnapshot~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherSnapshot.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherSnapshot.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/NeuralEngineApp.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NeuralEngineApp.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NeuralEngineApp.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NeuralEngineApp~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NeuralEngineApp.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NeuralEngineApp.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/AssistantAgent.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AssistantAgent.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AssistantAgent.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AssistantAgent~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AssistantAgent.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AssistantAgent.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/CognitionEngine.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CognitionEngine.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CognitionEngine.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CognitionEngine~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CognitionEngine.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CognitionEngine.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/ConfigOptimizationTests.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ConfigOptimizationTests.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ConfigOptimizationTests.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ConfigOptimizationTests~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ConfigOptimizationTests.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ConfigOptimizationTests.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/ContextAssembler.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextAssembler.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextAssembler.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextAssembler~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextAssembler.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextAssembler.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/ContextSignatureTracker.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextSignatureTracker.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextSignatureTracker.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextSignatureTracker~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextSignatureTracker.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextSignatureTracker.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/ConversationService.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ConversationService.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ConversationService.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ConversationService~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ConversationService.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ConversationService.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/CoreMLModelRunner.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CoreMLModelRunner.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CoreMLModelRunner.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CoreMLModelRunner~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CoreMLModelRunner.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CoreMLModelRunner.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/CuriosityDetector.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CuriosityDetector.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CuriosityDetector.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CuriosityDetector~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CuriosityDetector.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CuriosityDetector.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/DatabaseService.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DatabaseService.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DatabaseService.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DatabaseService~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DatabaseService.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DatabaseService.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/DecodeEngine.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DecodeEngine.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DecodeEngine.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DecodeEngine~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DecodeEngine.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DecodeEngine.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/DeepDiagnosticSuite.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DeepDiagnosticSuite.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DeepDiagnosticSuite.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DeepDiagnosticSuite~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DeepDiagnosticSuite.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DeepDiagnosticSuite.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/DiagnosticEngine.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticEngine.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticEngine.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticEngine~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticEngine.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticEngine.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/DocumentAnalysisService.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisService.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisService.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisService~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisService.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisService.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/DraftEngine.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DraftEngine.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DraftEngine.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DraftEngine~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DraftEngine.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DraftEngine.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/EmbeddingLLMService.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingLLMService.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingLLMService.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingLLMService~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingLLMService.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingLLMService.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/EmbeddingModelRunner.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingModelRunner.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingModelRunner.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingModelRunner~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingModelRunner.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmbeddingModelRunner.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/EmotionAnalyzer.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmotionAnalyzer.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmotionAnalyzer.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmotionAnalyzer~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmotionAnalyzer.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/EmotionAnalyzer.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/FileSystemService.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/FileSystemService.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/FileSystemService.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/FileSystemService~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/FileSystemService.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/FileSystemService.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/FirstRunPermissionCoordinator.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/FirstRunPermissionCoordinator.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/FirstRunPermissionCoordinator.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/FirstRunPermissionCoordinator~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/FirstRunPermissionCoordinator.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/FirstRunPermissionCoordinator.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/ForensicValidator.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ForensicValidator.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ForensicValidator.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ForensicValidator~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ForensicValidator.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ForensicValidator.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/InferenceEngine.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InferenceEngine.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InferenceEngine.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InferenceEngine~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InferenceEngine.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InferenceEngine.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/IntentClassifier.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/IntentClassifier.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/IntentClassifier.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/IntentClassifier~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/IntentClassifier.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/IntentClassifier.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/KVCacheArena.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVCacheArena.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVCacheArena.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVCacheArena~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVCacheArena.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVCacheArena.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/KVCacheManager.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVCacheManager.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVCacheManager.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVCacheManager~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVCacheManager.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVCacheManager.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/KVPageTable.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVPageTable.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVPageTable.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVPageTable~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVPageTable.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KVPageTable.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/KeyValueStore.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KeyValueStore.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KeyValueStore.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KeyValueStore~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KeyValueStore.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/KeyValueStore.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/LLMDiagnosticTests.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LLMDiagnosticTests.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LLMDiagnosticTests.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LLMDiagnosticTests~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LLMDiagnosticTests.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LLMDiagnosticTests.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/LlamaModelRunner.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LlamaModelRunner.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LlamaModelRunner.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LlamaModelRunner~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LlamaModelRunner.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LlamaModelRunner.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/LlamaSyntheticTestingSupport.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LlamaSyntheticTestingSupport.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LlamaSyntheticTestingSupport.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LlamaSyntheticTestingSupport~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LlamaSyntheticTestingSupport.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LlamaSyntheticTestingSupport.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/LocationResponseComposer.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LocationResponseComposer.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LocationResponseComposer.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LocationResponseComposer~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LocationResponseComposer.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/LocationResponseComposer.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/MemoryConsolidationScheduler.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryConsolidationScheduler.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryConsolidationScheduler.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryConsolidationScheduler~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryConsolidationScheduler.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryConsolidationScheduler.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/MemoryService.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryService.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryService.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryService~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryService.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryService.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/MetacognitionEngine.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetacognitionEngine.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetacognitionEngine.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetacognitionEngine~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetacognitionEngine.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetacognitionEngine.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/MetricsLogger.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetricsLogger.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetricsLogger.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetricsLogger~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetricsLogger.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetricsLogger.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/ModelLoaderService.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelLoaderService.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelLoaderService.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelLoaderService~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelLoaderService.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelLoaderService.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/NLTextProcessing.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NLTextProcessing.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NLTextProcessing.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NLTextProcessing~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NLTextProcessing.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NLTextProcessing.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/PrefillEngine.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PrefillEngine.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PrefillEngine.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PrefillEngine~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PrefillEngine.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PrefillEngine.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/ProceduralSolvers.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ProceduralSolvers.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ProceduralSolvers.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ProceduralSolvers~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ProceduralSolvers.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ProceduralSolvers.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/PromptPrefixCache.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PromptPrefixCache.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PromptPrefixCache.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PromptPrefixCache~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PromptPrefixCache.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/PromptPrefixCache.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/ResourceLoader.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ResourceLoader.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ResourceLoader.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ResourceLoader~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ResourceLoader.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ResourceLoader.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/Sampler.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Sampler.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Sampler.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Sampler~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Sampler.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/Sampler.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/SecureStore.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SecureStore.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SecureStore.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SecureStore~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SecureStore.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SecureStore.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/SpeculationPolicy.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeculationPolicy.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeculationPolicy.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeculationPolicy~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeculationPolicy.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeculationPolicy.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/SpeechRecognitionService.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechRecognitionService.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechRecognitionService.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechRecognitionService~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechRecognitionService.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechRecognitionService.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/SpeechSynthesisService.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechSynthesisService.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechSynthesisService.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechSynthesisService~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechSynthesisService.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechSynthesisService.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/StreamingDecoder.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/StreamingDecoder.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/StreamingDecoder.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/StreamingDecoder~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/StreamingDecoder.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/StreamingDecoder.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/ThermalGovernor.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ThermalGovernor.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ThermalGovernor.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ThermalGovernor~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ThermalGovernor.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ThermalGovernor.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/ThoughtTreeBuilder.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ThoughtTreeBuilder.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ThoughtTreeBuilder.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ThoughtTreeBuilder~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ThoughtTreeBuilder.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ThoughtTreeBuilder.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/TokenizerService.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/TokenizerService.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/TokenizerService.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/TokenizerService~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/TokenizerService.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/TokenizerService.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/ToolCallParser.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolCallParser.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolCallParser.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolCallParser~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolCallParser.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolCallParser.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/ToolExecutor.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolExecutor.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolExecutor.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolExecutor~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolExecutor.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolExecutor.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/VectorEmbeddingService.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/VectorEmbeddingService.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/VectorEmbeddingService.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/VectorEmbeddingService~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/VectorEmbeddingService.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/VectorEmbeddingService.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/VectorStore.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/VectorStore.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/VectorStore.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/VectorStore~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/VectorStore.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/VectorStore.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/ViewShotService.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ViewShotService.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ViewShotService.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ViewShotService~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ViewShotService.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ViewShotService.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/WeatherKitService.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherKitService.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherKitService.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherKitService~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherKitService.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherKitService.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Services/WebSearchService.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchService.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchService.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchService~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchService.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchService.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Utilities/AppBundle.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AppBundle.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AppBundle.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AppBundle~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AppBundle.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AppBundle.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Utilities/AppStrings.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AppStrings.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AppStrings.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AppStrings~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AppStrings.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AppStrings.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Utilities/NativeErrorWrapper.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NativeErrorWrapper.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NativeErrorWrapper.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NativeErrorWrapper~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NativeErrorWrapper.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/NativeErrorWrapper.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/ViewModels/ChatViewModel.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ChatViewModel.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ChatViewModel.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ChatViewModel~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ChatViewModel.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ChatViewModel.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/ViewModels/DocumentAnalysisViewModel.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisViewModel.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisViewModel.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisViewModel~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisViewModel.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisViewModel.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/ViewModels/HistoryViewModel.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/HistoryViewModel.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/HistoryViewModel.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/HistoryViewModel~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/HistoryViewModel.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/HistoryViewModel.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/ViewModels/MapViewModel.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MapViewModel.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MapViewModel.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MapViewModel~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MapViewModel.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MapViewModel.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/ViewModels/MemoryViewModel.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryViewModel.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryViewModel.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryViewModel~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryViewModel.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryViewModel.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/ViewModels/ModelManagerViewModel.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManagerViewModel.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManagerViewModel.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManagerViewModel~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManagerViewModel.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManagerViewModel.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/ViewModels/SpeechViewModel.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechViewModel.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechViewModel.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechViewModel~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechViewModel.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechViewModel.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/ViewModels/WeatherViewModel.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherViewModel.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherViewModel.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherViewModel~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherViewModel.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherViewModel.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/AgentActionBar.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AgentActionBar.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AgentActionBar.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AgentActionBar~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AgentActionBar.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AgentActionBar.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/AgentHubView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AgentHubView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AgentHubView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AgentHubView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AgentHubView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/AgentHubView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/CameraProxyView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CameraProxyView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CameraProxyView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CameraProxyView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CameraProxyView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/CameraProxyView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/ChatView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ChatView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ChatView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ChatView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ChatView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ChatView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/ContextWindowIndicator.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextWindowIndicator.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextWindowIndicator.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextWindowIndicator~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextWindowIndicator.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ContextWindowIndicator.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/DiagnosticsView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticsView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticsView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticsView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticsView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DiagnosticsView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/DocumentAnalysisView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentAnalysisView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/DocumentPickerView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentPickerView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentPickerView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentPickerView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentPickerView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DocumentPickerView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/HistoryView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/HistoryView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/HistoryView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/HistoryView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/HistoryView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/HistoryView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/ImagePickerView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ImagePickerView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ImagePickerView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ImagePickerView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ImagePickerView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ImagePickerView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/InAppBrowserView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InAppBrowserView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InAppBrowserView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InAppBrowserView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InAppBrowserView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/InAppBrowserView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/MapView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MapView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MapView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MapView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MapView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MapView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/MemoryView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MemoryView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/MessageBubbleView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MessageBubbleView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MessageBubbleView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MessageBubbleView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MessageBubbleView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MessageBubbleView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/MessageComposerViews.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MessageComposerViews.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MessageComposerViews.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MessageComposerViews~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MessageComposerViews.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MessageComposerViews.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/MetricsDashboardView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetricsDashboardView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetricsDashboardView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetricsDashboardView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetricsDashboardView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/MetricsDashboardView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/ModelManagerView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManagerView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManagerView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManagerView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManagerView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ModelManagerView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/OnboardingView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/OnboardingView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/OnboardingView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/OnboardingView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/OnboardingView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/OnboardingView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/ReasoningReplayView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ReasoningReplayView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ReasoningReplayView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ReasoningReplayView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ReasoningReplayView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ReasoningReplayView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/SettingsView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SettingsView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SettingsView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SettingsView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SettingsView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SettingsView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/SpeechModeView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechModeView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechModeView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechModeView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechModeView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SpeechModeView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/SystemPromptTemplatesView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SystemPromptTemplatesView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SystemPromptTemplatesView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SystemPromptTemplatesView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SystemPromptTemplatesView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/SystemPromptTemplatesView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/ToolResultBubbleView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolResultBubbleView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolResultBubbleView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolResultBubbleView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolResultBubbleView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/ToolResultBubbleView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/WeatherView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WeatherView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/WebSearchView.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchView.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchView.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchView~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchView.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchView.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/Sources/NeuralEngine/Views/WebSearchViewWithInjection.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchViewWithInjection.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchViewWithInjection.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchViewWithInjection~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchViewWithInjection.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/WebSearchViewWithInjection.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/DerivedSources/resource_bundle_accessor.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/resource_bundle_accessor.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/resource_bundle_accessor.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/resource_bundle_accessor~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/resource_bundle_accessor.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/NeuralEngine.build/resource_bundle_accessor.dia"
+  }
+}

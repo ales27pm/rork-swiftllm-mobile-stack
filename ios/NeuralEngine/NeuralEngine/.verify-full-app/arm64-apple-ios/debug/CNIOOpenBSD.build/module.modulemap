@@ -1,0 +1,4 @@
+module CNIOOpenBSD {
+    umbrella header "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-nio/Sources/CNIOOpenBSD/include/CNIOOpenBSD.h"
+    export *
+}

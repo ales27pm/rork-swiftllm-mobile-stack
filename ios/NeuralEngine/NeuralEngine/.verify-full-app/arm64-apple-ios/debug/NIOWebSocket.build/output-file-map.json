@@ -1,0 +1,75 @@
+{
+  "": {
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/primary.swiftdeps"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-nio/Sources/NIOWebSocket/NIOWebSocketClientUpgrader.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketClientUpgrader.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketClientUpgrader.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketClientUpgrader~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketClientUpgrader.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketClientUpgrader.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-nio/Sources/NIOWebSocket/NIOWebSocketFrameAggregator.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketFrameAggregator.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketFrameAggregator.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketFrameAggregator~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketFrameAggregator.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketFrameAggregator.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-nio/Sources/NIOWebSocket/NIOWebSocketServerUpgrader.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketServerUpgrader.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketServerUpgrader.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketServerUpgrader~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketServerUpgrader.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/NIOWebSocketServerUpgrader.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-nio/Sources/NIOWebSocket/SHA1.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/SHA1.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/SHA1.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/SHA1~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/SHA1.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/SHA1.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-nio/Sources/NIOWebSocket/WebSocketErrorCodes.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketErrorCodes.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketErrorCodes.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketErrorCodes~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketErrorCodes.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketErrorCodes.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-nio/Sources/NIOWebSocket/WebSocketFrame.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrame.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrame.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrame~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrame.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrame.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-nio/Sources/NIOWebSocket/WebSocketFrameDecoder.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrameDecoder.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrameDecoder.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrameDecoder~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrameDecoder.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrameDecoder.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-nio/Sources/NIOWebSocket/WebSocketFrameEncoder.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrameEncoder.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrameEncoder.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrameEncoder~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrameEncoder.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketFrameEncoder.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-nio/Sources/NIOWebSocket/WebSocketOpcode.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketOpcode.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketOpcode.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketOpcode~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketOpcode.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketOpcode.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/checkouts/swift-nio/Sources/NIOWebSocket/WebSocketProtocolErrorHandler.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketProtocolErrorHandler.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketProtocolErrorHandler.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketProtocolErrorHandler~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketProtocolErrorHandler.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/NIOWebSocket.build/WebSocketProtocolErrorHandler.dia"
+  }
+}

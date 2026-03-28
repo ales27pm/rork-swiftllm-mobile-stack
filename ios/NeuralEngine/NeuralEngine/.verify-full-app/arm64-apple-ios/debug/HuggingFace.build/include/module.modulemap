@@ -1,0 +1,3 @@
+module HuggingFace {
+    header "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/HuggingFace.build/include/HuggingFace-Swift.h"
+}

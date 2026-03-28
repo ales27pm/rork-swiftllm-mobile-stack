@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/_NIOConcurrency.build/primary.swiftdeps"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/checkouts/swift-nio/Sources/_NIOConcurrency/Empty.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/_NIOConcurrency.build/Empty.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/_NIOConcurrency.build/Empty.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/_NIOConcurrency.build/Empty~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/_NIOConcurrency.build/Empty.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/_NIOConcurrency.build/Empty.dia"
+  }
+}

@@ -113,6 +113,7 @@ struct InAppBrowserView: View {
     }
 }
 
+@MainActor
 @Observable
 class WebViewProxy {
     var webView: WKWebView?

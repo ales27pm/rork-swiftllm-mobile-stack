@@ -1,0 +1,40 @@
+{
+  "": {
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/primary.swiftdeps"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/checkouts/swift-collections/Sources/Collections/BitCollections reexports.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/BitCollections reexports.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/BitCollections reexports.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/BitCollections reexports~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/BitCollections reexports.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/BitCollections reexports.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/checkouts/swift-collections/Sources/Collections/DequeModule reexports.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/DequeModule reexports.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/DequeModule reexports.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/DequeModule reexports~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/DequeModule reexports.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/DequeModule reexports.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/checkouts/swift-collections/Sources/Collections/HashTreeCollections reexports.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/HashTreeCollections reexports.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/HashTreeCollections reexports.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/HashTreeCollections reexports~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/HashTreeCollections reexports.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/HashTreeCollections reexports.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/checkouts/swift-collections/Sources/Collections/HeapModule reexports.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/HeapModule reexports.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/HeapModule reexports.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/HeapModule reexports~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/HeapModule reexports.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/HeapModule reexports.dia"
+  },
+  "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/checkouts/swift-collections/Sources/Collections/OrderedCollections reexports.swift": {
+    "dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/OrderedCollections reexports.d",
+    "object": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/OrderedCollections reexports.swift.o",
+    "swiftmodule": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/OrderedCollections reexports~partial.swiftmodule",
+    "swift-dependencies": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/OrderedCollections reexports.swiftdeps",
+    "diagnostics": "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/Collections.build/OrderedCollections reexports.dia"
+  }
+}

@@ -581,7 +581,7 @@ class ToolExecutor: NSObject {
         return "Current Location"
     }
 
-    static func buildToolsPrompt() -> String {
+    nonisolated static func buildToolsPrompt() -> String {
         let toolLines = DeviceToolName.allCases.map {
             "- \($0.rawValue): \($0.description) Parameters: \($0.parametersSchema)"
         }.joined(separator: "\n")

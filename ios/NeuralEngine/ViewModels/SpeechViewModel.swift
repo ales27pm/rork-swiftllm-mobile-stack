@@ -31,6 +31,7 @@ nonisolated struct SpeechLanguageOption: Identifiable, Hashable, Sendable {
     var id: String { code }
 }
 
+@MainActor
 @Observable
 class SpeechViewModel {
     private enum StorageKeys {

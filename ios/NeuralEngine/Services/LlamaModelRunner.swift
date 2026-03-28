@@ -4,7 +4,7 @@ import CoreML
 import OSLog
 import LlamaSwift
 
-nonisolated final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Sendable {
+final class LlamaModelRunner: DraftLogitsPredicting, @unchecked Sendable {
     private final class CooperativeCancellationToken: @unchecked Sendable {
         private let lock = NSLock()
         private var cancelled = false

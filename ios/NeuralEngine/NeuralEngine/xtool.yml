@@ -1,0 +1,7 @@
+version: 1
+bundleID: com.27pm.neural
+infoPath: App-Info.plist
+entitlementsPath: xtool.entitlements
+iconPath: ../Assets.xcassets/AppIcon.appiconset/icon.png
+resources:
+  - .build/arm64-apple-ios/debug/llama.framework

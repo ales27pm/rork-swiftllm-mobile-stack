@@ -1,0 +1,15 @@
+[
+  {"pattern": "(?i)\\bwhat\\s+(is|are|was|were|does|do|did)\\b", "weight": 0.8},
+  {"pattern": "(?i)\\bhow\\s+(does|do|did|can|could|would|to)\\b", "weight": 0.9},
+  {"pattern": "(?i)\\bwhy\\s+(is|are|does|do|did|would|can)\\b", "weight": 1.0},
+  {"pattern": "(?i)\\bexplain\\b", "weight": 0.9},
+  {"pattern": "(?i)\\btell\\s+me\\s+about\\b", "weight": 0.8},
+  {"pattern": "(?i)\\bwhat\\s+if\\b", "weight": 0.7},
+  {"pattern": "(?i)\\bi\\s+wonder\\b", "weight": 0.6},
+  {"pattern": "(?i)\\bcurious\\s+about\\b", "weight": 0.7},
+  {"pattern": "(?i)\\bcan\\s+you\\s+explain\\b", "weight": 0.85},
+  {"pattern": "(?i)\\bteach\\s+me\\b", "weight": 0.9},
+  {"pattern": "(?i)\\bwhat\\s+happens\\s+(when|if)\\b", "weight": 0.8},
+  {"pattern": "(?i)\\bwhat'?s\\s+the\\s+difference\\b", "weight": 0.85},
+  {"pattern": "(?i)\\bhow\\s+come\\b", "weight": 0.9}
+]

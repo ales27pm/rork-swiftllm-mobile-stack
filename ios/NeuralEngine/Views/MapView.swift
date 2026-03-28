@@ -37,7 +37,9 @@ struct MapView: View {
                     route: viewModel.route,
                     showDirections: viewModel.showDirections,
                     onGetDirections: {
-                        Task { await viewModel.getDirections(to: place) }
+                        Task { @MainActor in
+                            await viewModel.getDirections(to: place)
+                        }
                     },
                     onDismiss: { viewModel.dismissPlaceDetail() },
                     onOpenInMaps: {
@@ -106,7 +108,9 @@ struct MapView: View {
                 .focused($isSearchFocused)
                 .submitLabel(.search)
                 .onSubmit {
-                    Task { await viewModel.search() }
+                    Task { @MainActor in
+                        await viewModel.search()
+                    }
                     isSearchExpanded = false
                     isSearchFocused = false
                 }
@@ -154,7 +158,9 @@ struct MapView: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(viewModel.completionResults.prefix(6), id: \.self) { completion in
                     Button {
-                        Task { await viewModel.searchFromCompletion(completion) }
+                        Task { @MainActor in
+                            await viewModel.searchFromCompletion(completion)
+                        }
                         isSearchFocused = false
                         isSearchExpanded = false
                     } label: {

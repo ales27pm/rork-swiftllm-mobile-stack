@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>NeuralEngine</string>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Nexus needs calendar access to read and create events when you ask about your schedule.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Nexus needs camera access to scan and analyze documents.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>Nexus needs contacts access to look up people when you ask.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Nexus needs your location to answer location-based questions.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Nexus needs microphone access for speech mode to listen to your voice.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Nexus needs photo library access to import images for document analysis.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Nexus uses speech recognition to convert your voice into text for the AI assistant.</string>
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <true/>
+        <key>UISceneConfigurations</key>
+        <dict/>
+    </dict>
+    <key>UIApplicationSupportsIndirectInputEvents</key>
+    <true/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~iphone</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+</dict>
+</plist>

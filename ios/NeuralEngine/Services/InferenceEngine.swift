@@ -38,8 +38,8 @@ private final class AppleFoundationGenerationService {
     func generate(
         prompt: String,
         samplingConfig: SamplingConfig,
-        onToken: @escaping (String) -> Void,
-        onComplete: @escaping (String?) -> Void
+        onToken: @escaping @MainActor @Sendable (String) -> Void,
+        onComplete: @escaping @MainActor @Sendable (String?) -> Void
     ) {
         activeTask?.cancel()
 
@@ -535,8 +535,8 @@ class InferenceEngine {
         messages: [[String: String]],
         systemPrompt: String,
         samplingConfig: SamplingConfig,
-        onToken: @escaping (String) -> Void,
-        onComplete: @escaping (GenerationMetrics) -> Void
+        onToken: @escaping @MainActor @Sendable (String) -> Void,
+        onComplete: @escaping @MainActor @Sendable (GenerationMetrics) -> Void
     ) {
         guard canStartGenerationForLifecycle() else {
             logNotice("Generate rejected reason=lifecyclePaused format=\(activeFormat.rawValue)")
@@ -1142,8 +1142,8 @@ class InferenceEngine {
     private func generateWithAppleFoundation(
         messages: [[String: String]],
         samplingConfig: SamplingConfig,
-        onToken: @escaping (String) -> Void,
-        onComplete: @escaping (GenerationMetrics) -> Void
+        onToken: @escaping @MainActor @Sendable (String) -> Void,
+        onComplete: @escaping @MainActor @Sendable (GenerationMetrics) -> Void
     ) {
         guard appleFoundationService.isAvailable else {
             onComplete(GenerationMetrics(
@@ -1198,8 +1198,8 @@ class InferenceEngine {
     private func generateWithLlama(
         messages: [[String: String]],
         samplingConfig: SamplingConfig,
-        onToken: @escaping (String) -> Void,
-        onComplete: @escaping (GenerationMetrics) -> Void
+        onToken: @escaping @MainActor @Sendable (String) -> Void,
+        onComplete: @escaping @MainActor @Sendable (GenerationMetrics) -> Void
     ) {
         guard let llamaRunner, llamaRunner.isLoaded else {
             onComplete(GenerationMetrics(
@@ -1265,7 +1265,7 @@ class InferenceEngine {
         prefillPhaseComplete = false
         degenerateCharBuffer.removeAll()
         lastCancellationReason = ""
-        startWatchdog(onComplete: onComplete)
+        startWatchdog()
 
         generationTask = Task.detached { [weak self] in
             guard let self else { return }
@@ -1552,7 +1552,7 @@ class InferenceEngine {
         )
     }
 
-    private func startWatchdog(onComplete: @escaping (GenerationMetrics) -> Void) {
+    private func startWatchdog() {
         watchdogTask?.cancel()
         watchdogTask = Task { [weak self] in
             while !Task.isCancelled {

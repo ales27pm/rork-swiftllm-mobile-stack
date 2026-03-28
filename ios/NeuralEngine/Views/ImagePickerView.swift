@@ -2,7 +2,7 @@ import SwiftUI
 import PhotosUI
 
 struct ImagePickerView: UIViewControllerRepresentable {
-    let onPick: (UIImage) -> Void
+    let onPick: @MainActor @Sendable (UIImage) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onPick: onPick)
@@ -20,9 +20,9 @@ struct ImagePickerView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
 
     class Coordinator: NSObject, PHPickerViewControllerDelegate {
-        let onPick: (UIImage) -> Void
+        let onPick: @MainActor @Sendable (UIImage) -> Void
 
-        init(onPick: @escaping (UIImage) -> Void) {
+        init(onPick: @escaping @MainActor @Sendable (UIImage) -> Void) {
             self.onPick = onPick
         }
 

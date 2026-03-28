@@ -2,7 +2,7 @@ import Foundation
 
 enum ResourceLoader {
     static func load<T: Decodable>(_ type: T.Type, from filename: String) -> T? {
-        guard let url = Bundle.main.url(forResource: filename, withExtension: "json") else { return nil }
+        guard let url = Bundle.neuralEngineResources.url(forResource: filename, withExtension: "json") else { return nil }
         guard let data = try? Data(contentsOf: url) else { return nil }
         return try? JSONDecoder().decode(T.self, from: data)
     }

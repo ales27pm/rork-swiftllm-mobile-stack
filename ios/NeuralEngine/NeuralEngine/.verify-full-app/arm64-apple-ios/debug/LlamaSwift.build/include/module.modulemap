@@ -1,0 +1,3 @@
+module LlamaSwift {
+    header "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app/arm64-apple-ios/debug/LlamaSwift.build/include/LlamaSwift-Swift.h"
+}

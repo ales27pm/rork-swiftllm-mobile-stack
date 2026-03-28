@@ -1,0 +1,4 @@
+module CNIOSHA1 {
+    umbrella header "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/checkouts/swift-nio/Sources/CNIOSHA1/include/CNIOSHA1.h"
+    export *
+}

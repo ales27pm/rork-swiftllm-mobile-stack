@@ -21,13 +21,14 @@ struct MessageComposerView: UIViewControllerRepresentable {
         uiViewController.body = toolExecutor.pendingSMSBody
     }
 
-    final class Coordinator: NSObject, MFMessageComposeViewControllerDelegate {
+    final class Coordinator: NSObject, @preconcurrency MFMessageComposeViewControllerDelegate {
         private let toolExecutor: ToolExecutor
 
         init(toolExecutor: ToolExecutor) {
             self.toolExecutor = toolExecutor
         }
 
+        @MainActor
         func messageComposeViewController(_ controller: MFMessageComposeViewController, didFinishWith result: MessageComposeResult) {
             toolExecutor.resetSMSComposerState()
             controller.dismiss(animated: true)
@@ -57,13 +58,14 @@ struct MailComposerView: UIViewControllerRepresentable {
         uiViewController.setMessageBody(toolExecutor.pendingEmailBody ?? "", isHTML: false)
     }
 
-    final class Coordinator: NSObject, MFMailComposeViewControllerDelegate {
+    final class Coordinator: NSObject, @preconcurrency MFMailComposeViewControllerDelegate {
         private let toolExecutor: ToolExecutor
 
         init(toolExecutor: ToolExecutor) {
             self.toolExecutor = toolExecutor
         }
 
+        @MainActor
         func mailComposeController(_ controller: MFMailComposeViewController, didFinishWith result: MFMailComposeResult, error: Error?) {
             toolExecutor.resetEmailComposerState()
             controller.dismiss(animated: true)

@@ -3,7 +3,7 @@ import AVFoundation
 import os.log
 
 @Observable
-class SpeechSynthesisService: NSObject {
+final class SpeechSynthesisService: NSObject {
     struct VoiceOption: Identifiable, Hashable {
         let identifier: String
         let language: String

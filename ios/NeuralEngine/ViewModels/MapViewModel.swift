@@ -2,6 +2,7 @@ import SwiftUI
 import MapKit
 import CoreLocation
 
+@MainActor
 @Observable
 class MapViewModel: NSObject, CLLocationManagerDelegate {
     var cameraPosition: MapCameraPosition = .automatic
@@ -28,7 +29,9 @@ class MapViewModel: NSObject, CLLocationManagerDelegate {
         locationManager.desiredAccuracy = kCLLocationAccuracyBest
 
         let delegate = SearchCompleterDelegate { [weak self] results in
-            self?.completionResults = results
+            Task { @MainActor [weak self] in
+                self?.completionResults = results
+            }
         }
         completerDelegate = delegate
         completer.delegate = delegate
@@ -115,7 +118,9 @@ class MapViewModel: NSObject, CLLocationManagerDelegate {
             latitudinalMeters: 2000,
             longitudinalMeters: 2000
         ))
-        Task { await fetchLookAround(for: item) }
+        Task { @MainActor [weak self] in
+            await self?.fetchLookAround(for: item)
+        }
     }
 
     func dismissPlaceDetail() {
@@ -164,9 +169,10 @@ class MapViewModel: NSObject, CLLocationManagerDelegate {
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let isAuthorized = manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways
         Task { @MainActor in
-            if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
-                manager.requestLocation()
+            if isAuthorized {
+                locationManager.requestLocation()
             }
         }
     }
@@ -197,9 +203,9 @@ nonisolated enum MapStyleOption: String, CaseIterable, Sendable {
 }
 
 private class SearchCompleterDelegate: NSObject, MKLocalSearchCompleterDelegate {
-    let onUpdate: @Sendable ([MKLocalSearchCompletion]) -> Void
+    let onUpdate: ([MKLocalSearchCompletion]) -> Void
 
-    init(onUpdate: @escaping @Sendable ([MKLocalSearchCompletion]) -> Void) {
+    init(onUpdate: @escaping ([MKLocalSearchCompletion]) -> Void) {
         self.onUpdate = onUpdate
     }
 

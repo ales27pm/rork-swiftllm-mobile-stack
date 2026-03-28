@@ -1,0 +1,4 @@
+module yyjson {
+    umbrella header "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/checkouts/yyjson/src/yyjson.h"
+    export *
+}

@@ -2,7 +2,7 @@ import Foundation
 import Accelerate
 import LlamaSwift
 
-nonisolated final class EmbeddingModelRunner: @unchecked Sendable {
+final class EmbeddingModelRunner: @unchecked Sendable {
     private let stateCondition = NSCondition()
     private let computeExecutionKey = DispatchSpecificKey<UInt8>()
     private lazy var computeExecutionQueue: DispatchQueue = {

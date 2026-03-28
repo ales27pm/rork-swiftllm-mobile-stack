@@ -1,0 +1,3 @@
+module EventSource {
+    header "/home/ales27pm/rork-swiftllm-mobile-stack/ios/NeuralEngine/NeuralEngine/.verify-full-app-swift5/arm64-apple-ios/debug/EventSource.build/include/EventSource-Swift.h"
+}
